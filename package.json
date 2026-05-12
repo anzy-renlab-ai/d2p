@@ -1,0 +1,28 @@
+{
+  "name": "d2p",
+  "private": true,
+  "version": "0.1.0",
+  "description": "demo to product — drive Claude Code CLI to mature a demo into a product",
+  "type": "module",
+  "workspaces": [
+    "daemon",
+    "ui",
+    "cli"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev": "node scripts/dev.mjs",
+    "smoke": "node scripts/smoke-walking-skeleton.mjs",
+    "clean": "node scripts/clean.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
