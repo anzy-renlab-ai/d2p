@@ -11,7 +11,11 @@ import { loopRoutes } from './routes/loop.js';
 import { gapRoutes } from './routes/gaps.js';
 import { inputRoutes } from './routes/inputs.js';
 import { deployRoutes } from './routes/deploy.js';
+import { configRoutes } from './routes/config.js';
+import { githubRoutes } from './routes/github.js';
 import { runCrashRecovery } from './recovery/startup.js';
+import { loadConfig } from './config/load.js';
+import { setActiveEngine } from './engines/registry.js';
 
 const app = new Hono();
 
@@ -31,6 +35,8 @@ app.route('/api/loop', loopRoutes);
 app.route('/api/gaps', gapRoutes);
 app.route('/api/inputs', inputRoutes);
 app.route('/api/deploy', deployRoutes);
+app.route('/api/config', configRoutes);
+app.route('/api/github', githubRoutes);
 app.route('/api/log', logRoutes);
 app.route('/api', healthRoutes);
 
@@ -47,6 +53,17 @@ const port = Number(process.env.D2P_DAEMON_PORT ?? 5174);
 // Crash recovery before accepting traffic. Fire-and-forget; recovery happens
 // in the background and is logged. We don't await here so the server doesn't
 // block startup on git operations that may take a few hundred ms.
+loadConfig()
+  .then((cfg) => {
+    setActiveEngine(cfg.engine);
+    // eslint-disable-next-line no-console
+    console.log(`[d2p daemon] engine = ${cfg.engine.kind}`);
+  })
+  .catch((e) => {
+    // eslint-disable-next-line no-console
+    console.warn('[d2p daemon] config load failed; using default claude-cli engine:', e);
+  });
+
 runCrashRecovery({ queries, db: dbHandle }).catch((e) => {
   // eslint-disable-next-line no-console
   console.warn('[d2p daemon] crash recovery failed:', e);

@@ -41,6 +41,9 @@ interface SessionRow {
   status: SessionStatus;
   vision_md_path: string | null;
   preset_type: string | null;
+  mode?: 'local-merge' | 'github-pr';
+  github_repo?: string | null;
+  base_branch?: string;
 }
 
 interface GapRow {
@@ -80,6 +83,9 @@ function sessionFromRow(r: SessionRow): Session {
     status: r.status,
     visionMdPath: r.vision_md_path ? asAbsPath(r.vision_md_path) : null,
     presetType: r.preset_type as ProjectType | null,
+    mode: (r.mode ?? 'local-merge') as Session['mode'],
+    githubRepo: r.github_repo ?? null,
+    baseBranch: r.base_branch ?? 'main',
   };
 }
 
@@ -201,6 +207,23 @@ export class Queries {
 
   setSessionPresetType(sessionId: number, presetType: ProjectType): void {
     this.db.prepare('UPDATE sessions SET preset_type = ? WHERE id = ?').run(presetType, sessionId);
+  }
+
+  setSessionMode(
+    sessionId: number,
+    mode: 'local-merge' | 'github-pr',
+    githubRepo: string | null,
+    baseBranch: string,
+  ): void {
+    this.db
+      .prepare('UPDATE sessions SET mode = ?, github_repo = ?, base_branch = ? WHERE id = ?')
+      .run(mode, githubRepo, baseBranch, sessionId);
+  }
+
+  setFixPR(fixId: number, prNumber: number, prUrl: string): void {
+    this.db
+      .prepare('UPDATE fixes SET pr_number = ?, pr_url = ? WHERE id = ?')
+      .run(prNumber, prUrl, fixId);
   }
 
   // ─── gaps ──────────────────────────────────────────────────────────────
@@ -333,6 +356,8 @@ export class Queries {
       stderr_excerpt: string | null;
       files_changed: string | null;
       confidence: number | null;
+      pr_number?: number | null;
+      pr_url?: string | null;
       created_at: number;
       finished_at: number | null;
     }
@@ -353,6 +378,8 @@ export class Queries {
       stderrExcerpt: row.stderr_excerpt,
       filesChanged: row.files_changed ? (JSON.parse(row.files_changed) as string[]) : [],
       confidence: row.confidence,
+      prNumber: row.pr_number ?? null,
+      prUrl: row.pr_url ?? null,
       createdAt: row.created_at,
       finishedAt: row.finished_at,
     };

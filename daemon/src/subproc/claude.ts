@@ -1,8 +1,12 @@
+// Thin facade kept for back-compat with existing agents/* callers.
+// Real work delegated to engines/* (chosen by the active engine in registry).
+
 import { runSubproc } from './spawn.js';
 import type { ClaudeCallResult, ClaudeModel, ClaudeRole, TokenUsage } from '../types.js';
 import { PROMPTS_VERSION } from '../prompts/version.js';
-
-const CLAUDE_BIN = process.env.D2P_CLAUDE_BIN ?? 'claude';
+import { buildEngine } from '../engines/factory.js';
+import { extractTokenUsage as cliExtract } from '../engines/claude-cli.js';
+import { getActiveEngine } from '../engines/registry.js';
 
 export const ROLE_TIMEOUTS: Record<ClaudeRole, number> = {
   detector: 60_000,
@@ -16,12 +20,6 @@ export const ROLE_TIMEOUTS: Record<ClaudeRole, number> = {
   'repo-summary': 60_000,
 };
 
-const MODEL_CLI_ID: Record<ClaudeModel, string> = {
-  haiku: 'claude-haiku-4-5-20251001',
-  sonnet: 'claude-sonnet-4-6',
-  opus: 'claude-opus-4-7',
-};
-
 export interface CallClaudeOpts<T> {
   role: ClaudeRole;
   model: ClaudeModel;
@@ -32,77 +30,35 @@ export interface CallClaudeOpts<T> {
 }
 
 export async function callClaude<T = unknown>(opts: CallClaudeOpts<T>): Promise<ClaudeCallResult<T>> {
-  const timeoutMs = opts.timeoutMs ?? ROLE_TIMEOUTS[opts.role];
-  const args = ['--model', MODEL_CLI_ID[opts.model], '-p', opts.prompt];
-
-  const result = await runSubproc({
-    cmd: CLAUDE_BIN,
-    args,
+  const engine = getActiveEngine();
+  return engine.call<T>({
+    role: opts.role,
+    model: opts.model,
+    prompt: opts.prompt,
     cwd: opts.cwd,
-    timeoutMs,
+    timeoutMs: opts.timeoutMs ?? ROLE_TIMEOUTS[opts.role],
+    schemaCheck: opts.schemaCheck,
   });
-
-  if (result.timedOut) {
-    return { ok: false, code: 'TIMEOUT', message: `timed out after ${timeoutMs}ms`, raw: result.stdout };
-  }
-  if (result.spawnError && /ENOENT/.test(result.spawnError)) {
-    return { ok: false, code: 'CLAUDE_NOT_FOUND', message: result.spawnError, raw: '' };
-  }
-  if (result.exitCode !== 0) {
-    return {
-      ok: false,
-      code: 'NON_ZERO_EXIT',
-      message: `exit ${result.exitCode}: ${result.stderr.slice(0, 500)}`,
-      raw: result.stdout,
-    };
-  }
-
-  // Strip trailing token-usage / metadata lines that may follow the JSON body.
-  const cleaned = result.stdout
-    .replace(/\r/g, '')
-    .replace(/\n?USAGE:[^\n]*\n?/g, '\n')
-    .trim();
-
-  let json: unknown;
-  try {
-    json = JSON.parse(cleaned);
-  } catch (e) {
-    return {
-      ok: false,
-      code: 'NON_JSON',
-      message: (e as Error).message,
-      raw: result.stdout,
-    };
-  }
-
-  if (opts.schemaCheck && !opts.schemaCheck(json)) {
-    return { ok: false, code: 'SCHEMA', message: 'schema check failed', raw: result.stdout };
-  }
-
-  return {
-    ok: true,
-    json: json as T,
-    raw: result.stdout,
-    usage: extractTokenUsage(result.stdout),
-  };
-}
-
-/**
- * Try to extract token usage from the claude CLI output. Looks for a trailing
- * `USAGE: input=NNN output=NNN` line. Returns zeros if not present.
- */
-export function extractTokenUsage(stdout: string): TokenUsage {
-  const m = /USAGE:\s*input=(\d+)\s*output=(\d+)/.exec(stdout);
-  if (m && m[1] && m[2]) {
-    return { inputTokens: parseInt(m[1], 10), outputTokens: parseInt(m[2], 10) };
-  }
-  return { inputTokens: 0, outputTokens: 0 };
 }
 
 export async function claudeVersion(): Promise<string | null> {
-  const r = await runSubproc({ cmd: CLAUDE_BIN, args: ['--version'], timeoutMs: 5000 });
-  if (r.exitCode !== 0 || r.spawnError) return null;
-  return r.stdout.trim();
+  const engine = getActiveEngine();
+  if (engine.probe) {
+    const p = await engine.probe();
+    return p.ok ? (p.detail ?? engine.id) : null;
+  }
+  return engine.id;
 }
 
-export { PROMPTS_VERSION };
+export function extractTokenUsage(stdout: string): TokenUsage {
+  return cliExtract(stdout);
+}
+
+export { buildEngine, PROMPTS_VERSION };
+
+// Used in rare places that still want raw subproc invocation; internal only.
+export async function _legacyRunSubproc(
+  ...args: Parameters<typeof runSubproc>
+): Promise<ReturnType<typeof runSubproc>> {
+  return runSubproc(...args);
+}

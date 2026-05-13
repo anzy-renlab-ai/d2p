@@ -29,6 +29,10 @@ import { runRepoSummary, repoSummaryToText } from '../agents/repo-summary.js';
 import { readPreset, readOverrides, applyOverridesToStatus } from '../preset/loader.js';
 import { stringify as yamlStringify } from 'yaml';
 import { startWatching, stopWatching, consumeDirty } from '../watcher/vision-watcher.js';
+import { GitHubClient, parseGitHubRemote } from '../github/client.js';
+import { pushFixBranch, readOriginUrl } from '../git/push.js';
+import { loadConfig } from '../config/load.js';
+import type { Gap as GapType } from '../types.js';
 
 // MAX_ITERATIONS is a catastrophic safety net only — the loop is intended
 // (per ABCD #D, "持续陪跑无硬终点") to keep going until either (a) preset +
@@ -490,7 +494,41 @@ async function processGap(ctx: LoopCtx, gap: Gap): Promise<void> {
       }
     }
 
-    // ─── Merge ───────────────────────────────────────────────────────
+    // ─── Merge OR Push+PR ────────────────────────────────────────────
+    if (ctx.session.mode === 'github-pr') {
+      try {
+        const result = await pushAndOpenPR(ctx, gap, fix.id);
+        if ('error' in result) throw new Error(result.error);
+        q.setFixPR(fix.id, result.number, result.htmlUrl);
+        q.transitionFix(fix.id, 'MERGED', { reviewerVerdict: 'APPROVE', reasonCode: 'OK' });
+        q.transitionGap(gap.id, 'DONE');
+        // Keep the worktree branch around since it's now tracked by a remote PR.
+        emit(q, session.id, 'MERGED', {
+          slug: gap.slug,
+          prNumber: result.number,
+          prUrl: result.htmlUrl,
+          mode: 'github-pr',
+        });
+        emit(q, session.id, 'GAP_DONE', { slug: gap.slug, gapId: gap.id });
+        return;
+      } catch (e) {
+        const msg = (e as Error).message;
+        try {
+          q.transitionFix(fix.id, 'BEHAVIORAL_FAILED', {
+            reviewerVerdict: 'ROLLBACK',
+            reasonCode: 'BUGGY',
+            stderrExcerpt: msg,
+          });
+        } catch {
+          // best-effort
+        }
+        try { q.transitionFix(fix.id, 'DROPPED'); } catch { /* best-effort */ }
+        await dropFix(demoPath, gap.slug);
+        q.transitionGap(gap.id, 'NEED_HUMAN');
+        emit(q, session.id, 'GAP_ESCALATED', { reason: 'PR_PUSH_FAILED', message: msg }, 'warn');
+        return;
+      }
+    }
     try {
       const merged = await mergeFix(demoPath, gap.slug, gap.title);
       q.transitionFix(fix.id, 'MERGED', { reviewerVerdict: 'APPROVE', reasonCode: 'OK' });
@@ -520,6 +558,50 @@ async function processGap(ctx: LoopCtx, gap: Gap): Promise<void> {
       return;
     }
   }
+}
+
+async function pushAndOpenPR(
+  ctx: LoopCtx,
+  gap: GapType,
+  fixId: number,
+): Promise<{ number: number; htmlUrl: string } | { error: string }> {
+  const cfg = await loadConfig();
+  if (!cfg.github?.token) return { error: 'GitHub token not configured (set ~/.d2p/config.json)' };
+  let repoSpec = ctx.session.githubRepo;
+  if (!repoSpec) {
+    const origin = await readOriginUrl(ctx.demoPath);
+    const parsed = origin ? parseGitHubRemote(origin) : null;
+    if (!parsed) return { error: 'session.githubRepo unset and origin not a github URL' };
+    repoSpec = `${parsed.owner}/${parsed.repo}`;
+  }
+  const [owner, repo] = repoSpec.split('/');
+  if (!owner || !repo) return { error: `bad githubRepo ${repoSpec}` };
+
+  const pushed = await pushFixBranch({
+    repoPath: ctx.demoPath,
+    branch: `fix/${gap.slug}`,
+    token: cfg.github.token,
+    owner,
+    repo,
+  });
+  if (!pushed.ok) return { error: `push failed: ${pushed.stderr.slice(0, 300)}` };
+
+  const gh = new GitHubClient(cfg.github.token);
+  const pr = await gh.openPR({
+    owner,
+    repo,
+    title: `fix(${gap.category}): ${gap.title}`,
+    body:
+      `Opened automatically by d2p.\n\n` +
+      `**Gap**: \`${gap.slug}\`\n\n` +
+      `${gap.body}\n\n` +
+      `Severity: ${gap.severity}\n\n` +
+      `_d2p session ${ctx.session.id}, fix ${fixId}_`,
+    head: `fix/${gap.slug}`,
+    base: ctx.session.baseBranch,
+  });
+  if ('error' in pr) return { error: pr.error };
+  return { number: pr.number, htmlUrl: pr.htmlUrl };
 }
 
 export async function runLoop(deps: LoopDeps, sessionId: number): Promise<void> {

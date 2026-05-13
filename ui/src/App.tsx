@@ -1,15 +1,21 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { bootstrap, useStore } from './store.js';
 import { HealthBadge } from './components/HealthBadge.js';
 import { Landing } from './pages/Landing.js';
 import { Setup } from './pages/Setup.js';
 import { Workspace } from './pages/Workspace.js';
 import { Done } from './pages/Done.js';
+import { Settings } from './pages/Settings.js';
 
 export function App() {
   useEffect(() => bootstrap(), []);
   const session = useStore((s) => s.session);
   const health = useStore((s) => s.health);
+  const [showSettings, setShowSettings] = useState(false);
+
+  if (showSettings) {
+    return <Settings onClose={() => setShowSettings(false)} />;
+  }
 
   // Routing by session status — explicit, no router lib needed.
   let body;
@@ -27,7 +33,13 @@ export function App() {
   return (
     <div className="min-h-screen">
       {(!session || session.status === 'SETUP' || session.status === 'DONE' || session.status === 'ENDED') && (
-        <div className="absolute top-3 right-4 z-10">
+        <div className="absolute top-3 right-4 z-10 flex items-center gap-3">
+          <button
+            onClick={() => setShowSettings(true)}
+            className="text-xs text-slate-500 hover:text-slate-900"
+          >
+            ⚙ 设置
+          </button>
           <HealthBadge />
         </div>
       )}

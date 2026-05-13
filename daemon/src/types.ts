@@ -177,6 +177,8 @@ export interface Demo {
   inferredType: ProjectType | null;
 }
 
+export type SessionMode = 'local-merge' | 'github-pr';
+
 export interface Session {
   id: number;
   demoId: number;
@@ -185,6 +187,9 @@ export interface Session {
   status: SessionStatus;
   visionMdPath: AbsPath | null;
   presetType: ProjectType | null;
+  mode: SessionMode;
+  githubRepo: string | null;        // "owner/repo" parsed from origin or user-set
+  baseBranch: string;
 }
 
 export interface VisionDraft {
@@ -230,6 +235,8 @@ export interface Fix {
   stderrExcerpt: string | null;
   filesChanged: string[];
   confidence: number | null;
+  prNumber: number | null;
+  prUrl: string | null;
   createdAt: number;
   finishedAt: number | null;
 }

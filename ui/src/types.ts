@@ -20,6 +20,8 @@ export type ProjectType =
   | 'ml-script'
   | 'unknown';
 
+export type SessionMode = 'local-merge' | 'github-pr';
+
 export interface Session {
   id: number;
   demoId: number;
@@ -28,6 +30,9 @@ export interface Session {
   status: SessionStatus;
   visionMdPath: string | null;
   presetType: ProjectType | null;
+  mode: SessionMode;
+  githubRepo: string | null;
+  baseBranch: string;
 }
 
 export interface Demo {

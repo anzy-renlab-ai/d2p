@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { m001Init } from './001-init.js';
 import { m002Presets } from './002-presets.js';
 import { m003Cost } from './003-cost.js';
+import { m004ModeGithub } from './004-mode-github.js';
 
 export interface Migration {
   version: number;
@@ -22,6 +23,7 @@ export const ALL_MIGRATIONS: readonly MigrationWithChecksum[] = [
   withChecksum(m001Init),
   withChecksum(m002Presets),
   withChecksum(m003Cost),
+  withChecksum(m004ModeGithub),
 ] as const;
 
 export class MigrationChecksumDriftError extends Error {

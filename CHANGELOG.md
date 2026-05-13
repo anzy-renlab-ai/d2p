@@ -1,6 +1,48 @@
 # Changelog
 
-## Unreleased — Original product goal complete
+## Unreleased — Multi-engine + GitHub PR workflow
+
+### Added
+- **LLM engine abstraction** (`daemon/src/engines/`): all agent calls now go
+  through an `LLMEngine` interface. Three backends ship:
+    - `claude-cli` — spawn `claude` binary (back-compat default)
+    - `openai-compat` — OpenAI Chat Completions wire format; covers
+      OpenRouter / DeepSeek / Z.ai (智谱 GLM) / Moonshot (Kimi) / Qwen /
+      OpenAI / vLLM / LM Studio / any compatible server
+    - `anthropic-api` — direct Anthropic Messages API via raw `fetch`
+- **Persistent config** at `~/.d2p/config.json` with zod validation,
+  hot-reloadable via `POST /api/config`. API keys + GitHub token redacted
+  in `GET /api/config` responses.
+- **GitHub PR session mode**: new `sessions.mode` column. In `github-pr`
+  mode, the orchestrator pushes `fix/<slug>` to `origin` via PAT URL and
+  opens a PR through the GitHub REST API. No SDK dependency — minimal
+  `GitHubClient` in `daemon/src/github/client.ts`. d2p does NOT auto-merge
+  (per CLAUDE.md "merge needs user").
+- **Settings page** in the UI: engine kind selector, model-name maps,
+  baseUrl, API key, GitHub token; 6 OpenAI-compat platform presets
+  (OpenRouter / DeepSeek / Z.ai / Moonshot / OpenAI / Qwen). Accessible
+  via "⚙ 设置" button in the header.
+- **GitHubSessionSetup** component: in the Setup page, switch the current
+  session to PR mode and configure repo + base branch.
+- Migration `004-mode-github`: adds `sessions.mode`, `sessions.github_repo`,
+  `sessions.base_branch`, `fixes.pr_number`, `fixes.pr_url`.
+- 20 new tests across `engines/openai-compat`, `engines/anthropic-api`,
+  `github/client`, `config/load`. Total: 91 tests / 15 files.
+
+### Changed
+- `subproc/claude.ts` is now a thin facade delegating to the active engine
+  in `engines/registry`. Existing agents are unchanged.
+- DEV-DOC's "round-10 = 不用 key" lock is explicitly overridden by user on
+  2026-05-13; engine choice now belongs to per-install config.
+
+### Verified
+- typecheck green (daemon / ui / cli)
+- 91 unit tests pass (4.4s)
+- UI build green (189 KB / 60 KB gzipped)
+- walking-skeleton smoke green (claude-cli mode, fake-claude shim, full
+  detector → vision → loop → merge → done → session-end → summary)
+
+## 0.2.0 — Original product goal complete
 
 ### Added (after the "MVP-0" boundary the previous entry stopped at)
 - **Cross-engine reviewer** (`runCrossEngineCheck`): on high-sensitivity gaps
