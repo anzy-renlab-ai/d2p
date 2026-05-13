@@ -35,7 +35,7 @@ d2p 必须在你的机器上跑，因为它要：
 
 ## 快速开始
 
-需要 [Claude Code](https://claude.com/claude-code) 登录态 + Node 24+ + Git。
+需要 Node 24+ + Git，以及任一种 LLM 后端（见下）。
 
 ```bash
 git clone https://github.com/Upp-Ljl/d2p.git
@@ -43,14 +43,32 @@ cd d2p
 npm install
 npm run build
 npm link --workspaces            # 把 d2p 命令挂到全局
-
-claude login                     # 如果还没登录过 Claude Code
-d2p doctor                       # 自检 claude / git / sqlite / presets
-d2p start                        # 起 daemon + UI；浏览器自动开 http://localhost:5173
+d2p start                        # 起 daemon + UI；浏览器开 http://localhost:5173
+                                 # → UI 右上角「⚙ 设置」配置 LLM 引擎
 ```
 
-UI 打开后：选 demo 文件夹 → 确认项目类型 → 多轮回答 vision → 启动主循环 →
-看着它干活。随时点 Pause / Resume / End。
+UI 打开后：⚙ 设置 → 选引擎 + 填 key（或用默认 claude-cli）→ 选 demo 文件夹 → 确认项目类型 →
+多轮回答 vision →（可选）切到 GitHub PR 模式 → 启动主循环 → 看它干活。
+
+## LLM 引擎（三选一）
+
+d2p 的 LLM 调用走「引擎抽象」，每种都在 UI 设置页可视化配置（或直接编辑
+`~/.d2p/config.json`）。
+
+| 引擎 | 适合 | 配置 |
+|---|---|---|
+| **`claude-cli`**（默认） | 已经付了 Claude Code 订阅，想免烧 API 费 | `claude login` 即可 |
+| **`openai-compat`** | OpenRouter / DeepSeek / Z.ai (智谱 GLM) / Moonshot (Kimi) / Qwen / OpenAI / vLLM / LM Studio / 等 | baseUrl + API key + 模型名映射；UI 自带 6 种预设 |
+| **`anthropic-api`** | 直接持 Anthropic key，绕过 cc | API key + 模型名映射 |
+
+切换引擎在 UI 设置页点保存即生效，下一次 agent 调用就走新引擎。
+
+## 迭代模式（两选一）
+
+| 模式 | 行为 |
+|---|---|
+| **`local-merge`**（默认） | 每个 fix 在本地 worktree 干完，fast-forward merge 进 `main`。零远程依赖。 |
+| **`github-pr`** | 每个 fix push 到 origin 的 `fix/<slug>` 分支，调 GitHub REST 开 PR；**不**自动 merge（你在 GitHub 上点 merge）。需设置页填 GitHub PAT (`repo` scope)。 |
 
 ### 装成系统服务（开机自启，可选）
 
