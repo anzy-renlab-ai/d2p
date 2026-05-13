@@ -3,7 +3,7 @@
 // Uses fake-claude shim — no real Anthropic calls.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, cpSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, cpSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -167,6 +167,24 @@ async function main() {
 
   const gapDone = events.events.filter((e) => e.kind === 'GAP_DONE');
   if (gapDone.length < 1) fail('expected at least 1 GAP_DONE event');
+
+  // 12. End session and verify session-summary.md is written
+  const endRes = await fetchJson(`${DAEMON_URL}/api/session/end`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  log('end session ->', endRes.status, 'summary:', endRes.summaryMdPath);
+  if (!endRes.summaryMdPath) fail('expected summaryMdPath in /api/session/end response');
+  if (!existsSync(endRes.summaryMdPath)) fail(`session-summary.md not on disk: ${endRes.summaryMdPath}`);
+  const summary = readFileSync(endRes.summaryMdPath, 'utf8');
+  if (!summary.includes('# Session Summary')) fail('summary header missing');
+  if (!summary.includes('add-version-flag')) fail('summary should mention the closed gap');
+  log('session-summary.md OK (' + summary.length + ' bytes)');
+
+  // 13. Final status should now be ENDED
+  const after = await fetchJson(`${DAEMON_URL}/api/session/current`);
+  if (after.session?.status !== 'ENDED') fail(`expected ENDED, got ${after.session?.status}`);
 
   log('PASS');
   daemon.kill('SIGTERM');

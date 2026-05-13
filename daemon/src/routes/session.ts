@@ -14,6 +14,7 @@ import { git } from '../subproc/git.js';
 const db: Database.Database = openDatabase();
 runMigrations(db);
 export const queries: Queries = new Queries(db);
+export const dbHandle: Database.Database = db;
 
 export const sessionRoutes = new Hono();
 
@@ -132,11 +133,12 @@ sessionRoutes.get('/current', (c) => {
   return c.json(body);
 });
 
-sessionRoutes.post('/end', (c) => {
-  const session = queries.getCurrentActiveSession();
-  if (!session) return c.json({ ok: true, message: 'no active session' });
-  // SETUP/LOOPING/PAUSED -> ENDED
-  queries.transitionSession(session.id, 'ENDED');
+sessionRoutes.post('/end', async (c) => {
+  const session = queries.getCurrentActiveSession() ?? queries.getLatestSession();
+  if (!session) return c.json({ ok: true, message: 'no session' });
+  if (session.status !== 'ENDED') {
+    queries.transitionSession(session.id, 'ENDED');
+  }
   const event = queries.insertLogEvent(session.id, 'info', 'SESSION_ENDED', { sessionId: session.id });
   sseHub.publish({
     id: event.id,
@@ -145,5 +147,14 @@ sessionRoutes.post('/end', (c) => {
     level: 'info',
     payload: event.payload,
   });
-  return c.json({ sessionId: session.id, status: 'ENDED' });
+  // Best-effort: write session-summary.md
+  let summaryPath: string | null = null;
+  try {
+    const { generateAndWriteSessionSummary } = await import('../session-summary/generate.js');
+    summaryPath = await generateAndWriteSessionSummary({ queries, db }, session.id);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[d2p daemon] session-summary generation failed:', (e as Error).message);
+  }
+  return c.json({ sessionId: session.id, status: 'ENDED', summaryMdPath: summaryPath });
 });

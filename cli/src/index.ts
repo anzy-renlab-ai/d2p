@@ -66,7 +66,22 @@ export async function main(argv: string[]): Promise<void> {
     const pid = readPid();
     const alive = pid !== null && pidAlive(pid);
     const reach = await daemonReachable();
-    console.log(JSON.stringify({ pid, alive, reachable: reach, daemonUrl: DAEMON_URL }, null, 2));
+    const out: Record<string, unknown> = { pid, alive, reachable: reach, daemonUrl: DAEMON_URL };
+    if (reach) {
+      try {
+        const session = await fetch(`${DAEMON_URL}/api/session/current`).then((r) => r.json());
+        out.session = session;
+      } catch {
+        // ignore
+      }
+      try {
+        const loop = await fetch(`${DAEMON_URL}/api/loop/state`).then((r) => r.json());
+        out.loop = loop;
+      } catch {
+        // ignore
+      }
+    }
+    console.log(JSON.stringify(out, null, 2));
   });
 
   program.command('open').action(() => {
@@ -76,7 +91,7 @@ export async function main(argv: string[]): Promise<void> {
   program.command('doctor').action(async () => {
     if (!(await daemonReachable())) {
       console.error(`daemon not reachable at ${DAEMON_URL}. run 'd2p start' first.`);
-      process.exit(1);
+      process.exit(2);
     }
     const r = await fetch(`${DAEMON_URL}/api/doctor`).then((x) => x.json() as Promise<{
       ok: boolean;
@@ -86,6 +101,10 @@ export async function main(argv: string[]): Promise<void> {
       const mark = c.ok ? '✓' : '✗';
       const tail = c.detail ? `: ${c.detail}` : '';
       console.log(`${mark} ${c.name}${tail}`);
+    }
+    if (!r.ok) {
+      console.log('');
+      console.log('Some checks failed. d2p may not work until they are resolved.');
     }
     process.exit(r.ok ? 0 : 1);
   });
