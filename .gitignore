@@ -32,3 +32,9 @@ coverage/
 
 # tsbuildinfo
 *.tsbuildinfo
+
+# Playwright artifacts
+ui/playwright-report/
+ui/test-results/
+ui/tests-e2e/.cache/
+

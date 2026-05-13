@@ -162,7 +162,10 @@ export const useStore = create<Store>((set, get) => ({
       e.kind === 'SESSION_DONE' ||
       e.kind === 'SESSION_ENDED' ||
       e.kind === 'LOOP_PAUSED' ||
-      e.kind === 'LOOP_RESUMED'
+      e.kind === 'LOOP_RESUMED' ||
+      e.kind === 'VISION_FINALIZED' ||
+      e.kind === 'PRESET_CHOSEN' ||
+      e.kind === 'TYPE_DETECTED'
     ) {
       void refresh.refreshSession();
       void refresh.refreshGaps();
@@ -199,6 +202,7 @@ export const useStore = create<Store>((set, get) => ({
     try {
       const r = await api.visionRound();
       set({ visionRound: r, visionError: null });
+      if (r.done) await get().refreshSession();
     } catch (e) {
       set({ visionError: (e as Error).message });
     }
