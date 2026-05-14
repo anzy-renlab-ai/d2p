@@ -15,7 +15,6 @@ export function Done() {
   const [endedBusy, setEndedBusy] = useState(false);
 
   useEffect(() => {
-    // auto-end if reached DONE
     if (session?.status === 'DONE' && !summaryMdPath && !endedBusy) {
       setEndedBusy(true);
       void endSession().finally(() => setEndedBusy(false));
@@ -31,110 +30,93 @@ export function Done() {
   const success = session?.status === 'DONE';
 
   return (
-    <div className="max-w-3xl mx-auto py-12 px-6 space-y-6">
-      <div className={success ? 'text-green-700' : 'text-slate-700'}>
-        <h1 className="text-3xl font-semibold">
-          {success ? '✅ Product ready' : `会话已结束（${session?.status}）`}
-        </h1>
-        <p className="text-sm text-slate-600 mt-1 font-mono">{demo?.path}</p>
-      </div>
+    <div className="min-h-screen bg-paper">
+      <div className="max-w-3xl mx-auto py-14 px-6 space-y-6">
+        <header className="pb-6 border-b border-warmline">
+          <h1 className={`text-4xl tracking-tight ${success ? 'text-forest' : 'text-ink'}`}>
+            {success ? '✓ Product ready' : `会话已结束（${session?.status}）`}
+          </h1>
+          <p className="text-xs text-muted mt-2 font-mono break-all">{demo?.path}</p>
+        </header>
 
-      <section className="bg-white rounded border p-4 grid grid-cols-2 gap-y-2 text-sm">
-        <div>完成的 gap</div>
-        <div className="text-right text-green-700 font-medium">{done.length}</div>
-        <div>跳过的 gap</div>
-        <div className="text-right">{skipped.length}</div>
-        <div>需人工的 gap</div>
-        <div className="text-right text-amber-700">{needHuman.length}</div>
-        <div>拆分的 gap</div>
-        <div className="text-right">{splitDone.length}</div>
-        <div>Preset 完成度</div>
-        <div className="text-right">{presetDone} / {presetStatus.length}</div>
-        <div>累计 token (输入)</div>
-        <div className="text-right">{costTotals.inputTokens.toLocaleString()}</div>
-        <div>累计 token (输出)</div>
-        <div className="text-right">{costTotals.outputTokens.toLocaleString()}</div>
-        <div>预估费用</div>
-        <div className="text-right font-semibold">${costTotals.estimatedUsd.toFixed(2)}</div>
-      </section>
+        <section className="card p-5 grid grid-cols-2 gap-y-2 text-sm">
+          <Stat label="完成的 gap" value={done.length} color="text-forest" />
+          <Stat label="跳过的 gap" value={skipped.length} />
+          <Stat label="需人工的 gap" value={needHuman.length} color={needHuman.length > 0 ? 'text-coral' : undefined} />
+          <Stat label="拆分的 gap" value={splitDone.length} />
+          <Stat label="Preset 完成度" value={`${presetDone} / ${presetStatus.length}`} />
+          <Stat label="累计 token (in)" value={costTotals.inputTokens.toLocaleString()} />
+          <Stat label="累计 token (out)" value={costTotals.outputTokens.toLocaleString()} />
+          <Stat label="预估费用" value={`$${costTotals.estimatedUsd.toFixed(2)}`} bold />
+        </section>
 
-      {done.length > 0 && (
-        <Section title={`完成的 gap (${done.length})`} icon="✓" color="text-green-700">
-          {done.map((g) => (
-            <Row key={g.id} g={g} />
-          ))}
-        </Section>
-      )}
+        {done.length > 0 && (
+          <Section title={`完成的 gap (${done.length})`} icon="✓" color="text-forest">
+            {done.map((g) => (<Row key={g.id} g={g} />))}
+          </Section>
+        )}
 
-      {needHuman.length > 0 && (
-        <Section title={`需人工 (${needHuman.length})`} icon="⚠" color="text-amber-700">
-          {needHuman.map((g) => (
-            <Row key={g.id} g={g} />
-          ))}
-        </Section>
-      )}
+        {needHuman.length > 0 && (
+          <Section title={`需人工 (${needHuman.length})`} icon="⚠" color="text-coral">
+            {needHuman.map((g) => (<Row key={g.id} g={g} />))}
+          </Section>
+        )}
 
-      {splitDone.length > 0 && (
-        <Section title={`拆分 (${splitDone.length})`} icon="↳" color="text-purple-700">
-          {splitDone.map((g) => (
-            <Row key={g.id} g={g} />
-          ))}
-        </Section>
-      )}
+        {splitDone.length > 0 && (
+          <Section title={`拆分 (${splitDone.length})`} icon="↳" color="text-muted">
+            {splitDone.map((g) => (<Row key={g.id} g={g} />))}
+          </Section>
+        )}
 
-      <section className="bg-white rounded border">
-        <div className="px-4 py-2 border-b bg-slate-50 font-medium">部署目标（ABCD #C）</div>
-        <div className="p-4">
-          <DeployTargets />
+        <section className="card">
+          <div className="card-header">部署目标</div>
+          <div className="p-5">
+            <DeployTargets />
+          </div>
+        </section>
+
+        {summaryMdPath && (
+          <div className="card p-5 text-sm">
+            <div className="text-muted mb-1.5">完整 session summary 已写到：</div>
+            <code className="break-all text-xs text-ink">{summaryMdPath}</code>
+          </div>
+        )}
+
+        <div className="flex justify-between pt-4">
+          <Button variant="secondary" onClick={() => window.location.reload()}>新建 session</Button>
+          <Button variant="ghost" onClick={() => window.close()}>关闭</Button>
         </div>
-      </section>
-
-      {summaryMdPath && (
-        <div className="bg-slate-50 border rounded p-4 text-sm">
-          <div className="text-slate-600 mb-1">完整 session summary 已写到：</div>
-          <code className="break-all text-xs">{summaryMdPath}</code>
-        </div>
-      )}
-
-      <div className="flex justify-between">
-        <Button variant="secondary" onClick={() => window.location.reload()}>
-          新建 session
-        </Button>
-        <Button variant="ghost" onClick={() => window.close()}>关闭</Button>
       </div>
     </div>
   );
 }
 
-function Section({
-  title,
-  icon,
-  color,
-  children,
-}: {
-  title: string;
-  icon: string;
-  color: string;
-  children: React.ReactNode;
-}) {
+function Stat({ label, value, color, bold }: { label: string; value: string | number; color?: string; bold?: boolean }) {
   return (
-    <section className="bg-white rounded border">
-      <div className={`px-4 py-2 border-b bg-slate-50 font-medium ${color}`}>
-        {icon} {title}
-      </div>
-      <ul className="divide-y">{children}</ul>
+    <>
+      <div className="text-muted">{label}</div>
+      <div className={`text-right ${color ?? 'text-ink'} ${bold ? 'font-semibold' : ''}`}>{value}</div>
+    </>
+  );
+}
+
+function Section({ title, icon, color, children }: { title: string; icon: string; color: string; children: React.ReactNode }) {
+  return (
+    <section className="card">
+      <div className={`card-header ${color}`}>{icon} {title}</div>
+      <ul className="divide-y divide-warmline">{children}</ul>
     </section>
   );
 }
 
 function Row({ g }: { g: Gap }) {
   return (
-    <li className="px-4 py-2 text-sm">
+    <li className="px-5 py-2.5 text-sm">
       <div className="flex items-start gap-2">
-        <span className="text-xs uppercase text-slate-500">{g.severity}</span>
-        <span className="font-mono text-xs text-slate-500">{g.slug}</span>
+        <span className="text-[10px] uppercase tracking-wider text-muted">{g.severity}</span>
+        <span className="font-mono text-xs text-muted">{g.slug}</span>
       </div>
-      <div className="text-slate-700">{g.title}</div>
+      <div className="text-ink">{g.title}</div>
     </li>
   );
 }

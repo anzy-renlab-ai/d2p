@@ -28,61 +28,77 @@ export function Landing() {
   }
 
   return (
-    <div className="max-w-xl mx-auto py-12 px-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold mb-2">d2p</h1>
-        <p className="text-slate-600 text-sm">把 demo 推到 product。</p>
-      </div>
+    <div className="min-h-screen bg-paper">
+      <div className="max-w-2xl mx-auto pt-20 px-6">
+        <header className="mb-12">
+          <h1 className="text-5xl tracking-tight text-ink">d2p</h1>
+          <p className="text-lg text-muted mt-3 font-serif italic">
+            把 demo 推到 product。
+          </p>
+          <p className="text-sm text-muted mt-2 leading-relaxed">
+            你给一个本地 demo + 一句愿景。
+            d2p 派 Claude 自动迭代，4 层 reviewer 把关，
+            preset 与 vision 双绿才停手。
+          </p>
+        </header>
 
-      {healthError && (
-        <ErrorBanner
-          message={
-            <>
-              连不上 daemon（{healthError}）。
-              <br />
-              先在终端跑 <code className="bg-red-100 px-1 rounded">d2p start</code> 或{' '}
-              <code className="bg-red-100 px-1 rounded">npm run dev</code>。
-            </>
-          }
-        />
-      )}
+        {healthError && (
+          <div className="mb-6">
+            <ErrorBanner
+              message={
+                <>
+                  连不上 daemon（{healthError}）。
+                  先在终端跑 <code className="bg-coralsoft px-1.5 py-0.5 rounded">d2p start</code> 或{' '}
+                  <code className="bg-coralsoft px-1.5 py-0.5 rounded">npm run dev</code>。
+                </>
+              }
+            />
+          </div>
+        )}
 
-      {health && !health.claudeCli.found && (
-        <ErrorBanner
-          message={
-            <>
-              没找到 <code>claude</code> CLI。安装 Claude Code 并 <code>claude login</code> 后再来。
-            </>
-          }
-        />
-      )}
+        {health && !health.claudeCli.found && (
+          <div className="mb-6">
+            <ErrorBanner
+              message={
+                <>
+                  没找到 <code>claude</code> CLI。装 Claude Code 并 <code>claude login</code>，
+                  或在 <strong>设置</strong> 里换成 OpenAI-compat / Anthropic-API。
+                </>
+              }
+            />
+          </div>
+        )}
 
-      <div className="bg-white rounded border p-4 space-y-3">
-        <div>
-          <label className="block text-sm font-medium mb-1">Demo 文件夹（绝对路径）</label>
-          <input
-            type="text"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder={navigator.platform.startsWith('Win') ? 'D:\\demos\\my-saas' : '/Users/me/demos/my-saas'}
-            className="w-full px-3 py-2 border rounded text-sm font-mono"
-            spellCheck={false}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void onStart();
-            }}
-          />
+        <section className="card p-6 space-y-4">
+          <div>
+            <label className="label">Demo 文件夹（绝对路径）</label>
+            <input
+              type="text"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              placeholder={navigator.platform.startsWith('Win') ? 'D:\\demos\\my-saas' : '/Users/me/demos/my-saas'}
+              className="input input-mono text-base py-3"
+              spellCheck={false}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void onStart();
+              }}
+            />
+          </div>
+          {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+          <div className="flex items-center justify-between pt-2">
+            <p className="text-xs text-muted leading-relaxed max-w-xs">
+              没 <code>.git</code> 自动 init，worktree 放在父目录的
+              <code> .d2p-worktrees/</code>，不污染你的仓库。
+            </p>
+            <Button onClick={() => void onStart()} disabled={busy || !health}>
+              {busy ? '建中…' : 'Start session →'}
+            </Button>
+          </div>
+        </section>
+
+        <div className="mt-12 text-xs text-muted/70 text-center font-serif italic">
+          demo → product · made for hands-off iteration
         </div>
-        {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
-        <div className="flex justify-end">
-          <Button onClick={() => void onStart()} disabled={busy || !health}>
-            {busy ? '建中…' : 'Start session'}
-          </Button>
-        </div>
-      </div>
-
-      <div className="text-xs text-slate-500">
-        d2p 会在该路径下 <code>git init</code>（若没有 <code>.git</code>），把 worktree
-        放在<strong>父目录</strong>的 <code>.d2p-worktrees/</code>，不污染你的仓库。
       </div>
     </div>
   );

@@ -3,11 +3,6 @@ import { api } from '../api.js';
 import { Button } from './Button.js';
 import { ErrorBanner } from './ErrorBanner.js';
 
-/**
- * Lets the user attach non-code inputs (PRD / API spec / mockup notes) to the
- * current session. Stored at <demo>/.d2p/inputs/<name>; the vision elicitor
- * reads them in as background material.
- */
 export function InputsEditor() {
   const [inputs, setInputs] = useState<{ name: string; size: number; modifiedAt: number }[]>([]);
   const [name, setName] = useState('prd.md');
@@ -48,15 +43,15 @@ export function InputsEditor() {
 
   return (
     <div className="space-y-3">
-      <div className="text-xs text-slate-500">
+      <div className="text-xs text-muted leading-relaxed">
         附加非代码材料（PRD / API spec / mockup 笔记…）。vision 提问时会读这些做背景。
       </div>
       {inputs.length > 0 && (
-        <ul className="text-xs space-y-1">
+        <ul className="text-xs space-y-1 font-mono">
           {inputs.map((i) => (
-            <li key={i.name} className="flex items-center justify-between">
-              <code className="text-slate-700">{i.name}</code>
-              <span className="text-slate-400">{i.size} 字节</span>
+            <li key={i.name} className="flex items-center justify-between px-2 py-1 bg-paper rounded">
+              <code className="text-ink">{i.name}</code>
+              <span className="text-muted/70">{i.size} 字节</span>
             </li>
           ))}
         </ul>
@@ -67,14 +62,14 @@ export function InputsEditor() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="例如 prd.md"
-          className="w-full text-sm font-mono px-2 py-1 border rounded"
+          className="input input-mono"
         />
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
           placeholder="贴一段 PRD / API spec / mockup 描述…"
           rows={5}
-          className="w-full text-sm font-mono px-2 py-1 border rounded"
+          className="input input-mono"
         />
         {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
         <div className="flex justify-end">

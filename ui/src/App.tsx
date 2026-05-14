@@ -18,7 +18,6 @@ export function App() {
     return <Settings onClose={() => setShowSettings(false)} />;
   }
 
-  // Routing by session status — explicit, no router lib needed.
   let body;
   if (!session) {
     body = <Landing />;
@@ -27,17 +26,16 @@ export function App() {
   } else if (session.status === 'LOOPING' || session.status === 'PAUSED') {
     body = <Workspace />;
   } else {
-    // DONE or ENDED
     body = <Done />;
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-paper text-ink">
       {(!session || session.status === 'SETUP' || session.status === 'DONE' || session.status === 'ENDED') && (
-        <div className="absolute top-3 right-4 z-10 flex items-center gap-3">
+        <div className="absolute top-4 right-6 z-10 flex items-center gap-4">
           <button
             onClick={() => setShowSettings(true)}
-            className="text-xs text-slate-500 hover:text-slate-900"
+            className="text-xs text-muted hover:text-ink transition-colors"
           >
             ⚙ 设置
           </button>
@@ -46,7 +44,7 @@ export function App() {
       )}
       {body}
       {health?.ok && !session && (
-        <div className="fixed bottom-2 right-3 text-xs text-slate-400">
+        <div className="fixed bottom-3 right-4 text-[10px] text-muted/60 font-mono">
           daemon v{health.daemonVersion} · prompts v{health.promptsVersion}
         </div>
       )}

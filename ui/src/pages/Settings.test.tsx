@@ -53,6 +53,17 @@ describe('Settings page', () => {
     expect(baseInput).toBeInTheDocument();
   });
 
+  it('MiniMax preset is listed and fills baseUrl + M2 models', async () => {
+    render(<Settings />);
+    await waitFor(() => expect(screen.getByText('openai-compat')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('radio', { name: 'openai-compat' }));
+    const minimaxBtn = screen.getByRole('button', { name: 'MiniMax' });
+    expect(minimaxBtn).toBeInTheDocument();
+    fireEvent.click(minimaxBtn);
+    expect(screen.getByDisplayValue('https://api.minimaxi.chat/v1')).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue('MiniMax-M2').length).toBeGreaterThan(0);
+  });
+
   it('save without API key shows error', async () => {
     render(<Settings />);
     await waitFor(() => expect(screen.getByText('openai-compat')).toBeInTheDocument());

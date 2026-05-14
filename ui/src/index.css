@@ -1,3 +1,44 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    @apply h-full;
+  }
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    font-feature-settings: 'ss01', 'cv11';
+  }
+  h1, h2, h3 {
+    @apply font-serif;
+    letter-spacing: -0.01em;
+  }
+  code, kbd, pre {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  input, textarea, select {
+    @apply bg-cream;
+  }
+  input:focus, textarea:focus, select:focus {
+    @apply outline-none ring-2 ring-coral/40 border-coral;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-cream border border-warmline rounded-lg;
+  }
+  .card-header {
+    @apply px-5 py-3 border-b border-warmline font-serif text-base text-ink;
+  }
+  .label {
+    @apply block text-xs font-medium uppercase tracking-wider text-muted mb-1.5;
+  }
+  .input {
+    @apply w-full px-3 py-2 border border-warmline rounded-md text-sm text-ink bg-cream;
+  }
+  .input-mono {
+    @apply font-mono;
+  }
+}

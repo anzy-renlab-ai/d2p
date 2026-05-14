@@ -5,6 +5,7 @@ import { RunLog } from '../components/RunLog.js';
 import { SidePanel } from '../components/SidePanel.js';
 import { ArchitecturalAlert } from '../components/ArchitecturalAlert.js';
 import { PresetOverrideEditor } from '../components/PresetOverrideEditor.js';
+import { HealthBadge } from '../components/HealthBadge.js';
 
 export function Workspace() {
   const session = useStore((s) => s.session);
@@ -20,17 +21,23 @@ export function Workspace() {
   const isPausing = loopState?.pauseRequested === true && loopState?.isRunning === true;
 
   return (
-    <div className="h-screen flex flex-col">
-      <header className="border-b bg-white px-6 py-3 flex items-center justify-between">
+    <div className="h-screen flex flex-col bg-paper">
+      <header className="border-b border-warmline bg-cream px-6 py-4 flex items-center justify-between">
         <div>
-          <h1 className="font-semibold">
-            d2p / <span className="font-mono text-sm text-slate-600">{demo?.path}</span>
-          </h1>
-          <div className="text-xs text-slate-500">
-            {session?.status} · {isPausing && '(pausing — 当前 attempt 跑完后停)'}
+          <div className="flex items-baseline gap-3">
+            <h1 className="text-xl tracking-tight">d2p</h1>
+            <span className="font-mono text-xs text-muted truncate max-w-md" title={demo?.path}>
+              {demo?.path}
+            </span>
+          </div>
+          <div className="text-xs text-muted mt-0.5 flex items-center gap-2">
+            <StatusPill status={session?.status} />
+            {isPausing && <span className="text-coral">(pausing — 当前 attempt 跑完后停)</span>}
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <HealthBadge />
+          <div className="w-px h-5 bg-warmline mx-1" />
           {isLooping && (
             <Button variant="secondary" onClick={() => void pauseLoop()} disabled={isPausing}>
               {isPausing ? 'Pausing…' : 'Pause ⏸'}
@@ -61,7 +68,7 @@ export function Workspace() {
         <div className="col-span-3 overflow-y-auto space-y-4">
           <SidePanel />
           {isPaused && (
-            <div className="bg-white rounded border p-3">
+            <div className="card p-4">
               <div className="text-sm font-medium mb-2">调整验收清单</div>
               <PresetOverrideEditor />
             </div>
@@ -69,5 +76,21 @@ export function Workspace() {
         </div>
       </div>
     </div>
+  );
+}
+
+function StatusPill({ status }: { status?: string }) {
+  if (!status) return null;
+  const colors: Record<string, string> = {
+    LOOPING: 'bg-forest/15 text-forest',
+    PAUSED: 'bg-coral/15 text-coral',
+    DONE: 'bg-forest/15 text-forest',
+    ENDED: 'bg-warmline text-muted',
+    SETUP: 'bg-warmline text-muted',
+  };
+  return (
+    <span className={`inline-flex px-2 py-0.5 rounded text-[10px] uppercase tracking-wider font-medium ${colors[status] ?? 'bg-warmline text-muted'}`}>
+      {status}
+    </span>
   );
 }

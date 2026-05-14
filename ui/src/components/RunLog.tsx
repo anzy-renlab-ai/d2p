@@ -3,36 +3,36 @@ import type { SseEnvelope } from '../types.js';
 import { useStore } from '../store.js';
 
 const KIND_LABEL: Record<string, { label: string; color: string }> = {
-  SESSION_STARTED: { label: '会话开始', color: 'text-slate-700' },
-  VISION_QUESTION_ASKED: { label: 'vision 提问', color: 'text-slate-500' },
-  VISION_ANSWERED: { label: 'vision 回答', color: 'text-slate-500' },
-  VISION_FINALIZED: { label: 'vision 定稿', color: 'text-slate-700' },
-  TYPE_DETECTED: { label: '识别类型', color: 'text-slate-700' },
-  PRESET_CHOSEN: { label: 'preset 选定', color: 'text-slate-700' },
-  DIFF_PRODUCED: { label: '生成 gap', color: 'text-blue-700' },
-  GAP_PICKED: { label: '挑 gap', color: 'text-blue-700 font-medium' },
-  WORKTREE_CREATED: { label: '建 worktree', color: 'text-slate-600' },
-  AGENT_START: { label: 'agent 起', color: 'text-slate-500' },
-  AGENT_END: { label: 'agent 收', color: 'text-slate-400' },
-  STATIC_GATE_PASSED: { label: '静态门 ✓', color: 'text-green-600' },
-  STATIC_GATE_FAILED: { label: '静态门 ✗', color: 'text-amber-700' },
-  ALIGNMENT_RESULT: { label: 'alignment', color: 'text-slate-600' },
-  REVIEW_VERDICT: { label: 'review', color: 'text-slate-700' },
-  ADVERSARIAL_RESULT: { label: '对抗审', color: 'text-slate-700' },
-  FIX_COMMITTED: { label: '提 commit', color: 'text-green-700' },
-  FIX_DROPPED: { label: '丢 fix', color: 'text-red-600' },
-  MERGED: { label: '合并 ✓', color: 'text-green-700 font-medium' },
-  GAP_DONE: { label: 'gap 完成', color: 'text-green-700 font-medium' },
-  GAP_SKIPPED: { label: 'gap 跳过', color: 'text-slate-500' },
-  GAP_ESCALATED: { label: 'gap 升级', color: 'text-amber-700' },
-  LOOP_STARTED: { label: '主循环起', color: 'text-blue-700 font-medium' },
-  LOOP_PAUSED: { label: '主循环停', color: 'text-amber-700' },
-  LOOP_RESUMED: { label: '主循环续', color: 'text-blue-700' },
-  DONE_CHECK_RESULT: { label: '终评', color: 'text-purple-700' },
-  SESSION_DONE: { label: '会话达标 🎉', color: 'text-green-700 font-bold' },
-  SESSION_ENDED: { label: '会话结束', color: 'text-slate-600' },
-  SESSION_CRASH_RECOVERED: { label: '崩溃恢复', color: 'text-amber-700' },
-  ERROR: { label: '错误', color: 'text-red-600' },
+  SESSION_STARTED: { label: '会话开始', color: 'text-ink' },
+  VISION_QUESTION_ASKED: { label: 'vision 提问', color: 'text-muted' },
+  VISION_ANSWERED: { label: 'vision 回答', color: 'text-muted' },
+  VISION_FINALIZED: { label: 'vision 定稿', color: 'text-ink' },
+  TYPE_DETECTED: { label: '识别类型', color: 'text-ink' },
+  PRESET_CHOSEN: { label: 'preset 选定', color: 'text-ink' },
+  DIFF_PRODUCED: { label: '生成 gap', color: 'text-coral' },
+  GAP_PICKED: { label: '挑 gap', color: 'text-coral font-medium' },
+  WORKTREE_CREATED: { label: '建 worktree', color: 'text-muted' },
+  AGENT_START: { label: 'agent 起', color: 'text-muted' },
+  AGENT_END: { label: 'agent 收', color: 'text-muted/70' },
+  STATIC_GATE_PASSED: { label: '静态门 ✓', color: 'text-forest' },
+  STATIC_GATE_FAILED: { label: '静态门 ✗', color: 'text-coral' },
+  ALIGNMENT_RESULT: { label: 'alignment', color: 'text-muted' },
+  REVIEW_VERDICT: { label: 'review', color: 'text-ink' },
+  ADVERSARIAL_RESULT: { label: '对抗审', color: 'text-ink' },
+  FIX_COMMITTED: { label: '提 commit', color: 'text-forest' },
+  FIX_DROPPED: { label: '丢 fix', color: 'text-rust' },
+  MERGED: { label: '合并 ✓', color: 'text-forest font-medium' },
+  GAP_DONE: { label: 'gap 完成', color: 'text-forest font-medium' },
+  GAP_SKIPPED: { label: 'gap 跳过', color: 'text-muted' },
+  GAP_ESCALATED: { label: 'gap 升级', color: 'text-coral' },
+  LOOP_STARTED: { label: '主循环起', color: 'text-coral font-medium' },
+  LOOP_PAUSED: { label: '主循环停', color: 'text-coral' },
+  LOOP_RESUMED: { label: '主循环续', color: 'text-coral' },
+  DONE_CHECK_RESULT: { label: '终评', color: 'text-coral' },
+  SESSION_DONE: { label: '会话达标 🎉', color: 'text-forest font-bold' },
+  SESSION_ENDED: { label: '会话结束', color: 'text-muted' },
+  SESSION_CRASH_RECOVERED: { label: '崩溃恢复', color: 'text-coral' },
+  ERROR: { label: '错误', color: 'text-rust' },
 };
 
 function fmtTime(ts: number): string {
@@ -110,22 +110,30 @@ export function RunLog() {
   }
 
   return (
-    <div className="bg-white rounded border flex flex-col h-full">
-      <div className="px-3 py-2 border-b bg-slate-50 text-sm font-medium flex items-center justify-between">
+    <div className="card flex flex-col h-full">
+      <div className="card-header flex items-center justify-between">
         <span>
-          Live Run Log <span className="text-slate-500">({filtered.length})</span>
-          {!sse && <span className="ml-2 text-amber-600 text-xs">(streaming offline)</span>}
+          Live Run Log <span className="text-xs font-sans text-muted ml-1">{filtered.length}</span>
+          {!sse && <span className="ml-2 text-coral text-xs font-sans">(streaming offline)</span>}
         </span>
         <div className="flex gap-1">
           <button
             onClick={() => setFilter('all')}
-            className={`text-xs px-2 py-0.5 rounded ${filter === 'all' ? 'bg-brand text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+            className={`text-xs px-2.5 py-1 rounded-full font-sans transition-colors ${
+              filter === 'all'
+                ? 'bg-coral text-cream'
+                : 'text-muted hover:text-ink hover:bg-warmline/40'
+            }`}
           >
             全部
           </button>
           <button
             onClick={() => setFilter('milestones')}
-            className={`text-xs px-2 py-0.5 rounded ${filter === 'milestones' ? 'bg-brand text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+            className={`text-xs px-2.5 py-1 rounded-full font-sans transition-colors ${
+              filter === 'milestones'
+                ? 'bg-coral text-cream'
+                : 'text-muted hover:text-ink hover:bg-warmline/40'
+            }`}
           >
             里程碑
           </button>
@@ -133,20 +141,20 @@ export function RunLog() {
       </div>
       <div ref={scrollRef} className="flex-1 overflow-y-auto" onWheel={() => (autoScroll.current = false)}>
         {filtered.length === 0 ? (
-          <div className="p-4 text-slate-500 text-sm">还没有事件…</div>
+          <div className="p-6 text-muted text-sm italic font-serif">还没有事件…</div>
         ) : (
-          <ul className="divide-y text-sm font-mono">
+          <ul className="divide-y divide-warmline text-sm font-mono">
             {filtered.map((e) => {
-              const meta = KIND_LABEL[e.kind] ?? { label: e.kind, color: 'text-slate-600' };
+              const meta = KIND_LABEL[e.kind] ?? { label: e.kind, color: 'text-muted' };
               return (
-                <li key={e.id} className="px-3 py-1.5">
-                  <button onClick={() => toggle(e.id)} className="w-full text-left flex gap-2 items-start hover:bg-slate-50">
-                    <span className="text-slate-400 text-xs">{fmtTime(e.ts)}</span>
+                <li key={e.id} className="px-4 py-1.5">
+                  <button onClick={() => toggle(e.id)} className="w-full text-left flex gap-2 items-start hover:bg-paper rounded px-1 py-0.5 transition-colors">
+                    <span className="text-muted/60 text-xs">{fmtTime(e.ts)}</span>
                     <span className={`text-xs ${meta.color}`}>{meta.label}</span>
-                    <span className="flex-1 text-xs text-slate-600 truncate">{summary(e)}</span>
+                    <span className="flex-1 text-xs text-muted truncate">{summary(e)}</span>
                   </button>
                   {expanded.has(e.id) && (
-                    <pre className="mt-1 text-xs bg-slate-50 p-2 rounded overflow-x-auto">
+                    <pre className="mt-1 text-xs bg-paper p-2 rounded overflow-x-auto border border-warmline">
                       {JSON.stringify(e.payload, null, 2)}
                     </pre>
                   )}

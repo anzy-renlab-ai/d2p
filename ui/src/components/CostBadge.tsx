@@ -9,9 +9,9 @@ function fmtTok(n: number): string {
 export function CostBadge() {
   const c = useStore((s) => s.costTotals);
   return (
-    <div className="text-xs text-slate-600">
+    <div className="text-xs text-muted font-mono">
       ≈ ${c.estimatedUsd.toFixed(2)}{' '}
-      <span className="text-slate-400">
+      <span className="text-muted/60">
         ({fmtTok(c.inputTokens)} in / {fmtTok(c.outputTokens)} out)
       </span>
     </div>

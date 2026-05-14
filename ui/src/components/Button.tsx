@@ -6,16 +6,20 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const VARIANTS: Record<NonNullable<Props['variant']>, string> = {
-  primary: 'bg-brand text-white hover:bg-blue-700 disabled:bg-slate-300',
-  secondary: 'bg-white text-slate-900 border border-slate-300 hover:bg-slate-50 disabled:opacity-50',
-  danger: 'bg-red-600 text-white hover:bg-red-700 disabled:bg-slate-300',
-  ghost: 'bg-transparent text-slate-700 hover:bg-slate-100 disabled:opacity-50',
+  primary:
+    'bg-coral text-cream hover:bg-coralhover disabled:bg-warmline disabled:text-muted',
+  secondary:
+    'bg-cream text-ink border border-warmline hover:bg-paper disabled:opacity-50',
+  danger:
+    'bg-rust text-cream hover:opacity-90 disabled:bg-warmline disabled:text-muted',
+  ghost:
+    'bg-transparent text-muted hover:text-ink hover:bg-warmline/40 disabled:opacity-50',
 };
 
 export function Button({ variant = 'primary', className = '', children, ...rest }: Props) {
   return (
     <button
-      className={`px-3 py-1.5 rounded text-sm transition-colors ${VARIANTS[variant]} ${className}`}
+      className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${VARIANTS[variant]} ${className}`}
       {...rest}
     >
       {children}

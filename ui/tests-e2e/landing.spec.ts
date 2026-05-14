@@ -27,19 +27,29 @@ test('Opens Settings page and shows three engine kinds', async ({ page }) => {
   await page.goto(h.uiUrl);
   await page.getByRole('button', { name: /⚙ 设置/ }).click();
   await expect(page.getByText('LLM 引擎')).toBeVisible();
-  await expect(page.getByText('claude-cli')).toBeVisible();
-  await expect(page.getByText('openai-compat')).toBeVisible();
-  await expect(page.getByText('anthropic-api')).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'claude-cli' })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'openai-compat' })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'anthropic-api' })).toBeVisible();
 });
 
-test('Picking openai-compat reveals quick presets', async ({ page }) => {
+test('Picking openai-compat reveals quick presets (incl. MiniMax)', async ({ page }) => {
   await page.goto(h.uiUrl);
   await page.getByRole('button', { name: /⚙ 设置/ }).click();
   await page.getByRole('radio', { name: 'openai-compat' }).click();
   await expect(page.getByText('快速预设')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'MiniMax' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'OpenRouter' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'DeepSeek' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Z\.ai/ })).toBeVisible();
+});
+
+test('MiniMax preset fills baseUrl + MiniMax-M2 models', async ({ page }) => {
+  await page.goto(h.uiUrl);
+  await page.getByRole('button', { name: /⚙ 设置/ }).click();
+  await page.getByRole('radio', { name: 'openai-compat' }).click();
+  await page.getByRole('button', { name: 'MiniMax' }).click();
+  await expect(page.locator('input[value="https://api.minimaxi.chat/v1"]')).toBeVisible();
+  await expect(page.locator('input[value="MiniMax-M2"]').first()).toBeVisible();
 });
 
 test('OpenRouter preset fills baseUrl + model fields', async ({ page }) => {

@@ -28,31 +28,31 @@ export function SidePanel() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded border">
-        <div className="px-3 py-2 border-b bg-slate-50 text-sm font-medium">Preset 进度</div>
-        <div className="p-3">
-          <div className="text-xs text-slate-600 mb-1">
-            {done} / {total} 完成 · {pct}%
+      <div className="card">
+        <div className="card-header text-sm">Preset 进度</div>
+        <div className="p-4">
+          <div className="text-xs text-muted mb-2">
+            {done} / {total} 完成 · <span className="text-ink font-medium">{pct}%</span>
           </div>
-          <div className="w-full bg-slate-100 rounded h-2 overflow-hidden">
-            <div className="bg-green-500 h-full transition-all" style={{ width: `${pct}%` }} />
+          <div className="w-full bg-paper border border-warmline rounded-full h-2 overflow-hidden">
+            <div className="bg-forest h-full transition-all" style={{ width: `${pct}%` }} />
           </div>
           {total > 0 && (
-            <ul className="mt-3 text-xs space-y-1 max-h-48 overflow-y-auto">
+            <ul className="mt-4 text-xs space-y-1.5 max-h-48 overflow-y-auto">
               {presetStatus.map((i) => (
                 <li key={i.item} className="flex items-start gap-2">
                   <span
                     className={
                       i.status === 'done'
-                        ? 'text-green-600'
+                        ? 'text-forest'
                         : i.status === 'partial'
-                        ? 'text-amber-600'
-                        : 'text-slate-400'
+                        ? 'text-coral'
+                        : 'text-muted/60'
                     }
                   >
                     {i.status === 'done' ? '✓' : i.status === 'partial' ? '◐' : '○'}
                   </span>
-                  <span className="font-mono text-slate-700 break-all">{i.item}</span>
+                  <span className="font-mono text-ink break-all">{i.item}</span>
                 </li>
               ))}
             </ul>
@@ -60,24 +60,24 @@ export function SidePanel() {
         </div>
       </div>
 
-      <div className="bg-white rounded border">
-        <div className="px-3 py-2 border-b bg-slate-50 text-sm font-medium">Cost</div>
-        <div className="p-3 text-xs space-y-1">
-          <div>input: {costTotals.inputTokens.toLocaleString()} tok</div>
-          <div>output: {costTotals.outputTokens.toLocaleString()} tok</div>
-          <div className="font-semibold">≈ ${costTotals.estimatedUsd.toFixed(2)}</div>
+      <div className="card">
+        <div className="card-header text-sm">Cost</div>
+        <div className="p-4 text-xs space-y-1 font-mono">
+          <div className="text-muted">in: <span className="text-ink">{costTotals.inputTokens.toLocaleString()}</span> tok</div>
+          <div className="text-muted">out: <span className="text-ink">{costTotals.outputTokens.toLocaleString()}</span> tok</div>
+          <div className="font-semibold text-ink mt-2">≈ ${costTotals.estimatedUsd.toFixed(2)}</div>
         </div>
       </div>
 
-      <div className="bg-white rounded border">
-        <div className="px-3 py-2 border-b bg-slate-50 text-sm font-medium">Vision</div>
-        <div className="p-3 text-xs">
+      <div className="card">
+        <div className="card-header text-sm">Vision</div>
+        <div className="p-4 text-xs">
           {visionMd ? (
-            <pre className="whitespace-pre-wrap break-words font-sans text-slate-700 max-h-72 overflow-y-auto">
+            <pre className="whitespace-pre-wrap break-words font-sans text-ink max-h-72 overflow-y-auto leading-relaxed">
               {visionMd}
             </pre>
           ) : (
-            <span className="text-slate-400">尚未定稿</span>
+            <span className="text-muted italic font-serif">尚未定稿</span>
           )}
         </div>
       </div>

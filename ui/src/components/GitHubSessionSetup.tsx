@@ -3,10 +3,6 @@ import { Button } from './Button.js';
 import { ErrorBanner } from './ErrorBanner.js';
 import { useStore } from '../store.js';
 
-/**
- * Setup card shown in the Setup page that lets the user switch the current
- * session to github-pr mode. Calls POST /api/github/configure-session.
- */
 export function GitHubSessionSetup() {
   const session = useStore((s) => s.session);
   const refresh = useStore((s) => s.refreshAll);
@@ -41,11 +37,11 @@ export function GitHubSessionSetup() {
 
   if (isPRMode) {
     return (
-      <div className="bg-green-50 border border-green-200 rounded p-3 text-sm">
+      <div className="bg-coralsoft/30 border border-coral/30 rounded-md p-3 text-sm">
         ✓ 当前 session 是 <strong>GitHub PR 模式</strong>：
-        repo <code className="bg-green-100 px-1 rounded">{session.githubRepo ?? '(自动从 origin 检测)'}</code>,
-        base <code className="bg-green-100 px-1 rounded">{session.baseBranch}</code>。
-        <div className="mt-1 text-xs text-green-700">
+        repo <code className="bg-cream px-1 rounded">{session.githubRepo ?? '(自动从 origin 检测)'}</code>,
+        base <code className="bg-cream px-1 rounded">{session.baseBranch}</code>。
+        <div className="mt-1 text-xs text-muted">
           每个 fix 会自动 push 到 origin 并开 PR，但不自动 merge（你在 GitHub 上点 merge）。
         </div>
       </div>
@@ -61,34 +57,34 @@ export function GitHubSessionSetup() {
   }
 
   return (
-    <div className="border rounded p-3 bg-slate-50 space-y-2">
+    <div className="border border-warmline rounded-md p-3 bg-paper space-y-2">
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium">GitHub PR 模式</span>
-        <button className="text-xs text-slate-400 hover:text-slate-700" onClick={() => setOpen(false)}>
+        <button className="text-xs text-muted hover:text-ink" onClick={() => setOpen(false)}>
           取消
         </button>
       </div>
-      <div className="text-xs text-slate-500">
+      <div className="text-xs text-muted leading-relaxed">
         d2p 会用你在 Settings 里填的 GitHub token，把 fix 分支 push 到 origin 并开 PR。
         不填 repo 就从仓库的 origin URL 自动推断。
       </div>
       <div>
-        <label className="block text-xs text-slate-600 mb-1">仓库（owner/repo，留空自动推断）</label>
+        <label className="label">仓库（owner/repo，留空自动推断）</label>
         <input
           type="text"
           value={repo}
           onChange={(e) => setRepo(e.target.value)}
           placeholder="Upp-Ljl/my-demo"
-          className="w-full text-sm px-2 py-1 border rounded font-mono"
+          className="input input-mono"
         />
       </div>
       <div>
-        <label className="block text-xs text-slate-600 mb-1">base branch</label>
+        <label className="label">base branch</label>
         <input
           type="text"
           value={base}
           onChange={(e) => setBase(e.target.value)}
-          className="w-full text-sm px-2 py-1 border rounded font-mono"
+          className="input input-mono"
         />
       </div>
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}

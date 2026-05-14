@@ -3,15 +3,6 @@ import { api } from '../api.js';
 import { Button } from './Button.js';
 import { ErrorBanner } from './ErrorBanner.js';
 
-/**
- * User-defined acceptance (ABCD #B). Lets the user adjust the preset by:
- *   add: extra gap-shaped requirements
- *   remove: drop a preset item entirely
- *   skip: mark a preset item as "done" without implementation
- *
- * Saved to <demo>/.d2p/preset-overrides.yaml; the differ honors it on the
- * next pass.
- */
 export function PresetOverrideEditor() {
   const [open, setOpen] = useState(false);
   const [yamlText, setYamlText] = useState('');
@@ -68,25 +59,26 @@ export function PresetOverrideEditor() {
   }
 
   return (
-    <div className="space-y-2 border rounded p-3 bg-slate-50">
+    <div className="space-y-3 rounded-lg p-4 bg-paper border border-warmline">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium">Preset 覆盖（yaml）</span>
-        <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-600 text-sm">
+        <span className="text-sm font-medium text-ink">Preset 覆盖（yaml）</span>
+        <button onClick={() => setOpen(false)} className="text-muted hover:text-ink text-sm">
           收起
         </button>
       </div>
-      <div className="text-xs text-slate-500">
-        Schema: <code>add: [{`{slug, category, description, severity}`}]</code>, <code>remove: [...slug]</code>,{' '}
-        <code>skip: [...slug]</code>
+      <div className="text-xs text-muted leading-relaxed">
+        Schema: <code className="bg-cream px-1 rounded">add: [{`{slug, category, description, severity}`}]</code>,{' '}
+        <code className="bg-cream px-1 rounded">remove: [...slug]</code>,{' '}
+        <code className="bg-cream px-1 rounded">skip: [...slug]</code>
       </div>
       <textarea
         value={yamlText}
         onChange={(e) => setYamlText(e.target.value)}
         rows={10}
-        className="w-full text-xs font-mono px-2 py-1 border rounded"
+        className="input input-mono text-xs"
       />
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
-      {saved && <div className="text-green-700 text-sm">✓ 已保存。下次 differ 自动应用。</div>}
+      {saved && <div className="text-forest text-sm">✓ 已保存。下次 differ 自动应用。</div>}
       <div className="flex justify-end gap-2">
         <Button variant="secondary" onClick={() => void load()} disabled={busy}>重置</Button>
         <Button onClick={() => void onSave()} disabled={busy}>{busy ? '保存中…' : '保存'}</Button>
@@ -95,9 +87,6 @@ export function PresetOverrideEditor() {
   );
 }
 
-// Minimal yaml round-trip without depending on a library: serialize lists +
-// shallow objects. The real parser is `yaml` in the daemon — we just need to
-// produce something parseable.
 function serialize(o: { add: unknown[]; remove: unknown[]; skip: unknown[] }): string {
   const lines: string[] = [];
   lines.push('add:');
@@ -117,18 +106,7 @@ function serialize(o: { add: unknown[]; remove: unknown[]; skip: unknown[] }): s
   return lines.join('\n') + '\n';
 }
 
-// Naive parser: we DON'T parse client-side; we just send the raw yaml to the
-// daemon, which has a real yaml parser. So this just returns the same text
-// wrapped — the daemon's PresetOverridesSchema does the real validation.
-// But the api takes structured "overrides" so we need to parse here.
-// Use a tiny shim: build the object from textarea lines.
 function parseOverrideYaml(text: string): unknown {
-  // Lazy approach: ship the text through Function-eval-style structure
-  // construction. Safer: parse on the daemon. We'll mimic the daemon's
-  // expected shape by sending the text directly via api with a wrapper.
-  //
-  // Trick: we send { __yaml: text } and update the daemon route to accept it.
-  // For now, do a tiny hand-rolled parser of THIS specific shape.
   const out: { add: unknown[]; remove: string[]; skip: string[] } = { add: [], remove: [], skip: [] };
   const lines = text.split(/\r?\n/);
   let section: 'add' | 'remove' | 'skip' | null = null;
@@ -150,7 +128,6 @@ function parseOverrideYaml(text: string): unknown {
       continue;
     }
     if (itemMatch && section === 'add') {
-      // "- slug: xxx"
       const kv = /^([a-z_]+):\s*(.*)$/.exec(itemMatch[1]!.trim());
       cur = {};
       if (kv) cur[kv[1]!] = stripQuotes(kv[2]!);
