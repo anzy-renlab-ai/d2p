@@ -19,6 +19,7 @@ export function App() {
   if (previewParam) return <Preview />;
 
   const session = useStore((s) => s.session);
+  const summaryMdPath = useStore((s) => s.summaryMdPath);
   const health = useStore((s) => s.health);
   const showSettings = useStore((s) => s.showSettings);
   const setShowSettings = useStore((s) => s.setShowSettings);
@@ -27,8 +28,16 @@ export function App() {
     return <Settings onClose={() => setShowSettings(false)} />;
   }
 
+  // An ENDED session is shown as Done ONLY when the user just ended it in this
+  // UI lifetime (summaryMdPath was set by endSession()). Otherwise — e.g. user
+  // reloaded the page after a session ended weeks ago — route to Landing so
+  // they can start fresh. Prevents the daemon's "latest session" fallback
+  // from trapping the UI on a stale Done page.
+  const isTerminalAndStale =
+    session && (session.status === 'ENDED' || session.status === 'DONE') && !summaryMdPath;
+
   let body;
-  if (!session) {
+  if (!session || isTerminalAndStale) {
     body = <Landing />;
   } else if (session.status === 'SETUP') {
     body = <Setup />;

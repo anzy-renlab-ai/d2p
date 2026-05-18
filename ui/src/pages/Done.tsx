@@ -83,7 +83,24 @@ export function Done() {
         )}
 
         <div className="flex justify-between pt-4">
-          <Button variant="secondary" onClick={() => window.location.reload()}>新建 session</Button>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              // Clear the just-ended session from the store so App.tsx routes
+              // to Landing. window.location.reload() also works but flashes
+              // health-load placeholders; in-memory clear is instantaneous.
+              useStore.setState({
+                session: null,
+                demo: null,
+                summaryMdPath: null,
+                gaps: [],
+                events: [],
+                presetStatus: [],
+                detector: null,
+                visionRound: null,
+              });
+            }}
+          >新建 session</Button>
           <Button variant="ghost" onClick={() => window.close()}>关闭</Button>
         </div>
       </div>
