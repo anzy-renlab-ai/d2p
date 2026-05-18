@@ -5,6 +5,7 @@ import type {
   DetectorOutput,
   Gap,
   HealthResponse,
+  MultiTurnState,
   PresetStatusItem,
   Session,
   SseEnvelope,
@@ -40,6 +41,10 @@ interface Store {
   gaps: Gap[];
   events: SseEnvelope[];
   sseConnected: boolean;
+
+  // multi-turn (complex gap autonomous run)
+  multiTurn: MultiTurnState | null;
+  setMultiTurn: (s: MultiTurnState | null) => void;
 
   // end
   summaryMdPath: string | null;
@@ -90,6 +95,8 @@ export const useStore = create<Store>((set, get) => ({
   gaps: [],
   events: [],
   sseConnected: false,
+  multiTurn: null,
+  setMultiTurn: (s) => set({ multiTurn: s }),
   summaryMdPath: null,
   showSettings: false,
   setShowSettings: (b) => set({ showSettings: b }),

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useStore } from '../store.js';
 import { Button } from '../components/Button.js';
 import { GapList } from '../components/GapList.js';
@@ -6,11 +7,13 @@ import { SidePanel } from '../components/SidePanel.js';
 import { ArchitecturalAlert } from '../components/ArchitecturalAlert.js';
 import { PresetOverrideEditor } from '../components/PresetOverrideEditor.js';
 import { HealthBadge } from '../components/HealthBadge.js';
+import { MultiTurnPanel, isMultiTurnActive } from '../components/MultiTurnPanel.js';
 
 export function Workspace() {
   const session = useStore((s) => s.session);
   const demo = useStore((s) => s.demo);
   const loopState = useStore((s) => s.loopState);
+  const multiTurn = useStore((s) => s.multiTurn);
   const pauseLoop = useStore((s) => s.pauseLoop);
   const resumeLoop = useStore((s) => s.resumeLoop);
   const endSession = useStore((s) => s.endSession);
@@ -19,6 +22,12 @@ export function Workspace() {
   const isPaused = session?.status === 'PAUSED';
   const isLooping = session?.status === 'LOOPING';
   const isPausing = loopState?.pauseRequested === true && loopState?.isRunning === true;
+
+  // When a complex gap is running, the multi-turn panel takes over the main
+  // canvas. User can press "← 返回 gap 队列" to peek at the gap list/run log.
+  const mtActive = isMultiTurnActive(multiTurn);
+  const [forceShowQueue, setForceShowQueue] = useState(false);
+  const showMultiTurnFullscreen = mtActive && !forceShowQueue;
 
   return (
     <div className="h-screen flex flex-col bg-paper">
@@ -58,23 +67,38 @@ export function Workspace() {
           <ArchitecturalAlert />
         </div>
       )}
-      <div className="flex-1 grid grid-cols-12 gap-4 p-4 overflow-hidden">
-        <div className="col-span-3 overflow-hidden">
-          <GapList />
+      {showMultiTurnFullscreen ? (
+        <div className="flex-1 overflow-hidden">
+          <MultiTurnPanel onBackToGaps={() => setForceShowQueue(true)} />
         </div>
-        <div className="col-span-6 overflow-hidden">
-          <RunLog />
+      ) : (
+        <div className="flex-1 grid grid-cols-12 gap-4 p-4 overflow-hidden">
+          <div className="col-span-3 overflow-hidden">
+            <GapList />
+            {mtActive && (
+              <button
+                type="button"
+                onClick={() => setForceShowQueue(false)}
+                className="mt-3 w-full text-xs text-coral hover:text-rust transition-colors font-sans"
+              >
+                返回自治视图 →
+              </button>
+            )}
+          </div>
+          <div className="col-span-6 overflow-hidden">
+            <RunLog />
+          </div>
+          <div className="col-span-3 overflow-y-auto space-y-4">
+            <SidePanel />
+            {isPaused && (
+              <div className="card p-4">
+                <div className="text-sm font-medium mb-2">调整验收清单</div>
+                <PresetOverrideEditor />
+              </div>
+            )}
+          </div>
         </div>
-        <div className="col-span-3 overflow-y-auto space-y-4">
-          <SidePanel />
-          {isPaused && (
-            <div className="card p-4">
-              <div className="text-sm font-medium mb-2">调整验收清单</div>
-              <PresetOverrideEditor />
-            </div>
-          )}
-        </div>
-      </div>
+      )}
     </div>
   );
 }

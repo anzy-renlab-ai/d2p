@@ -91,6 +91,26 @@ export function PreviewIndex() {
           </tbody>
         </table>
 
+        <section className="mt-12 pt-6 border-t border-warmline">
+          <div className="text-xs font-mono text-coral uppercase tracking-widest mb-2">component preview</div>
+          <h2 className="text-2xl tracking-tight mb-3">Multi-turn 自治面板</h2>
+          <p className="text-muted mb-5 leading-relaxed text-sm max-w-2xl">
+            complex gap 走 stream-json + hooks turn protocol 自治时，Workspace 中间列上方插入的进度面板。
+            五个 state 各自独立可点。
+          </p>
+          <div className="flex flex-wrap gap-3">
+            {(['stream', 'running', 'paused', 'finalizing', 'done'] as const).map((s) => (
+              <a
+                key={s}
+                href={`?preview=multi-turn/${s}`}
+                className="px-4 py-2 rounded-md border border-warmline bg-cream hover:border-coral hover:bg-coralsoft/30 text-sm transition-colors font-mono"
+              >
+                multi-turn / {s}
+              </a>
+            ))}
+          </div>
+        </section>
+
         <div className="mt-12 text-xs text-muted/70 font-serif italic">
           Production app stays at <code className="not-italic">/</code>; previews are URL-gated only.
         </div>

@@ -65,6 +65,7 @@ export interface Gap {
   parentGapId: number | null;
   createdAt: number;
   finishedAt: number | null;
+  complexity?: GapComplexity;
 }
 
 export interface VisionQuestion {
@@ -134,4 +135,43 @@ export interface LoopState {
   isRunning: boolean;
   pauseRequested: boolean;
   sessionId: number | null;
+}
+
+export type GapComplexity = 'simple' | 'complex';
+export type MultiTurnPhase = 'idle' | 'running' | 'paused' | 'finalizing' | 'done';
+export type TurnStatus = 'done' | 'running' | 'pending';
+
+export interface ScratchpadNote {
+  turn: number;
+  ts: number;
+  text: string;
+}
+
+export interface MultiTurnTurn {
+  index: number;
+  title: string;          // 短动作: "扫描代码" / "写中间件" / "跑测试"
+  summary: string;        // 短结果: "5 个文件受影响" / "middleware.ts" / "3 失败 → 修 mockSecret"
+  status: TurnStatus;
+  ts: number;             // when this turn started (or completed if status === 'done')
+}
+
+export interface MultiTurnState {
+  runId: string;
+  gapId: number;
+  gapTitle: string;
+  gapSlug: string;
+  complexity: GapComplexity;
+  phase: MultiTurnPhase;
+  currentTurn: number;
+  maxTurns: number;
+  ccSessionId: string | null;
+  elapsedMs: number;
+  capMs: number;
+  tokensIn: number;
+  tokensOut: number;
+  estimatedUsd: number;
+  lastAssistantText: string;
+  scratchpad: ScratchpadNote[];
+  turns: MultiTurnTurn[];
+  selfReportedComplete: boolean;
 }
