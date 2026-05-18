@@ -216,6 +216,8 @@ export interface VisionDraft {
   createdAt: number;
 }
 
+export type GapComplexity = 'simple' | 'complex';
+
 export interface Gap {
   id: number;
   sessionId: number;
@@ -232,6 +234,7 @@ export interface Gap {
   parentGapId: number | null;
   createdAt: number;
   finishedAt: number | null;
+  complexity: GapComplexity;
 }
 
 export interface Fix {

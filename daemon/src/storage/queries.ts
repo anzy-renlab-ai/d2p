@@ -62,6 +62,7 @@ interface GapRow {
   parent_gap_id: number | null;
   created_at: number;
   finished_at: number | null;
+  complexity: 'simple' | 'complex';
 }
 
 function demoFromRow(r: DemoRow): Demo {
@@ -106,6 +107,7 @@ function gapFromRow(r: GapRow): Gap {
     parentGapId: r.parent_gap_id,
     createdAt: r.created_at,
     finishedAt: r.finished_at,
+    complexity: (r.complexity ?? 'simple') as Gap['complexity'],
   };
 }
 
@@ -228,14 +230,18 @@ export class Queries {
 
   // ─── gaps ──────────────────────────────────────────────────────────────
 
-  insertGap(input: Omit<Gap, 'id' | 'createdAt' | 'finishedAt' | 'status' | 'dynamicK'>): Gap {
+  insertGap(
+    input: Omit<Gap, 'id' | 'createdAt' | 'finishedAt' | 'status' | 'dynamicK' | 'complexity'> & {
+      complexity?: 'simple' | 'complex';
+    },
+  ): Gap {
     const now = Date.now();
     const result = this.db
       .prepare(
         `INSERT INTO gaps(session_id, slug, title, body, category, severity, source,
                           suggested_approach, expected_files_changed, status,
-                          parent_gap_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+                          parent_gap_id, created_at, complexity)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
       )
       .run(
         input.sessionId,
@@ -249,6 +255,7 @@ export class Queries {
         JSON.stringify(input.expectedFilesChanged),
         input.parentGapId,
         now,
+        input.complexity ?? 'simple',
       );
     const row = this.db.prepare('SELECT * FROM gaps WHERE id = ?').get(result.lastInsertRowid) as GapRow;
     return gapFromRow(row);
@@ -284,6 +291,10 @@ export class Queries {
       .prepare('SELECT * FROM gaps WHERE session_id = ? ORDER BY created_at ASC')
       .all(sessionId) as GapRow[];
     return rows.map(gapFromRow);
+  }
+
+  setGapComplexity(gapId: number, complexity: 'simple' | 'complex'): void {
+    this.db.prepare('UPDATE gaps SET complexity = ? WHERE id = ?').run(complexity, gapId);
   }
 
   transitionGap(gapId: number, to: GapStatus): void {

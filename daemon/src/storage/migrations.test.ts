@@ -47,6 +47,9 @@ describe('migrations', () => {
     const names = tables.map((t) => t.name);
     expect(names).toEqual(
       expect.arrayContaining([
+        'cc_scratchpad',
+        'cc_sessions',
+        'cc_turn_events',
         'cost_records',
         'demos',
         'fixes',
@@ -61,5 +64,17 @@ describe('migrations', () => {
         'vision_drafts',
       ]),
     );
+  });
+
+  it('gaps.complexity column exists and defaults to simple', () => {
+    const db = freshDb();
+    runMigrations(db);
+    const cols = db.prepare("PRAGMA table_info(gaps)").all() as {
+      name: string;
+      dflt_value: string | null;
+    }[];
+    const complexity = cols.find((c) => c.name === 'complexity');
+    expect(complexity).toBeDefined();
+    expect(complexity!.dflt_value).toContain('simple');
   });
 });
