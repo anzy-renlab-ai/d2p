@@ -71,7 +71,7 @@ describe('AnthropicApiEngine', () => {
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.json).toEqual({ hello: 'world' });
-      expect(r.usage).toEqual({ inputTokens: 5, outputTokens: 2 });
+      expect(r.usage).toEqual({ inputTokens: 5, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 });
     }
     expect(receivedRequests).toHaveLength(1);
     const req = receivedRequests[0]!;

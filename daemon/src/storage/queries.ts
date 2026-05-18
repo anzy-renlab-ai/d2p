@@ -656,12 +656,72 @@ export class Queries {
     model: string,
     inputTokens: number,
     outputTokens: number,
+    engine: string = '',
+    cacheReadTokens: number = 0,
+    cacheWriteTokens: number = 0,
   ): void {
     this.db
       .prepare(
-        `INSERT INTO cost_records(session_id, role, model, input_tokens, output_tokens, ts)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO cost_records(session_id, role, model, input_tokens, output_tokens, engine, cache_read_tokens, cache_write_tokens, ts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(sessionId, role, model, inputTokens, outputTokens, Date.now());
+      .run(
+        sessionId, role, model, inputTokens, outputTokens,
+        engine, cacheReadTokens, cacheWriteTokens, Date.now(),
+      );
   }
+
+  /** F4 — per-(role × engine) rollup for Mission Control attribution panel. */
+  costAttribution(
+    sessionId: number,
+    perMtokPricing: Record<string, { input: number; output: number }>,
+  ): CostBucket[] {
+    interface Row {
+      role: string;
+      model: string;
+      engine: string;
+      in_tok: number | null;
+      out_tok: number | null;
+      cache_in: number | null;
+      cache_out: number | null;
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT role, model, engine,
+                SUM(input_tokens)      AS in_tok,
+                SUM(output_tokens)     AS out_tok,
+                SUM(cache_read_tokens) AS cache_in,
+                SUM(cache_write_tokens) AS cache_out
+         FROM cost_records WHERE session_id = ? GROUP BY role, engine, model
+         ORDER BY in_tok DESC`,
+      )
+      .all(sessionId) as Row[];
+    return rows.map((r) => {
+      const i = r.in_tok ?? 0;
+      const o = r.out_tok ?? 0;
+      const p = perMtokPricing[r.model];
+      const usd = p ? (i * p.input + o * p.output) / 1_000_000 : 0;
+      return {
+        role: r.role,
+        engine: r.engine,
+        model: r.model,
+        inputTokens: i,
+        outputTokens: o,
+        cacheReadTokens: r.cache_in ?? 0,
+        cacheWriteTokens: r.cache_out ?? 0,
+        estimatedUsd: usd,
+      };
+    });
+  }
+}
+
+export interface CostBucket {
+  role: string;
+  engine: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  estimatedUsd: number;
 }

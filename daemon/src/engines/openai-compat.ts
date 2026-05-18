@@ -13,7 +13,15 @@ interface ChatChoice {
 
 interface ChatResponse {
   choices?: ChatChoice[];
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    /** OpenAI prompt-cache field (some openai-compat providers — MiniMax,
+     *  Moonshot — surface a similar one). May be omitted entirely. */
+    prompt_tokens_details?: { cached_tokens?: number };
+    /** Some providers send a flat field. */
+    cached_tokens?: number;
+  };
   error?: { message?: string };
 }
 
@@ -93,6 +101,10 @@ export class OpenAICompatEngine implements LLMEngine {
     if (opts.schemaCheck && !opts.schemaCheck(json)) {
       return { ok: false, code: 'SCHEMA', message: 'schema check failed', raw: content };
     }
+    const cacheRead =
+      parsed.usage?.prompt_tokens_details?.cached_tokens ??
+      parsed.usage?.cached_tokens ??
+      0;
     return {
       ok: true,
       json: json as T,
@@ -100,6 +112,8 @@ export class OpenAICompatEngine implements LLMEngine {
       usage: {
         inputTokens: parsed.usage?.prompt_tokens ?? 0,
         outputTokens: parsed.usage?.completion_tokens ?? 0,
+        cacheReadTokens: cacheRead,
+        cacheWriteTokens: 0,
       },
     };
   }

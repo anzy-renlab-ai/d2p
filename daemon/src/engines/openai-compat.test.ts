@@ -71,7 +71,7 @@ describe('OpenAICompatEngine', () => {
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.json).toEqual({ answer: 42 });
-      expect(r.usage).toEqual({ inputTokens: 12, outputTokens: 3 });
+      expect(r.usage).toEqual({ inputTokens: 12, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0 });
     }
     expect(receivedRequests).toHaveLength(1);
     const req = receivedRequests[0]!;

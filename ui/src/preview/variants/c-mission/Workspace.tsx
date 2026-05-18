@@ -1,5 +1,12 @@
 import { useState } from 'react';
-import { mockPresetItemsRich, type MockPresetItem, type MockMechanism } from '../../../mock/data.js';
+import {
+  mockPresetItemsRich,
+  mockCostBuckets,
+  mockCacheHitPct,
+  type MockPresetItem,
+  type MockMechanism,
+  type MockCostBucket,
+} from '../../../mock/data.js';
 
 export function WorkspaceC() {
   const [rightTab, setRightTab] = useState<'stream' | 'preset'>('stream');
@@ -28,7 +35,10 @@ export function WorkspaceC() {
           <div className="text-[10px] uppercase tracking-widest text-muted">preset · {done} / {items.length}</div>
           <Gauge pct={pct} />
         </div>
-        <div className="col-span-1"><Big label="spend" v="$1.27" /></div>
+        <div className="col-span-1">
+          <Big label="spend" v="$1.27" />
+          <div className="text-[9px] text-forest mt-0.5">cache · {mockCacheHitPct()}%</div>
+        </div>
         <div className="col-span-2 flex items-center justify-end gap-2">
           <button className="px-3 py-1.5 border border-warmline text-xs rounded-md hover:border-coral">Pause ⏸</button>
           <button className="px-3 py-1.5 text-muted text-xs hover:text-ink">⚙</button>
@@ -100,11 +110,17 @@ export function WorkspaceC() {
             </div>
           </div>
 
-          {/* Center bottom — sparkline strip */}
-          <div className="card p-4 grid grid-cols-3 gap-6">
-            <Spark label="merges / hour" pts={[0, 0, 1, 1, 2, 2, 2, 2]} />
-            <Spark label="cost / minute" pts={[0, 0.01, 0.03, 0.04, 0.08, 0.12, 0.18, 0.26]} color="coral" />
-            <Spark label="alignment score" pts={[0, 0.6, 0.92, 0.97, 0.97, 0.91, 0.93, 0.94]} color="forest" />
+          {/* Center bottom — sparklines + F4 spend attribution */}
+          <div className="card p-4 grid grid-cols-12 gap-6">
+            <div className="col-span-3">
+              <Spark label="merges / hour" pts={[0, 0, 1, 1, 2, 2, 2, 2]} />
+            </div>
+            <div className="col-span-3">
+              <Spark label="alignment score" pts={[0, 0.6, 0.92, 0.97, 0.97, 0.91, 0.93, 0.94]} color="forest" />
+            </div>
+            <div className="col-span-6">
+              <SpendAttribution />
+            </div>
           </div>
         </section>
 
@@ -266,6 +282,48 @@ function Stage({ n, name, model, engine, role, status, time }: {
         <span className="text-xs text-muted">{engine !== '—' ? `${engine} · ${model}` : model}</span>
       </span>
       <span className="text-xs text-muted tabular-nums">{time ?? '—'}</span>
+    </div>
+  );
+}
+
+function SpendAttribution() {
+  const totalUsd = mockCostBuckets.reduce((s, b) => s + b.usd, 0);
+  const totalIn  = mockCostBuckets.reduce((s, b) => s + b.inputTokens, 0);
+  const totalCache = mockCostBuckets.reduce((s, b) => s + b.cacheReadTokens, 0);
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-2">
+        <span className="text-[10px] uppercase tracking-widest text-muted">spend attribution</span>
+        <span className="text-xs text-muted">${totalUsd.toFixed(2)} · cache <span className="text-forest">{Math.round((totalCache / Math.max(totalIn, 1)) * 100)}%</span></span>
+      </div>
+      <div className="space-y-1">
+        {mockCostBuckets.filter((b) => b.usd > 0).map((b) => <SpendRow key={`${b.role}-${b.engine}`} b={b} max={totalUsd} />)}
+      </div>
+    </div>
+  );
+}
+
+function SpendRow({ b, max }: { b: MockCostBucket; max: number }) {
+  const pct = Math.max((b.usd / max) * 100, 1);
+  const cachePct = b.inputTokens > 0 ? (b.cacheReadTokens / b.inputTokens) * 100 : 0;
+  return (
+    <div className="flex items-center gap-2 text-[11px]">
+      <span className="w-20 text-muted shrink-0 truncate">{b.role}</span>
+      <span className="w-14 text-[10px] text-muted/70 font-mono shrink-0">{b.engine}</span>
+      <div className="flex-1 h-3 bg-paper border border-warmline rounded relative overflow-hidden">
+        <div
+          className="absolute inset-y-0 left-0 bg-coral/80"
+          style={{ width: `${pct}%` }}
+        />
+        {cachePct > 0 && (
+          <div
+            className="absolute inset-y-0 left-0 bg-forest/40"
+            style={{ width: `${pct * (cachePct / 100)}%` }}
+            title={`${Math.round(cachePct)}% from cache`}
+          />
+        )}
+      </div>
+      <span className="w-14 text-right text-ink tabular-nums font-mono shrink-0">${b.usd.toFixed(2)}</span>
     </div>
   );
 }

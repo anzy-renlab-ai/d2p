@@ -168,4 +168,26 @@ describe('Queries: preset status + cost', () => {
     expect(t.outputTokens).toBe(100_000);
     expect(t.estimatedUsd).toBeGreaterThan(0);
   });
+
+  it('costAttribution groups per (role × engine) and surfaces cache tokens', () => {
+    const { q } = setup();
+    const p = process.platform === 'win32' ? 'D:\\demo-attr' : '/demo-attr';
+    const demo = q.upsertDemo(p);
+    const s = q.insertSession(demo.id);
+    q.insertCostRecord(s.id, 'implementer', 'sonnet', 500_000, 50_000, 'claude-cli',   300_000, 0);
+    q.insertCostRecord(s.id, 'implementer', 'sonnet', 200_000, 20_000, 'claude-cli',   100_000, 0);
+    q.insertCostRecord(s.id, 'alignment',   'haiku',  100_000, 10_000, 'minimax',       40_000, 0);
+    q.insertCostRecord(s.id, 'differ',      'sonnet',  50_000,  5_000, 'claude-cli',         0, 0);
+    const buckets = q.costAttribution(s.id, PRICING_PER_MTOK);
+    // We expect (implementer/claude-cli), (alignment/minimax), (differ/claude-cli)
+    expect(buckets).toHaveLength(3);
+    const imp = buckets.find((b) => b.role === 'implementer');
+    expect(imp).toBeDefined();
+    expect(imp!.inputTokens).toBe(700_000);
+    expect(imp!.cacheReadTokens).toBe(400_000);
+    expect(imp!.engine).toBe('claude-cli');
+    const align = buckets.find((b) => b.role === 'alignment');
+    expect(align?.engine).toBe('minimax');
+    expect(align?.cacheReadTokens).toBe(40_000);
+  });
 });

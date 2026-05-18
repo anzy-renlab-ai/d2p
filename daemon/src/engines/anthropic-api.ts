@@ -9,7 +9,12 @@ const API_VERSION = '2023-06-01';
 
 interface MessagesResponse {
   content?: { type?: string; text?: string }[];
-  usage?: { input_tokens?: number; output_tokens?: number };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
   error?: { message?: string };
 }
 
@@ -141,6 +146,8 @@ export class AnthropicApiEngine implements LLMEngine {
       usage: {
         inputTokens: parsed.usage?.input_tokens ?? 0,
         outputTokens: parsed.usage?.output_tokens ?? 0,
+        cacheReadTokens: parsed.usage?.cache_read_input_tokens ?? 0,
+        cacheWriteTokens: parsed.usage?.cache_creation_input_tokens ?? 0,
       },
     };
   }

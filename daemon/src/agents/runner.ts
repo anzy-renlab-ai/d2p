@@ -4,6 +4,8 @@ import { Queries } from '../storage/queries.js';
 import { sseHub } from '../log/sse.js';
 import type { ClaudeCallResult, ClaudeRole, ClaudeModel, LogEventKind } from '../types.js';
 import { PROMPTS_VERSION } from '../prompts/version.js';
+import { getActiveEngine, getCriticEngine } from '../engines/registry.js';
+import { CRITIC_ROLES } from '../engines/router.js';
 
 export interface RunAgentOpts<T> {
   role: ClaudeRole;
@@ -71,12 +73,20 @@ export async function runAgent<T>(
 
   // record cost + run row regardless of ok
   if (result.ok) {
+    // F4 — capture which engine actually answered so the attribution panel
+    // can split worker vs critic spend, and pull cache token counts when
+    // the provider exposes them (anthropic always; openai-compat per-provider).
+    const isCritic = CRITIC_ROLES.has(opts.role);
+    const engineId = isCritic ? getCriticEngine().id : getActiveEngine().id;
     q.insertCostRecord(
       opts.sessionId,
       opts.role,
       opts.model,
       result.usage.inputTokens,
       result.usage.outputTokens,
+      engineId,
+      result.usage.cacheReadTokens ?? 0,
+      result.usage.cacheWriteTokens ?? 0,
     );
   }
 

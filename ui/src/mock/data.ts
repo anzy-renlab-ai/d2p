@@ -136,6 +136,38 @@ export const mockCostTotals: CostTotals = {
   estimatedUsd: 1.27,
 };
 
+/** F4 — per-role spend attribution. Each row is one (role × engine) bucket
+ *  rolled up across all gap attempts in this session. Cache hit % is the share
+ *  of input tokens served from the provider's prompt cache. */
+export interface MockCostBucket {
+  role: 'detector' | 'vision' | 'differ' | 'implementer' | 'static-gate'
+      | 'alignment' | 'behavioral' | 'adversarial' | 'done-check';
+  engine: string;     // human label e.g. "claude-cli"
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  usd: number;
+}
+
+export const mockCostBuckets: MockCostBucket[] = [
+  { role: 'detector',    engine: 'claude-cli',  model: 'haiku',  inputTokens: 12_400,  outputTokens: 1_100,  cacheReadTokens: 0,        usd: 0.02 },
+  { role: 'vision',      engine: 'claude-cli',  model: 'haiku',  inputTokens: 28_900,  outputTokens: 6_300,  cacheReadTokens: 11_200,   usd: 0.05 },
+  { role: 'differ',      engine: 'claude-cli',  model: 'sonnet', inputTokens: 156_800, outputTokens: 18_200, cacheReadTokens: 102_300,  usd: 0.42 },
+  { role: 'implementer', engine: 'claude-cli',  model: 'sonnet', inputTokens: 198_400, outputTokens: 84_700, cacheReadTokens: 142_900,  usd: 0.61 },
+  { role: 'static-gate', engine: 'local',       model: '—',      inputTokens: 0,       outputTokens: 0,      cacheReadTokens: 0,        usd: 0.00 },
+  { role: 'alignment',   engine: 'minimax',     model: 'M2',     inputTokens: 38_400,  outputTokens: 4_200,  cacheReadTokens: 26_100,   usd: 0.06 },
+  { role: 'behavioral',  engine: 'minimax',     model: 'M2',     inputTokens: 41_300,  outputTokens: 8_600,  cacheReadTokens: 18_700,   usd: 0.09 },
+  { role: 'adversarial', engine: 'minimax',     model: 'M2',     inputTokens: 8_900,   outputTokens: 1_400,  cacheReadTokens: 3_200,    usd: 0.02 },
+  { role: 'done-check',  engine: 'minimax',     model: 'M2',     inputTokens: 2_300,   outputTokens: 400,    cacheReadTokens: 0,        usd: 0.00 },
+];
+
+export function mockCacheHitPct(buckets: MockCostBucket[] = mockCostBuckets): number {
+  const cached = buckets.reduce((s, b) => s + b.cacheReadTokens, 0);
+  const total = buckets.reduce((s, b) => s + b.inputTokens, 0);
+  return total === 0 ? 0 : Math.round((cached / total) * 100);
+}
+
 export const mockGaps: Gap[] = [
   {
     id: 101,

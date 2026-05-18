@@ -402,6 +402,11 @@ export interface RepoSummary {
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+  /** F4 — tokens served from the provider's prompt cache (anthropic cache_read,
+   *  openai-compat for providers that expose it). 0 when unsupported or first hit. */
+  cacheReadTokens?: number;
+  /** F4 — tokens billed to populate the cache (anthropic cache_creation, etc.). */
+  cacheWriteTokens?: number;
 }
 
 export type ClaudeCallResult<T = unknown> =

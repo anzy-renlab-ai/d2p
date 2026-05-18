@@ -4,6 +4,7 @@ import { m001Init } from './001-init.js';
 import { m002Presets } from './002-presets.js';
 import { m003Cost } from './003-cost.js';
 import { m004ModeGithub } from './004-mode-github.js';
+import { m005CostAttribution } from './005-cost-attribution.js';
 
 export interface Migration {
   version: number;
@@ -24,6 +25,7 @@ export const ALL_MIGRATIONS: readonly MigrationWithChecksum[] = [
   withChecksum(m002Presets),
   withChecksum(m003Cost),
   withChecksum(m004ModeGithub),
+  withChecksum(m005CostAttribution),
 ] as const;
 
 export class MigrationChecksumDriftError extends Error {
