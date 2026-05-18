@@ -111,6 +111,26 @@ export function PreviewIndex() {
           </div>
         </section>
 
+        <section className="mt-10 pt-6 border-t border-warmline">
+          <div className="text-xs font-mono text-coral uppercase tracking-widest mb-2">component preview</div>
+          <h2 className="text-2xl tracking-tight mb-3">Mockup-first phase</h2>
+          <p className="text-muted mb-5 leading-relaxed text-sm max-w-2xl">
+            vision finalize 后、differ 启动前，d2p 先用 HTML/CSS 画"成品预期"给用户看。
+            用户可 approve / 提建议修改 / 跳过。四个 state 各自独立可点。
+          </p>
+          <div className="flex flex-wrap gap-3">
+            {(['drafting', 'review', 'revising', 'approved'] as const).map((s) => (
+              <a
+                key={s}
+                href={`?preview=mockup-phase/${s}`}
+                className="px-4 py-2 rounded-md border border-warmline bg-cream hover:border-coral hover:bg-coralsoft/30 text-sm transition-colors font-mono"
+              >
+                mockup-phase / {s}
+              </a>
+            ))}
+          </div>
+        </section>
+
         <div className="mt-12 text-xs text-muted/70 font-serif italic">
           Production app stays at <code className="not-italic">/</code>; previews are URL-gated only.
         </div>

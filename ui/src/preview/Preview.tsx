@@ -9,18 +9,28 @@ import {
   mockMultiTurnPaused,
   startMockMultiTurnStream,
 } from '../mock/multiTurn.js';
+import {
+  mockupDrafting,
+  mockupReview,
+  mockupRevising,
+  mockupApproved,
+  type MockupPhaseState,
+} from '../mock/mockupPhase.js';
 import { PreviewIndex } from './PreviewIndex.js';
 import { variants, type VariantTrack, type VariantPage } from './variants/index.js';
 import { MultiTurnPanel } from '../components/MultiTurnPanel.js';
+import { MockupPhasePanel } from '../components/MockupPhasePanel.js';
 
 export type MultiTurnPreviewState = 'running' | 'paused' | 'finalizing' | 'done' | 'stream';
+export type MockupPreviewState = 'drafting' | 'review' | 'revising' | 'approved';
 
 export type PreviewParam =
   | { kind: 'variant'; track: VariantTrack; page: VariantPage }
   | { kind: 'multi-turn'; state: MultiTurnPreviewState }
+  | { kind: 'mockup-phase'; state: MockupPreviewState }
   | { kind: 'index' };
 
-/** Parses ?preview=track/page, ?preview=index, ?preview=multi-turn[/state]. */
+/** Parses ?preview=track/page, ?preview=index, ?preview=multi-turn[/state], ?preview=mockup-phase/<state>. */
 export function readPreviewParam(): PreviewParam | null {
   if (typeof window === 'undefined') return null;
   const sp = new URLSearchParams(window.location.search);
@@ -33,6 +43,11 @@ export function readPreviewParam(): PreviewParam | null {
     const state = (parts[1] ?? 'stream') as MultiTurnPreviewState;
     const allowed: MultiTurnPreviewState[] = ['running', 'paused', 'finalizing', 'done', 'stream'];
     return { kind: 'multi-turn', state: allowed.includes(state) ? state : 'stream' };
+  }
+  if (head === 'mockup-phase') {
+    const state = (parts[1] ?? 'review') as MockupPreviewState;
+    const allowed: MockupPreviewState[] = ['drafting', 'review', 'revising', 'approved'];
+    return { kind: 'mockup-phase', state: allowed.includes(state) ? state : 'review' };
   }
   const [track, page] = parts;
   if (!track || !page) return { kind: 'index' };
@@ -67,6 +82,10 @@ export function Preview() {
       }
       return;
     }
+    if (param.kind === 'mockup-phase') {
+      // mockup-phase preview is fully self-contained — no store required
+      return;
+    }
     const { page } = param;
     if (page === 'landing') {
       useStore.setState(mockStoreFor({ empty: true }));
@@ -97,6 +116,28 @@ export function Preview() {
       </div>
     );
   }
+  if (param.kind === 'mockup-phase') {
+    const stateMap: Record<MockupPreviewState, MockupPhaseState> = {
+      drafting: mockupDrafting,
+      review: mockupReview,
+      revising: mockupRevising,
+      approved: mockupApproved,
+    };
+    const mockState = stateMap[param.state];
+    return (
+      <div className="h-screen bg-paper text-ink flex flex-col pt-9 overflow-hidden">
+        <MockupPhasePreviewToolbar state={param.state} />
+        <div className="flex-1 overflow-hidden bg-paper border border-warmline rounded-lg m-4 shadow-card flex flex-col">
+          <MockupPhasePanel
+            state={mockState}
+            onApprove={() => undefined}
+            onRevise={() => undefined}
+            onSkip={() => undefined}
+          />
+        </div>
+      </div>
+    );
+  }
   const Component = variants[param.track][param.page];
   return (
     <div>
@@ -110,6 +151,7 @@ function paramToKey(p: PreviewParam | null): string {
   if (!p) return 'none';
   if (p.kind === 'index') return 'index';
   if (p.kind === 'multi-turn') return `mt/${p.state}`;
+  if (p.kind === 'mockup-phase') return `mockup/${p.state}`;
   return `${p.track}/${p.page}`;
 }
 
@@ -210,6 +252,30 @@ function MultiTurnPreviewToolbar({ state }: { state: MultiTurnPreviewState }) {
         ))}
       </span>
       <span className="text-cream/40">mock data · 6h cap · no daemon</span>
+    </div>
+  );
+}
+
+function MockupPhasePreviewToolbar({ state }: { state: MockupPreviewState }) {
+  const STATES: MockupPreviewState[] = ['drafting', 'review', 'revising', 'approved'];
+  return (
+    <div className="fixed top-0 left-0 right-0 z-50 bg-ink text-cream text-xs px-4 py-1.5 flex items-center justify-between font-mono">
+      <span>
+        <a href="?preview=index" className="text-cream hover:text-coral">← all variants</a>
+        <span className="mx-2 text-cream/40">·</span>
+        <span className="text-cream/70">mockup-first phase</span>
+        <span className="mx-2 text-cream/40">·</span>
+        {STATES.map((s) => (
+          <a
+            key={s}
+            href={`?preview=mockup-phase/${s}`}
+            className={`mr-2 ${state === s ? 'text-coral' : 'text-cream/70 hover:text-cream'}`}
+          >
+            {s}
+          </a>
+        ))}
+      </span>
+      <span className="text-cream/40">mock data · no daemon</span>
     </div>
   );
 }
