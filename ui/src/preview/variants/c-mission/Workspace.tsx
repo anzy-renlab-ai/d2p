@@ -8,6 +8,12 @@ export function WorkspaceC() {
   const pct = Math.round((done / items.length) * 100);
   return (
     <div className="h-screen bg-paper flex flex-col pt-10">
+      {/* F3 pathology row — surfaces detected agent failure modes
+          (fixation / thrash / critic-bias / runaway-cost) before the user
+          notices something feels wrong. Inspired by publicly-documented
+          Devin / Replit failure signatures. */}
+      <PathologyBar />
+
       {/* Top bar — mission status */}
       <header className="border-b border-warmline bg-cream px-6 py-3 grid grid-cols-12 gap-4 items-center">
         <div className="col-span-3">
@@ -261,6 +267,54 @@ function Stage({ n, name, model, engine, role, status, time }: {
       </span>
       <span className="text-xs text-muted tabular-nums">{time ?? '—'}</span>
     </div>
+  );
+}
+
+function PathologyBar() {
+  // Mock-state: one warning + one info, two clean. In production these come
+  // from PATHOLOGY_DETECTED SSE events emitted by the daemon's pathology
+  // detector (health/pathology.ts).
+  const pathologies = [
+    {
+      id: 'fixation',
+      label: 'Fixation',
+      level: 'warn' as const,
+      detail: 'mobile-workspace-responsive · 3 attempts in a row hit the same files w/ reviewer rejection',
+    },
+    {
+      id: 'critic-bias',
+      label: 'Critic bias',
+      level: 'info' as const,
+      detail: 'reviewer agreement rate 0.42 over last 8 attempts — consider adding 2nd engine',
+    },
+    { id: 'thrash',        label: 'Thrash',        level: 'ok' as const, detail: '0 reverts in 30m' },
+    { id: 'runaway-cost',  label: 'Cost runaway',  level: 'ok' as const, detail: '$0.03/min · within budget' },
+  ];
+  return (
+    <div className="bg-paper border-b border-warmline px-6 py-2 flex items-center gap-2">
+      <span className="text-[10px] uppercase tracking-widest text-muted mr-1">agent health</span>
+      {pathologies.map((p) => <PathologyBadge key={p.id} {...p} />)}
+      <span className="ml-auto text-[10px] text-muted/70 italic font-serif">grounded in Devin/Replit failure signatures</span>
+    </div>
+  );
+}
+
+function PathologyBadge({ label, level, detail }: { label: string; level: 'ok' | 'info' | 'warn' | 'crit'; detail: string }) {
+  const styles = {
+    ok:   'bg-forest/10 text-forest border-forest/30',
+    info: 'bg-coralsoft/40 text-coral border-coral/40',
+    warn: 'bg-coral/15 text-coral border-coral/50 ring-1 ring-coral/30',
+    crit: 'bg-rust/10 text-rust border-rust/50 ring-2 ring-rust/40 animate-pulse',
+  }[level];
+  const icon = { ok: '✓', info: '·', warn: '⚠', crit: '⚡' }[level];
+  return (
+    <span
+      title={detail}
+      className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border ${styles} cursor-pointer`}
+    >
+      <span>{icon}</span>
+      <span>{label}</span>
+    </span>
   );
 }
 

@@ -158,7 +158,18 @@ export type LogEventKind =
   | 'SESSION_DONE'
   | 'SESSION_ENDED'
   | 'SESSION_CRASH_RECOVERED'
+  | 'PATHOLOGY_DETECTED'
+  | 'PATHOLOGY_CLEARED'
   | 'ERROR';
+
+/** F3 — agent failure-mode signatures we surface as Mission Control badges. */
+export type PathologyKind =
+  | 'fixation'      // same gap, ≥N attempts in a row with reviewer rejection
+  | 'thrash'        // >X% of recent merges reverted within Y minutes
+  | 'critic-bias'   // reviewer disagreement rate exceeds threshold (suggests cross-engine off)
+  | 'runaway-cost'; // spend rate per gap > threshold
+
+export type PathologyLevel = 'info' | 'warn' | 'crit';
 
 // ─── Branded path types ────────────────────────────────────────────────────
 
