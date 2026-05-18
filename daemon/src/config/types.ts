@@ -48,6 +48,20 @@ export interface GitHubConfig {
   authorEmail?: string;
 }
 
+/** F6 — per-session cost budget. softUsd warns + (optionally) degrades the
+ *  model tier; hardUsd aborts in-flight work. Users on token-plans (MiniMax,
+ *  DeepSeek, …) leave d2p running for hours; the budget is what makes that
+ *  comfortable — like Replit Agent 3's effort-based billing but visible. */
+export interface CostBudget {
+  /** Soft threshold in USD — when crossed, react per `onSoftBreach`. */
+  softUsd: number;
+  /** Hard ceiling in USD — when crossed, refuse new calls + emit BUDGET_HIT. */
+  hardUsd: number;
+  /** What to do on soft breach. `downgrade` flips the next call's requested
+   *  tier (sonnet → haiku); `pause` requests a loop pause. */
+  onSoftBreach: 'downgrade' | 'pause';
+}
+
 export interface AppConfig {
   /** The worker — runs detector, vision, differ, implementer, repo-summary. */
   engine: EngineConfig;
@@ -56,6 +70,8 @@ export interface AppConfig {
    *  proceeds in degraded mode and surfaces a "cross-family OFF" warning in
    *  the UI. See engines/router.ts for the policy. */
   criticEngine?: EngineConfig;
+  /** Optional F6 budget cap. Omit to opt out (unbounded). */
+  costBudget?: CostBudget;
   github?: GitHubConfig;
 }
 

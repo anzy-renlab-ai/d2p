@@ -47,10 +47,18 @@ const GitHubSchema = z.object({
   authorEmail: z.string().optional(),
 });
 
+const CostBudgetSchema = z.object({
+  softUsd: z.number().positive(),
+  hardUsd: z.number().positive(),
+  onSoftBreach: z.enum(['downgrade', 'pause']).default('downgrade'),
+}).refine((b) => b.hardUsd >= b.softUsd, { message: 'hardUsd must be >= softUsd' });
+
 export const AppConfigSchema = z.object({
   engine: EngineSchema,
   /** F1: optional second engine used by reviewer roles (cross-family critic). */
   criticEngine: EngineSchema.optional(),
+  /** F6: optional cost budget cap. */
+  costBudget: CostBudgetSchema.optional(),
   github: GitHubSchema.optional(),
 });
 

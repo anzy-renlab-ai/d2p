@@ -38,6 +38,7 @@ export function WorkspaceC() {
         <div className="col-span-1">
           <Big label="spend" v="$1.27" />
           <div className="text-[9px] text-forest mt-0.5">cache · {mockCacheHitPct()}%</div>
+          <BudgetCapBar spentUsd={1.27} softUsd={5} hardUsd={10} />
         </div>
         <div className="col-span-2 flex items-center justify-end gap-2">
           <button className="px-3 py-1.5 border border-warmline text-xs rounded-md hover:border-coral">Pause ⏸</button>
@@ -282,6 +283,33 @@ function Stage({ n, name, model, engine, role, status, time }: {
         <span className="text-xs text-muted">{engine !== '—' ? `${engine} · ${model}` : model}</span>
       </span>
       <span className="text-xs text-muted tabular-nums">{time ?? '—'}</span>
+    </div>
+  );
+}
+
+function BudgetCapBar({ spentUsd, softUsd, hardUsd }: { spentUsd: number; softUsd: number; hardUsd: number }) {
+  const pct = Math.min((spentUsd / hardUsd) * 100, 100);
+  const softPct = (softUsd / hardUsd) * 100;
+  const overSoft = spentUsd >= softUsd;
+  const overHard = spentUsd >= hardUsd;
+  return (
+    <div className="mt-1.5" title={`spent $${spentUsd.toFixed(2)} · soft $${softUsd} · hard $${hardUsd}`}>
+      <div className="relative h-1 bg-paper border border-warmline rounded-full overflow-hidden">
+        <div
+          className={`absolute inset-y-0 left-0 ${overHard ? 'bg-rust' : overSoft ? 'bg-coral' : 'bg-forest'}`}
+          style={{ width: `${pct}%` }}
+        />
+        <div
+          className="absolute top-0 bottom-0 w-px bg-coral/60"
+          style={{ left: `${softPct}%` }}
+          title={`soft cap $${softUsd}`}
+        />
+      </div>
+      <div className="flex justify-between text-[9px] text-muted/70 mt-0.5">
+        <span>$0</span>
+        <span className="text-coral/70">soft ${softUsd}</span>
+        <span>${hardUsd}</span>
+      </div>
     </div>
   );
 }

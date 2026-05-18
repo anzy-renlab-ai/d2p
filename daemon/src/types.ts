@@ -160,6 +160,8 @@ export type LogEventKind =
   | 'SESSION_CRASH_RECOVERED'
   | 'PATHOLOGY_DETECTED'
   | 'PATHOLOGY_CLEARED'
+  | 'BUDGET_SOFT_BREACH'
+  | 'BUDGET_HARD_BREACH'
   | 'ERROR';
 
 /** F3 — agent failure-mode signatures we surface as Mission Control badges. */
