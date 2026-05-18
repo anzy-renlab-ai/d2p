@@ -7,7 +7,10 @@ import {
   readPreset,
   readOverrides,
   applyOverridesToStatus,
+  partitionByMechanism,
 } from './loader.js';
+import { PRESET_CORE_ITEMS, corePresetItemsForType, countItemsByMechanism } from './items-core.js';
+import { ALL_PRESET_MECHANISMS } from '../types.js';
 
 async function withPresetsDir(): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'd2p-presets-test-'));
@@ -103,6 +106,89 @@ describe('readOverrides', () => {
     const ov = await readOverrides(demo);
     expect(ov).toEqual({ add: [], remove: [], skip: [] });
     await rm(demo, { recursive: true, force: true });
+  });
+});
+
+describe('PRESET_CORE_ITEMS (32-item source-of-truth)', () => {
+  it('has 32 items', () => {
+    expect(PRESET_CORE_ITEMS).toHaveLength(32);
+  });
+
+  it('every item has all required fields', () => {
+    for (const it of PRESET_CORE_ITEMS) {
+      expect(it.id).toMatch(/^[a-z][a-z0-9-]{1,63}$/);
+      expect(it.label.length).toBeGreaterThan(0);
+      expect(['P1', 'P2', 'P3']).toContain(it.severity);
+      expect(ALL_PRESET_MECHANISMS).toContain(it.mechanism);
+      expect(it.source.length).toBeGreaterThan(0);
+      expect(it.appliesTo.length).toBeGreaterThan(0);
+      for (const letter of it.appliesTo) expect(letter).toMatch(/^[A-Z]{1,3}$/);
+    }
+  });
+
+  it('every id is unique', () => {
+    const ids = PRESET_CORE_ITEMS.map((i) => i.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('covers all 5 mechanism kinds', () => {
+    const counts = countItemsByMechanism([...PRESET_CORE_ITEMS]);
+    for (const m of ALL_PRESET_MECHANISMS) {
+      expect(counts[m] ?? 0, `mechanism ${m} should have ≥1 item`).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('corePresetItemsForType', () => {
+  it('saas-web includes web-only items + universal items', () => {
+    const items = corePresetItemsForType('saas-web');
+    expect(items.find((i) => i.id === 'auth-on-mutating-routes')).toBeDefined();
+    expect(items.find((i) => i.id === 'license-file')).toBeDefined();
+    expect(items.find((i) => i.id === 'package-publishable'), 'library-only').toBeUndefined();
+  });
+
+  it('library includes package-publishable + excludes web-only items', () => {
+    const items = corePresetItemsForType('library');
+    expect(items.find((i) => i.id === 'package-publishable')).toBeDefined();
+    expect(items.find((i) => i.id === 'auth-on-mutating-routes'), 'web-only').toBeUndefined();
+  });
+
+  it('cli-tool excludes web/static items', () => {
+    const items = corePresetItemsForType('cli-tool');
+    expect(items.find((i) => i.id === 'a11y-axe-clean'), 'web/static only').toBeUndefined();
+    expect(items.find((i) => i.id === 'viewport-meta'), 'web/static/mobile only').toBeUndefined();
+    expect(items.find((i) => i.id === 'readme-quickstart')).toBeDefined();
+  });
+
+  it('unknown returns the full list', () => {
+    expect(corePresetItemsForType('unknown')).toHaveLength(32);
+  });
+});
+
+describe('partitionByMechanism', () => {
+  it('splits cross-file-cohesion + llm-judgment to reviewer, rest to mechanical', () => {
+    const items = corePresetItemsForType('saas-web');
+    const { mechanical, reviewer } = partitionByMechanism(items);
+    for (const it of mechanical) {
+      expect(['static-grep', 'file-exists', 'test-execution']).toContain(it.mechanism);
+    }
+    for (const it of reviewer) {
+      expect(['cross-file-cohesion', 'llm-judgment']).toContain(it.mechanism);
+    }
+    expect(mechanical.length + reviewer.length).toBe(items.length);
+  });
+});
+
+describe('readPreset with auto-filled items', () => {
+  it('falls back to corePresetItemsForType when frontmatter lacks items', async () => {
+    const dir = await withPresetsDir();
+    const p = await readPreset('cli-tool', dir);
+    expect(p.frontmatter.items).toBeDefined();
+    expect(p.frontmatter.items!.length).toBeGreaterThan(0);
+    // cli-tool should NOT pick up web-only items
+    expect(p.frontmatter.items!.find((i) => i.id === 'auth-on-mutating-routes')).toBeUndefined();
+    expect(p.frontmatter.items!.find((i) => i.id === 'readme-quickstart')).toBeDefined();
+    await rm(dir, { recursive: true, force: true });
   });
 });
 

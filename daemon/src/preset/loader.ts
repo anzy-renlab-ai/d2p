@@ -6,12 +6,24 @@ import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import type {
   PresetFrontmatter,
+  PresetItem,
   PresetOverrides,
   ProjectType,
   PresetStatusItem,
   GapCategory,
+  PresetMechanism,
 } from '../types.js';
-import { ALL_GAP_CATEGORIES } from '../types.js';
+import { ALL_GAP_CATEGORIES, ALL_PRESET_MECHANISMS } from '../types.js';
+import { corePresetItemsForType } from './items-core.js';
+
+const PresetItemSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/, 'id must be lower-kebab'),
+  label: z.string().min(1),
+  severity: z.enum(['P1', 'P2', 'P3']),
+  mechanism: z.enum(ALL_PRESET_MECHANISMS as unknown as [PresetMechanism, ...PresetMechanism[]]),
+  source: z.string().min(1),
+  appliesTo: z.array(z.string().regex(/^[A-Z]{1,3}$/)).min(1),
+});
 
 const PresetFrontmatterSchema = z.object({
   type: z.string().min(1),
@@ -21,6 +33,7 @@ const PresetFrontmatterSchema = z.object({
   high_sensitivity_categories: z
     .array(z.enum(ALL_GAP_CATEGORIES as unknown as [GapCategory, ...GapCategory[]]))
     .optional(),
+  items: z.array(PresetItemSchema).optional(),
 });
 
 const PresetOverridesSchema = z.object({
@@ -72,7 +85,31 @@ export async function readPreset(
   if (!fmResult.success) {
     throw new Error(`invalid preset frontmatter ${type}: ${fmResult.error.message}`);
   }
-  return { frontmatter: fmResult.data as PresetFrontmatter, body: parsed.content, raw };
+  const frontmatter = fmResult.data as PresetFrontmatter;
+  // Fill items from the core source-of-truth when the preset author hasn't
+  // explicitly defined them. Per-type files can override by listing items in
+  // frontmatter; otherwise the 32-item core list filtered by appliesTo wins.
+  if (!frontmatter.items || frontmatter.items.length === 0) {
+    frontmatter.items = corePresetItemsForType(type as ProjectType);
+  }
+  return { frontmatter, body: parsed.content, raw };
+}
+
+/** Items partitioned by mechanism — handy for reviewer-routing decisions. */
+export function partitionByMechanism(items: PresetItem[]): {
+  mechanical: PresetItem[];   // static-grep | file-exists | test-execution
+  reviewer: PresetItem[];     // cross-file-cohesion | llm-judgment
+} {
+  const mechanical: PresetItem[] = [];
+  const reviewer: PresetItem[] = [];
+  for (const it of items) {
+    if (it.mechanism === 'cross-file-cohesion' || it.mechanism === 'llm-judgment') {
+      reviewer.push(it);
+    } else {
+      mechanical.push(it);
+    }
+  }
+  return { mechanical, reviewer };
 }
 
 export async function readOverrides(demoPath: string): Promise<PresetOverrides> {

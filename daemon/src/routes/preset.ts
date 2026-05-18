@@ -43,7 +43,7 @@ presetRoutes.post('/choose', async (c) => {
   }
   queries.setSessionPresetType(session.id, body.type as ProjectType);
   emit(queries, session.id, 'PRESET_CHOSEN', { type: body.type });
-  return c.json({ type: body.type, presetMd: preset.raw });
+  return c.json({ type: body.type, presetMd: preset.raw, items: preset.frontmatter.items ?? [] });
 });
 
 presetRoutes.get('/current', async (c) => {
@@ -60,6 +60,7 @@ presetRoutes.get('/current', async (c) => {
   return c.json({
     type: session.presetType,
     presetMd: preset?.raw ?? null,
+    items: preset?.frontmatter.items ?? [],
     overrides,
     statusLatest,
   });

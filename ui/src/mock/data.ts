@@ -49,6 +49,66 @@ export const mockSession = (status: SessionStatus = 'LOOPING'): Session => ({
   baseBranch: 'main',
 });
 
+/** Rich mock preset item — adds mechanism + source + appliesTo on top of the
+ *  daemon's current {item,status,note} shape. F2's daemon work will eventually
+ *  promote these fields into the real DTO; for now they live alongside as
+ *  designer-driven mock state. */
+export type MockMechanism =
+  | 'static-grep'
+  | 'file-exists'
+  | 'test-execution'
+  | 'cross-file-cohesion'
+  | 'llm-judgment';
+
+export interface MockPresetItem {
+  id: string;
+  label: string;
+  severity: 'P1' | 'P2' | 'P3';
+  mechanism: MockMechanism;
+  source: string;          // e.g. "OWASP-A02:2025", "12F-VII", "WCAG-1.4.3"
+  appliesTo: string[];     // W A C L S M D ML
+  status: 'done' | 'partial' | 'missing';
+  note: string | null;
+}
+
+/** 32-item curated checklist drawn from 12-Factor, OWASP Top 10:2025, Google
+ *  SRE Launch, WCAG 2.2 AA, OpenSSF Scorecard, and per-target conformance
+ *  gates. Source: docs/plans/2026-05-13-track-c-features.md F2 table. */
+export const mockPresetItemsRich: MockPresetItem[] = [
+  { id: 'build-typecheck',          label: 'Typecheck / compile passes clean',         severity: 'P1', mechanism: 'test-execution',      source: 'base',          appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'done',    note: 'tsc --noEmit · 0 errors' },
+  { id: 'build-reproducible',       label: 'Build command exits 0 on clean checkout',  severity: 'P1', mechanism: 'test-execution',      source: '12F-V',         appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'done',    note: null },
+  { id: 'test-runner-present',      label: 'Test runner configured + ≥1 test file',    severity: 'P1', mechanism: 'file-exists',         source: 'base',          appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'done',    note: 'vitest' },
+  { id: 'test-happy-path-passes',   label: 'npm test exits 0',                          severity: 'P1', mechanism: 'test-execution',      source: 'base',          appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'done',    note: '12 / 12 passing' },
+  { id: 'test-edge-cases',          label: '≥1 negative test per public function',     severity: 'P2', mechanism: 'llm-judgment',        source: 'base',          appliesTo: ['L','A','C','ML'],                 status: 'partial', note: 'login flow only' },
+  { id: 'readme-quickstart',        label: 'README has fenced install + run block',    severity: 'P1', mechanism: 'static-grep',         source: 'base',          appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'done',    note: null },
+  { id: 'license-file',             label: 'LICENSE present + SPDX-recognized',        severity: 'P1', mechanism: 'file-exists',         source: 'OpenSSF',       appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'done',    note: 'MIT' },
+  { id: 'env-example',              label: '.env.example covers every env var read',   severity: 'P1', mechanism: 'cross-file-cohesion', source: '12F-III',       appliesTo: ['W','A'],                          status: 'done',    note: '6 vars documented' },
+  { id: 'no-hardcoded-secrets',     label: 'No hardcoded API keys / passwords',        severity: 'P1', mechanism: 'static-grep',         source: 'OWASP-A02:2025',appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'done',    note: null },
+  { id: 'lockfile-present',         label: 'Dependency lockfile committed',            severity: 'P1', mechanism: 'file-exists',         source: 'OpenSSF',       appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'done',    note: 'package-lock.json' },
+  { id: 'deps-no-high-vuln',        label: 'npm audit / pip-audit · 0 high',           severity: 'P1', mechanism: 'test-execution',      source: 'OWASP-A03:2025',appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'done',    note: '0 high · 2 moderate' },
+  { id: 'port-from-env',            label: 'Server reads PORT from env',               severity: 'P1', mechanism: 'static-grep',         source: '12F-VII',       appliesTo: ['W','A'],                          status: 'done',    note: null },
+  { id: 'sigterm-handler',          label: 'Graceful shutdown on SIGTERM',             severity: 'P2', mechanism: 'static-grep',         source: '12F-IX',        appliesTo: ['W','A','D'],                      status: 'missing', note: null },
+  { id: 'stdout-logging',           label: 'Logs go to stdout (not files)',            severity: 'P2', mechanism: 'static-grep',         source: '12F-XI',        appliesTo: ['W','A','C'],                      status: 'partial', note: '1 file handler in src/audit.ts' },
+  { id: 'health-endpoint',          label: 'GET /health returns 200',                  severity: 'P1', mechanism: 'static-grep',         source: 'SRE',           appliesTo: ['W','A'],                          status: 'missing', note: null },
+  { id: 'structured-logs',          label: 'Logs parseable JSON / carry request id',   severity: 'P2', mechanism: 'cross-file-cohesion', source: 'SRE',           appliesTo: ['W','A'],                          status: 'missing', note: 'observability gap' },
+  { id: 'error-handler-present',    label: 'Top-level error handler / boundary',       severity: 'P2', mechanism: 'llm-judgment',        source: 'OWASP-A10:2025',appliesTo: ['W','A','D'],                      status: 'missing', note: null },
+  { id: 'auth-on-mutating-routes',  label: 'Non-GET routes covered by auth',           severity: 'P1', mechanism: 'llm-judgment',        source: 'OWASP-A01:2025',appliesTo: ['W','A'],                          status: 'done',    note: 'middleware audited' },
+  { id: 'password-hash-strong',     label: 'bcrypt / argon2 / scrypt only',            severity: 'P1', mechanism: 'static-grep',         source: 'OWASP-A04:2025',appliesTo: ['W','A'],                          status: 'done',    note: 'argon2' },
+  { id: 'https-only-prod',          label: 'No http:// in prod config · cookies Secure',severity:'P1', mechanism: 'static-grep',         source: 'OWASP-A02:2025',appliesTo: ['W','A'],                          status: 'done',    note: null },
+  { id: 'rate-limit-public',        label: 'Public routes wrapped in rate-limit',      severity: 'P2', mechanism: 'static-grep',         source: 'base',          appliesTo: ['W','A'],                          status: 'partial', note: 'auth routes only' },
+  { id: 'sql-parameterized',        label: 'No string-concat into SQL execute',        severity: 'P1', mechanism: 'static-grep',         source: 'OWASP-A05:2025',appliesTo: ['W','A','ML'],                     status: 'done',    note: null },
+  { id: 'cors-not-wildcard',        label: 'No Origin:* with credentials',             severity: 'P1', mechanism: 'static-grep',         source: 'OWASP-A02:2025',appliesTo: ['W','A'],                          status: 'done',    note: null },
+  { id: 'a11y-axe-clean',           label: 'axe-core · 0 serious violations',          severity: 'P1', mechanism: 'test-execution',      source: 'WebAIM',        appliesTo: ['W','S'],                          status: 'missing', note: 'not yet run' },
+  { id: 'viewport-meta',            label: '<meta viewport> present',                  severity: 'P2', mechanism: 'static-grep',         source: 'base',          appliesTo: ['W','S','M'],                      status: 'done',    note: null },
+  { id: 'error-boundary',           label: 'Root-level error boundary component',      severity: 'P2', mechanism: 'static-grep',         source: 'base',          appliesTo: ['W','S'],                          status: 'missing', note: null },
+  { id: 'ci-pipeline',              label: 'CI runs test + build on PR',               severity: 'P2', mechanism: 'file-exists',         source: 'OpenSSF',       appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'missing', note: null },
+  { id: 'ci-token-perms',           label: 'workflows set permissions explicitly',     severity: 'P2', mechanism: 'static-grep',         source: 'OpenSSF',       appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'missing', note: null },
+  { id: 'deploy-config',            label: 'Target deploy config valid',               severity: 'P1', mechanism: 'file-exists',         source: 'Vercel/Fly',    appliesTo: ['W','A','L'],                      status: 'missing', note: 'vercel.json needed' },
+  { id: 'package-publishable',      label: 'npm pack / python -m build succeeds',      severity: 'P1', mechanism: 'test-execution',      source: 'npm/PyPI',      appliesTo: ['L'],                              status: 'missing', note: 'lib track only' },
+  { id: 'binary-not-committed',     label: 'No *.exe / *.dll outside dist/',           severity: 'P3', mechanism: 'static-grep',         source: 'OpenSSF',       appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'done',    note: null },
+  { id: 'vision-verdict',           label: 'Product matches user vision',              severity: 'P1', mechanism: 'llm-judgment',        source: 'd2p-native',    appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'partial', note: 'logging gap noted' },
+];
+
 export const mockPresetStatus: PresetStatusItem[] = [
   { item: 'has-typecheck-script', status: 'done', note: 'tsc --noEmit passes' },
   { item: 'has-build-script', status: 'done', note: null },

@@ -1,4 +1,10 @@
+import { mockPresetItemsRich, type MockPresetItem, type MockMechanism } from '../../../mock/data.js';
+
 export function DoneC() {
+  // On the done page all preset items have flipped to 'done' (double-green).
+  const items = mockPresetItemsRich
+    .filter((i) => i.appliesTo.includes('W'))
+    .map((i) => ({ ...i, status: 'done' as const }));
   return (
     <div className="min-h-screen bg-paper pt-10">
       <div className="max-w-5xl mx-auto px-8 py-10">
@@ -91,9 +97,66 @@ export function DoneC() {
             </section>
           </aside>
         </div>
+
+        {/* Preset breakdown — what was actually checked and how */}
+        <section className="card mt-6">
+          <div className="card-header flex items-center justify-between">
+            <span>Preset breakdown · <span className="text-forest font-mono text-xs">{items.length} / {items.length}</span></span>
+            <div className="flex items-center gap-2 text-[10px] text-muted">
+              <LegendDot mech="static-grep" /> static-grep
+              <LegendDot mech="file-exists" /> file-exists
+              <LegendDot mech="test-execution" /> test-exec
+              <LegendDot mech="cross-file-cohesion" /> cross-file
+              <LegendDot mech="llm-judgment" /> llm-judgment
+            </div>
+          </div>
+          <div className="p-5">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-widest text-muted">
+                  <th className="text-left pb-2 font-medium">item</th>
+                  <th className="text-left pb-2 font-medium w-24">severity</th>
+                  <th className="text-left pb-2 font-medium w-32">mechanism</th>
+                  <th className="text-left pb-2 font-medium w-32">source</th>
+                  <th className="text-right pb-2 font-medium w-16">status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-warmline">
+                {items.map((it) => (
+                  <tr key={it.id} className="hover:bg-paper">
+                    <td className="py-2">
+                      <div className="font-mono">{it.id}</div>
+                      <div className="text-[10px] text-muted">{it.label}</div>
+                    </td>
+                    <td><span className="font-mono">{it.severity}</span></td>
+                    <td>
+                      <span className={`inline-block px-2 py-0.5 rounded border ${MECH_COLOR[it.mechanism]}`}>
+                        {it.mechanism}
+                      </span>
+                    </td>
+                    <td className="font-mono text-muted">{it.source}</td>
+                    <td className="text-right text-forest">✓</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
     </div>
   );
+}
+
+const MECH_COLOR: Record<MockMechanism, string> = {
+  'static-grep':          'bg-muted/20 text-muted border-muted/40',
+  'file-exists':          'bg-warmline text-ink border-warmline',
+  'test-execution':       'bg-forest/15 text-forest border-forest/40',
+  'cross-file-cohesion':  'bg-coral/15 text-coral border-coral/40',
+  'llm-judgment':         'bg-ink/10 text-ink border-ink/40',
+};
+
+function LegendDot({ mech }: { mech: MockMechanism }) {
+  return <span className={`inline-block w-2 h-2 rounded-sm border ${MECH_COLOR[mech]}`} />;
 }
 
 function Kpi({ label, v, sub, pct, ok }: { label: string; v: string; sub?: string; pct?: number; ok?: boolean }) {

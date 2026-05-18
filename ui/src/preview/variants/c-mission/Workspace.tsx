@@ -1,4 +1,11 @@
+import { useState } from 'react';
+import { mockPresetItemsRich, type MockPresetItem, type MockMechanism } from '../../../mock/data.js';
+
 export function WorkspaceC() {
+  const [rightTab, setRightTab] = useState<'stream' | 'preset'>('stream');
+  const items = mockPresetItemsRich.filter((i) => i.appliesTo.includes('W'));
+  const done = items.filter((i) => i.status === 'done').length;
+  const pct = Math.round((done / items.length) * 100);
   return (
     <div className="h-screen bg-paper flex flex-col pt-10">
       {/* Top bar — mission status */}
@@ -12,8 +19,8 @@ export function WorkspaceC() {
         <div className="col-span-1"><Big label="inflight" v="1" color="text-coral" /></div>
         <div className="col-span-1"><Big label="queue" v="4" /></div>
         <div className="col-span-2">
-          <div className="text-[10px] uppercase tracking-widest text-muted">preset · 12 / 18</div>
-          <Gauge pct={67} />
+          <div className="text-[10px] uppercase tracking-widest text-muted">preset · {done} / {items.length}</div>
+          <Gauge pct={pct} />
         </div>
         <div className="col-span-1"><Big label="spend" v="$1.27" /></div>
         <div className="col-span-2 flex items-center justify-end gap-2">
@@ -83,31 +90,102 @@ export function WorkspaceC() {
           </div>
         </section>
 
-        {/* Right — live stream */}
+        {/* Right — tabbed: live stream | preset breakdown */}
         <aside className="col-span-3 card overflow-hidden flex flex-col">
-          <div className="card-header text-sm flex items-center justify-between">
-            <span>Live stream</span>
-            <span className="inline-flex items-center gap-1.5 text-xs text-coral">
-              <span className="w-1.5 h-1.5 rounded-full bg-coral animate-pulse" /> 32
-            </span>
+          <div className="card-header flex items-stretch p-0">
+            <button
+              onClick={() => setRightTab('stream')}
+              className={`flex-1 px-4 py-2.5 text-sm flex items-center justify-between transition-colors ${
+                rightTab === 'stream' ? 'bg-cream border-b-2 border-coral' : 'bg-paper text-muted hover:text-ink'
+              }`}
+            >
+              <span>Live stream</span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-coral">
+                <span className="w-1.5 h-1.5 rounded-full bg-coral animate-pulse" /> 32
+              </span>
+            </button>
+            <button
+              onClick={() => setRightTab('preset')}
+              className={`flex-1 px-4 py-2.5 text-sm flex items-center justify-between transition-colors border-l border-warmline ${
+                rightTab === 'preset' ? 'bg-cream border-b-2 border-coral' : 'bg-paper text-muted hover:text-ink'
+              }`}
+            >
+              <span>Preset</span>
+              <span className="text-xs text-muted">{done}/{items.length}</span>
+            </button>
           </div>
-          <div className="flex-1 overflow-y-auto p-2 text-[11px] font-mono leading-relaxed space-y-0">
-            <Stream t="00:00:14" k="LOOP_STARTED" />
-            <Stream t="00:00:34" k="DIFF_PRODUCED" p="+11" />
-            <Stream t="00:00:39" k="FIX_COMMITTED" p="a1b2c3d" />
-            <Stream t="00:00:52" k="MERGED" p="a1b2c3d" ok />
-            <Stream t="00:01:14" k="GAP_PICKED" p="env-example" />
-            <Stream t="00:01:32" k="MERGED" p="b2c3d4e" ok />
-            <Stream t="00:01:45" k="GAP_PICKED" p="obs-logging" hi />
-            <Stream t="00:01:46" k="WORKTREE_CREATED" />
-            <Stream t="00:01:48" k="AGENT_START" p="implementer/sonnet" />
-            <Stream t="00:02:15" k="FIX_COMMITTED" p="c3d4e5f" />
-            <Stream t="00:02:18" k="STATIC_GATE" p="✓" ok />
-            <Stream t="00:02:21" k="AGENT_START" p="alignment/haiku" active />
-          </div>
+
+          {rightTab === 'stream' && (
+            <div className="flex-1 overflow-y-auto p-2 text-[11px] font-mono leading-relaxed space-y-0">
+              <Stream t="00:00:14" k="LOOP_STARTED" />
+              <Stream t="00:00:34" k="DIFF_PRODUCED" p="+11" />
+              <Stream t="00:00:39" k="FIX_COMMITTED" p="a1b2c3d" />
+              <Stream t="00:00:52" k="MERGED" p="a1b2c3d" ok />
+              <Stream t="00:01:14" k="GAP_PICKED" p="env-example" />
+              <Stream t="00:01:32" k="MERGED" p="b2c3d4e" ok />
+              <Stream t="00:01:45" k="GAP_PICKED" p="obs-logging" hi />
+              <Stream t="00:01:46" k="WORKTREE_CREATED" />
+              <Stream t="00:01:48" k="AGENT_START" p="implementer/sonnet" />
+              <Stream t="00:02:15" k="FIX_COMMITTED" p="c3d4e5f" />
+              <Stream t="00:02:18" k="STATIC_GATE" p="✓" ok />
+              <Stream t="00:02:21" k="AGENT_START" p="alignment/haiku" active />
+            </div>
+          )}
+
+          {rightTab === 'preset' && (
+            <div className="flex-1 overflow-y-auto p-3">
+              <div className="text-[10px] text-muted mb-2 leading-relaxed">
+                {done} done · {items.filter((i) => i.status === 'partial').length} partial · {items.filter((i) => i.status === 'missing').length} missing · grounded in 12-Factor, OWASP 2025, SRE, WCAG, OpenSSF
+              </div>
+              <div className="flex flex-wrap gap-1 mb-3">
+                <LegendDot mech="static-grep" />
+                <span className="text-[9px] text-muted mr-2">static-grep</span>
+                <LegendDot mech="file-exists" />
+                <span className="text-[9px] text-muted mr-2">file</span>
+                <LegendDot mech="test-execution" />
+                <span className="text-[9px] text-muted mr-2">test</span>
+                <LegendDot mech="cross-file-cohesion" />
+                <span className="text-[9px] text-muted mr-2">cross-file</span>
+                <LegendDot mech="llm-judgment" />
+                <span className="text-[9px] text-muted">llm</span>
+              </div>
+              <ul className="space-y-1">
+                {items.map((it) => <PresetRow key={it.id} item={it} />)}
+              </ul>
+            </div>
+          )}
         </aside>
       </div>
     </div>
+  );
+}
+
+const MECH_COLOR: Record<MockMechanism, string> = {
+  'static-grep':          'bg-muted/20 text-muted border-muted/40',
+  'file-exists':          'bg-warmline text-ink border-warmline',
+  'test-execution':       'bg-forest/15 text-forest border-forest/40',
+  'cross-file-cohesion':  'bg-coral/15 text-coral border-coral/40',
+  'llm-judgment':         'bg-ink/10 text-ink border-ink/40',
+};
+
+function LegendDot({ mech }: { mech: MockMechanism }) {
+  return <span className={`inline-block w-2 h-2 rounded-sm border ${MECH_COLOR[mech]}`} />;
+}
+
+function PresetRow({ item }: { item: MockPresetItem }) {
+  const icon = item.status === 'done' ? '✓' : item.status === 'partial' ? '◐' : '○';
+  const iconColor =
+    item.status === 'done' ? 'text-forest' : item.status === 'partial' ? 'text-coral' : 'text-rust';
+  return (
+    <li
+      title={`${item.label}\n${item.severity} · ${item.source}${item.note ? '\n' + item.note : ''}`}
+      className="flex items-center gap-1.5 text-[11px] font-mono leading-tight"
+    >
+      <span className={`${iconColor} w-3 shrink-0`}>{icon}</span>
+      <span className="text-[9px] text-muted w-5 shrink-0">{item.severity}</span>
+      <span className={`inline-block w-2 h-2 rounded-sm border shrink-0 ${MECH_COLOR[item.mechanism]}`} title={item.mechanism} />
+      <span className="truncate text-ink">{item.id}</span>
+    </li>
   );
 }
 

@@ -410,12 +410,48 @@ export interface GitResult {
 
 // ─── Preset types ──────────────────────────────────────────────────────────
 
+/** Verification mechanism — tells reviewers which engine should validate
+ *  this item. Drawn from F2 of docs/plans/2026-05-13-track-c-features.md. */
+export type PresetMechanism =
+  | 'static-grep'         // grep the codebase for forbidden / required patterns
+  | 'file-exists'         // file presence/absence check
+  | 'test-execution'      // run a build / test / typecheck command
+  | 'cross-file-cohesion' // consistency between multiple files (alignment reviewer)
+  | 'llm-judgment';       // open-ended taste / design call (alignment or behavioral reviewer)
+
+export const ALL_PRESET_MECHANISMS: readonly PresetMechanism[] = [
+  'static-grep',
+  'file-exists',
+  'test-execution',
+  'cross-file-cohesion',
+  'llm-judgment',
+] as const;
+
+/** Structured preset item — each one is independently checkable.
+ *
+ *  The 32-item core list lives in docs/plans/2026-05-13-track-c-features.md F2
+ *  table and is distributed across project-type preset files via `appliesTo`. */
+export interface PresetItem {
+  id: string;
+  label: string;
+  severity: Severity;
+  mechanism: PresetMechanism;
+  /** Citation tag — "12F-VII" / "OWASP-A02:2025" / "SRE" / "WCAG-1.4.3" / "OpenSSF" / "base" / "d2p-native". */
+  source: string;
+  /** Project-type letters: W A C L S M D ML. Determines which presets ship the item. */
+  appliesTo: string[];
+}
+
 export interface PresetFrontmatter {
   type: string;
   name: string;
   version: number;
   inherits?: string[];
   high_sensitivity_categories?: GapCategory[];
+  /** Structured 32-item-style preset checklist. Loader-side validated; differ
+   *  prefers this when present, otherwise falls back to parsing the markdown
+   *  body for backward compatibility. */
+  items?: PresetItem[];
 }
 
 export interface PresetOverridesAdd {
