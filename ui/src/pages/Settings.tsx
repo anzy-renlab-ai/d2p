@@ -409,8 +409,8 @@ export function Settings({ onClose }: { onClose?: () => void }) {
         )}
 
         <div className="flex justify-end">
-          <Button onClick={() => void onSave()} disabled={busy}>
-            {busy ? '保存中…' : '保存设置'}
+          <Button onClick={() => void onSave()} loading={busy} loadingText="保存中…">
+            保存设置
           </Button>
         </div>
       </div>

@@ -90,8 +90,13 @@ export function Landing() {
               没 <code>.git</code> 自动 init，worktree 放在父目录的
               <code> .d2p-worktrees/</code>，不污染你的仓库。
             </p>
-            <Button onClick={() => void onStart()} disabled={busy || !health}>
-              {busy ? '建中…' : 'Start session →'}
+            <Button
+              onClick={() => void onStart()}
+              disabled={!health}
+              loading={busy}
+              loadingText="新建 session 中…"
+            >
+              Start session →
             </Button>
           </div>
         </section>

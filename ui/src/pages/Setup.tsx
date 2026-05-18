@@ -37,6 +37,9 @@ export function Setup() {
 
   const [typeOverride, setTypeOverride] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [submittingVision, setSubmittingVision] = useState(false);
+  const [finalizingVision, setFinalizingVision] = useState(false);
+  const [startingLoop, setStartingLoop] = useState(false);
 
   useEffect(() => {
     if (!detector && !detectorError) void runDetector();
@@ -103,7 +106,8 @@ export function Setup() {
                           setBusy(false);
                         }
                       }}
-                      disabled={busy}
+                      loading={busy}
+                      loadingText="加载 preset 中…"
                     >
                       确认
                     </Button>
@@ -126,7 +130,15 @@ export function Setup() {
               )}
             </span>
             {!visionFinalized && typeChosen && (
-              <Button variant="ghost" onClick={() => void finalizeVision()}>
+              <Button
+                variant="ghost"
+                onClick={async () => {
+                  setFinalizingVision(true);
+                  try { await finalizeVision(); } finally { setFinalizingVision(false); }
+                }}
+                loading={finalizingVision}
+                loadingText="定稿中…"
+              >
                 跳过剩余轮次直接定稿
               </Button>
             )}
@@ -188,7 +200,16 @@ export function Setup() {
                   </div>
                 ))}
                 <div className="flex justify-end">
-                  <Button onClick={() => void submitVisionAnswers()}>提交回答</Button>
+                  <Button
+                    onClick={async () => {
+                      setSubmittingVision(true);
+                      try { await submitVisionAnswers(); } finally { setSubmittingVision(false); }
+                    }}
+                    loading={submittingVision}
+                    loadingText="LLM 思考中…"
+                  >
+                    提交回答
+                  </Button>
                 </div>
               </div>
             )}
@@ -222,7 +243,15 @@ export function Setup() {
                 ? '一切就绪。点 Start 让 agent 开始干活。'
                 : '完成 Step 1 + Step 2 后解锁。'}
             </div>
-            <Button onClick={() => void startLoop()} disabled={!readyToStart}>
+            <Button
+              onClick={async () => {
+                setStartingLoop(true);
+                try { await startLoop(); } finally { setStartingLoop(false); }
+              }}
+              disabled={!readyToStart}
+              loading={startingLoop}
+              loadingText="主循环启动中…"
+            >
               Start loop →
             </Button>
           </div>

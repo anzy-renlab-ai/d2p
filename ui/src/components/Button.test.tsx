@@ -26,4 +26,25 @@ describe('Button', () => {
     render(<Button variant={variant}>x</Button>);
     expect(screen.getByRole('button')).toBeInTheDocument();
   });
+
+  it('loading disables button and adds aria-busy', () => {
+    const onClick = vi.fn();
+    render(<Button loading onClick={onClick}>Submit</Button>);
+    const btn = screen.getByRole('button');
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute('aria-busy', 'true');
+    fireEvent.click(btn);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('loadingText replaces label while loading', () => {
+    render(<Button loading loadingText="LLM thinking…">Submit</Button>);
+    expect(screen.getByRole('button')).toHaveTextContent(/LLM thinking…/);
+    expect(screen.queryByText('Submit')).not.toBeInTheDocument();
+  });
+
+  it('loading renders a spinner svg', () => {
+    const { container } = render(<Button loading>Submit</Button>);
+    expect(container.querySelector('svg[class*="animate-spin"]')).toBeTruthy();
+  });
 });
