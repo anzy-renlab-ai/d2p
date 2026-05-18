@@ -24,8 +24,22 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
     } catch {
       parsed = body;
     }
-    const err = new Error(`${res.status} ${url}`) as Error & { detail?: unknown };
+    // Surface the daemon's `detail` field in the error message so banners show
+    // the actual upstream cause (e.g. "HTTP 401: invalid api key") instead of
+    // a generic "502 /api/detector/run". Falls back to status+url when the
+    // daemon didn't include detail.
+    const detail =
+      parsed && typeof parsed === 'object' && 'detail' in parsed
+        ? String((parsed as { detail: unknown }).detail)
+        : '';
+    const title =
+      parsed && typeof parsed === 'object' && 'title' in parsed
+        ? String((parsed as { title: unknown }).title)
+        : `${res.status} ${url}`;
+    const msg = detail ? `${title} — ${detail}` : title;
+    const err = new Error(msg) as Error & { detail?: unknown; status?: number };
     err.detail = parsed;
+    err.status = res.status;
     throw err;
   }
   return (await res.json()) as T;
