@@ -21,9 +21,9 @@ beforeEach(() => {
 });
 
 describe('Landing', () => {
-  it('renders d2p heading and at least one 新建项目 button', () => {
+  it('renders ZeroU heading and at least one 新建项目 button', () => {
     render(<Landing />);
-    expect(screen.getByRole('heading', { name: 'd2p' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'ZeroU' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /新建项目/ }).length).toBeGreaterThan(0);
   });
 

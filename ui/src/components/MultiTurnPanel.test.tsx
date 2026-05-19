@@ -35,11 +35,11 @@ describe('MultiTurnPanel — narrative-first layout', () => {
     expect(container.querySelector('[data-testid="multi-turn-panel"]')).toBeNull();
   });
 
-  it('running state — headline says d2p 正在帮你修', () => {
+  it('running state — headline says ZeroU 正在帮你修', () => {
     useStore.setState({ multiTurn: mockMultiTurnRunning });
     render(<MultiTurnPanel />);
     const headline = screen.getByTestId('multi-turn-headline');
-    expect(headline.textContent).toMatch(/d2p 正在帮你修/);
+    expect(headline.textContent).toMatch(/ZeroU 正在帮你修/);
   });
 
   it('running state — gap title visible in 任务 line', () => {
@@ -64,7 +64,7 @@ describe('MultiTurnPanel — narrative-first layout', () => {
   it('paused state — verdict gives 继续 / 中止 options', () => {
     useStore.setState({ multiTurn: mockMultiTurnPaused });
     render(<MultiTurnPanel />);
-    expect(screen.getByTestId('multi-turn-headline')).toHaveTextContent(/d2p 暂停/);
+    expect(screen.getByTestId('multi-turn-headline')).toHaveTextContent(/ZeroU 暂停/);
     expect(screen.getByRole('button', { name: /继续/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /中止/ })).toBeInTheDocument();
   });

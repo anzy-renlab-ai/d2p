@@ -65,7 +65,7 @@ export function Workspace() {
           <div className="w-px h-6 bg-warmline" />
           <div>
             <div className="flex items-baseline gap-3">
-              <h1 className="text-xl tracking-tight">d2p</h1>
+              <h1 className="text-xl tracking-tight">ZeroU</h1>
               <span className="font-mono text-xs text-muted truncate max-w-md" title={demo?.path}>
                 {demo?.path}
               </span>

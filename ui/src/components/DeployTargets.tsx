@@ -42,7 +42,7 @@ export function DeployTargets() {
   }
   return (
     <div className="space-y-3">
-      <div className="text-xs text-muted leading-relaxed">检测到这些可能的部署目标。d2p 不会自动 push — 你拿着命令自己跑。</div>
+      <div className="text-xs text-muted leading-relaxed">检测到这些可能的部署目标。ZeroU 不会自动 push — 你拿着命令自己跑。</div>
       <ul className="space-y-2">
         {targets.map((t) => (
           <li key={t.id} className="border border-warmline rounded-md p-3 bg-paper">

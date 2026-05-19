@@ -21,7 +21,7 @@ describe('MockupPhasePanel', () => {
     it('shows the drafting headline', () => {
       render(<MockupPhasePanel state={mockupDrafting} />);
       expect(screen.getByTestId('mockup-drafting-headline')).toHaveTextContent(
-        /d2p 正在为你画产品成品的样子/,
+        /ZeroU 正在为你画产品成品的样子/,
       );
     });
 
@@ -45,7 +45,7 @@ describe('MockupPhasePanel', () => {
     it('renders review headline', () => {
       render(<MockupPhasePanel state={mockupReview} />);
       expect(screen.getByTestId('mockup-review-headline')).toHaveTextContent(
-        /d2p 帮你画的产品预期/,
+        /ZeroU 帮你画的产品预期/,
       );
     });
 

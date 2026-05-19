@@ -198,7 +198,7 @@ export function SessionsList() {
 
         {sessions.length === 0 ? (
           <div className="text-center text-muted italic font-serif py-16">
-            {locale === 'en' ? 'No sessions yet — start one to see d2p in action' : '还没有 session — 启动一个让 d2p 干活'}
+            {locale === 'en' ? 'No sessions yet — start one to see ZeroU in action' : '还没有 session — 启动一个让 ZeroU 干活'}
           </div>
         ) : (
           <ol className="space-y-3">

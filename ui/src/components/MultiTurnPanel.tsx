@@ -38,34 +38,34 @@ function judgeHealth(mt: MultiTurnState): HealthBand {
 function narrative(mt: MultiTurnState): { headline: string; verdict: string; band: HealthBand } {
   const band = judgeHealth(mt);
   if (mt.phase === 'done') {
-    return { headline: 'd2p 修完了', verdict: '已合并到 main · 看一眼改了啥', band: 'green' };
+    return { headline: 'ZeroU 修完了', verdict: '已合并到 main · 看一眼改了啥', band: 'green' };
   }
   if (mt.phase === 'finalizing') {
     return {
-      headline: 'd2p 说写完了',
+      headline: 'ZeroU 说写完了',
       verdict: 'reviewer 正在帮你验证 · 一般 1-2 分钟出结果',
       band: 'green',
     };
   }
   if (mt.phase === 'paused') {
     return {
-      headline: 'd2p 暂停了',
+      headline: 'ZeroU 暂停了',
       verdict: '点「继续」让它接着跑，或点「中止」放弃这次修复',
       band: 'yellow',
     };
   }
   if (band === 'green') {
-    return { headline: 'd2p 正在帮你修', verdict: '进展正常，不用管', band };
+    return { headline: 'ZeroU 正在帮你修', verdict: '进展正常，不用管', band };
   }
   if (band === 'yellow') {
     return {
-      headline: 'd2p 正在帮你修',
+      headline: 'ZeroU 正在帮你修',
       verdict: '跑得有点久了，可以再等等，也可以暂停看看进度',
       band,
     };
   }
   return {
-    headline: 'd2p 卡住了',
+    headline: 'ZeroU 卡住了',
     verdict: '快到上限了，建议暂停看看；继续可能浪费 token',
     band,
   };
@@ -147,7 +147,7 @@ export function MultiTurnPanel({ onBackToGaps }: { onBackToGaps?: () => void } =
             {mt.lastAssistantText && mt.phase !== 'done' && (
               <div className="bg-paper border-l-2 border-warmline pl-3 py-1.5 text-sm text-ink/80 italic">
                 <span className="text-[10px] uppercase tracking-wider text-muted/70 not-italic font-sans mr-2">
-                  d2p 说
+                  ZeroU 说
                 </span>
                 <span data-testid="multi-turn-last-text">{mt.lastAssistantText}</span>
               </div>
@@ -222,7 +222,7 @@ export function MultiTurnPanel({ onBackToGaps }: { onBackToGaps?: () => void } =
                 {mt.scratchpad.length > 0 && (
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-muted font-medium mb-1">
-                      d2p 自己记的笔记 · {mt.scratchpad.length} 条
+                      ZeroU 自己记的笔记 · {mt.scratchpad.length} 条
                     </div>
                     <ul
                       className="space-y-1 max-h-40 overflow-y-auto font-mono text-xs border border-warmline rounded p-2 bg-paper"
@@ -259,7 +259,7 @@ function TurnTimeline({ turns }: { turns: MultiTurnTurn[] }) {
   if (turns.length === 0) {
     return (
       <div className="text-sm text-muted italic font-serif px-2">
-        d2p 还没开始干活…
+        ZeroU 还没开始干活…
       </div>
     );
   }

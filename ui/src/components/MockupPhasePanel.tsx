@@ -94,7 +94,7 @@ function DraftingView({ state }: { state: MockupPhaseState }) {
         className="w-10 h-10 rounded-full border-2 border-warmline border-t-coral animate-spin mb-6"
       />
       <h2 className="text-lg font-medium text-ink mb-2" data-testid="mockup-drafting-headline">
-        d2p 正在为你画产品成品的样子…
+        ZeroU 正在为你画产品成品的样子…
       </h2>
       <p className="text-sm text-muted" data-testid="mockup-drafting-progress">
         已经画好{' '}
@@ -141,7 +141,7 @@ function ReviewView({
       <div className="flex items-center justify-between px-5 py-3 border-b border-warmline flex-shrink-0">
         <div>
           <h2 className="text-sm font-medium text-ink" data-testid="mockup-review-headline">
-            {isRevising ? '正在按你的建议重画…' : '这是 d2p 帮你画的产品预期'}
+            {isRevising ? '正在按你的建议重画…' : '这是 ZeroU 帮你画的产品预期'}
           </h2>
           <p className="text-xs text-muted mt-0.5">
             {state.pages.length} 个页面 · saas-web 类型 · 对齐后进 differ 找 gap
@@ -218,7 +218,7 @@ function ReviewView({
             <textarea
               value={feedbackText}
               onChange={(e) => setFeedbackText(e.target.value)}
-              placeholder="告诉 d2p 你想改什么，比如「侧边栏太宽了」、「首页 CTA 换成橙色」…"
+              placeholder="告诉 ZeroU 你想改什么，比如「侧边栏太宽了」、「首页 CTA 换成橙色」…"
               className="w-full text-sm border border-warmline rounded-lg px-3 py-2 bg-paper resize-none focus:outline-none focus:border-coral"
               rows={3}
               data-testid="mockup-feedback-input"

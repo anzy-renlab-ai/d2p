@@ -37,9 +37,9 @@ type Dict = Record<string, { zh: string; en: string }>;
 
 export const dict: Dict = {
   // ── App-wide ────────────────────────────────────────────────────────
-  'app.title':            { zh: 'd2p',                                    en: 'd2p' },
+  'app.title':            { zh: 'ZeroU',                                  en: 'ZeroU' },
   'app.tagline':          { zh: '把每个 demo 推到 product。',              en: 'Push every demo to product.' },
-  'app.tagline.long':     { zh: '你给一个本地 demo + 一句愿景，d2p 派 Claude 自动迭代，4 层 reviewer 把关，preset 与 vision 双绿才停手。', en: 'Give d2p a local demo + one sentence of vision. It dispatches Claude to iterate, a 4-stage reviewer gates each fix, and stops only when the preset checklist and vision are both green.' },
+  'app.tagline.long':     { zh: '你给一个本地 demo + 一句愿景，ZeroU 派 Claude 自动迭代，4 层 reviewer 把关，preset 与 vision 双绿才停手。', en: 'Give ZeroU a local demo + one sentence of vision. It dispatches Claude to iterate, a 4-stage reviewer gates each fix, and stops only when the preset checklist and vision are both green.' },
   'app.daemonDown':       { zh: '连不上 daemon（{detail}）。先在终端跑 d2p start 或 npm run dev。', en: "Can't reach daemon ({detail}). Run `d2p start` or `npm run dev` in your terminal first." },
   'app.cliMissing':       { zh: '没找到 claude CLI。装 Claude Code 并 claude login，或在设置里换成 OpenAI-compat / Anthropic-API。', en: "claude CLI not found. Install Claude Code and run `claude login`, or pick OpenAI-compat / Anthropic-API in Settings." },
 
@@ -53,9 +53,9 @@ export const dict: Dict = {
   'home.empty':             { zh: '这个分类下没有项目', en: 'No projects in this filter' },
   'home.tryDemo':           { zh: '试看 multi-turn 演示 →', en: 'Try multi-turn demo →' },
   'home.newProject':        { zh: '+ 新建项目',     en: '+ New project' },
-  'home.addProjectHint':    { zh: '给个文件夹路径，d2p 接手', en: 'Point to a folder, d2p takes over' },
+  'home.addProjectHint':    { zh: '给个文件夹路径，ZeroU 接手', en: 'Point to a folder, ZeroU takes over' },
   'home.modal.title':       { zh: '新建项目',       en: 'New project' },
-  'home.modal.desc':        { zh: '给个本地文件夹路径，d2p 自动 init git、识别项目类型、问你 vision，然后接手。', en: 'Give a local folder path. d2p will init git, infer project type, ask you for the vision, then take over.' },
+  'home.modal.desc':        { zh: '给个本地文件夹路径，ZeroU 自动 init git、识别项目类型、问你 vision，然后接手。', en: 'Give a local folder path. ZeroU will init git, infer project type, ask you for the vision, then take over.' },
   'home.modal.label':       { zh: 'Demo 文件夹（绝对路径）', en: 'Demo folder (absolute path)' },
   'home.modal.placeholder': { zh: 'D:\\demos\\my-saas',  en: '/Users/me/demos/my-saas' },
   'home.modal.start':       { zh: '开始 →',         en: 'Start →' },
@@ -131,8 +131,8 @@ export const dict: Dict = {
 
   // ── GapList ─────────────────────────────────────────────────────────
   'gap.list.title':         { zh: '待办清单',     en: 'To-do' },
-  'gap.list.tooltip':       { zh: 'd2p 找出来的产品级缺口清单（缺什么 / 没做什么）', en: 'd2p has identified these product-level gaps (what is missing / not done)' },
-  'gap.empty':              { zh: '还没找出来要补什么，等 d2p 扫一下项目…', en: 'd2p has not found any gaps yet — let it scan the project…' },
+  'gap.list.tooltip':       { zh: 'ZeroU 找出来的产品级缺口清单（缺什么 / 没做什么）', en: 'ZeroU has identified these product-level gaps (what is missing / not done)' },
+  'gap.empty':              { zh: '还没找出来要补什么，等 ZeroU 扫一下项目…', en: 'ZeroU has not found any gaps yet — let it scan the project…' },
   'gap.status.pending':     { zh: '待处理',       en: 'Pending' },
   'gap.status.inProgress':  { zh: '处理中',       en: 'In progress' },
   'gap.status.done':        { zh: '完成',         en: 'Done' },
@@ -204,16 +204,16 @@ export const dict: Dict = {
   'commits.rewindOK':       { zh: '确认 rewind',  en: 'Confirm rewind' },
 
   // ── MultiTurnPanel ──────────────────────────────────────────────────
-  'mt.headline.done':       { zh: 'd2p 修完了',   en: "d2p has finished" },
+  'mt.headline.done':       { zh: 'ZeroU 修完了',   en: "ZeroU has finished" },
   'mt.verdict.done':        { zh: '已合并到 main · 看一眼改了啥', en: 'Merged to main · take a look at the changes' },
-  'mt.headline.finalizing': { zh: 'd2p 说写完了', en: 'd2p reports complete' },
+  'mt.headline.finalizing': { zh: 'ZeroU 说写完了', en: 'ZeroU reports complete' },
   'mt.verdict.finalizing':  { zh: 'reviewer 正在帮你验证 · 一般 1-2 分钟出结果', en: 'reviewer is verifying · 1-2 min typically' },
-  'mt.headline.paused':     { zh: 'd2p 暂停了',   en: 'd2p paused' },
+  'mt.headline.paused':     { zh: 'ZeroU 暂停了',   en: 'ZeroU paused' },
   'mt.verdict.paused':      { zh: '点「继续」让它接着跑，或点「中止」放弃这次修复', en: 'Click "Continue" to resume, or "Abort" to drop this fix' },
-  'mt.headline.running':    { zh: 'd2p 正在帮你修', en: 'd2p is fixing this for you' },
+  'mt.headline.running':    { zh: 'ZeroU 正在帮你修', en: 'ZeroU is fixing this for you' },
   'mt.verdict.green':       { zh: '进展正常，不用管', en: 'Progressing normally — no action needed' },
   'mt.verdict.yellow':      { zh: '跑得有点久了，可以再等等，也可以暂停看看进度', en: 'Taking a while — you can wait or pause to peek' },
-  'mt.headline.red':        { zh: 'd2p 卡住了',   en: 'd2p is stuck' },
+  'mt.headline.red':        { zh: 'ZeroU 卡住了',   en: 'ZeroU is stuck' },
   'mt.verdict.red':         { zh: '快到上限了，建议暂停看看；继续可能浪费 token', en: 'Near the cap — suggest pausing; continuing may waste tokens' },
   'mt.phase.idle':          { zh: '待命',         en: 'Idle' },
   'mt.phase.running':       { zh: '进行中',       en: 'Running' },
@@ -221,7 +221,7 @@ export const dict: Dict = {
   'mt.phase.finalizing':    { zh: '收尾',         en: 'Finalizing' },
   'mt.phase.done':          { zh: '完成',         en: 'Done' },
   'mt.task':                { zh: '任务：',       en: 'Task:' },
-  'mt.said':                { zh: 'd2p 说',       en: 'd2p says' },
+  'mt.said':                { zh: 'ZeroU 说',     en: 'ZeroU says' },
   'mt.elapsed':             { zh: '第 {turn} 轮 · 已跑 {elapsed}', en: 'Turn {turn} · {elapsed} elapsed' },
   'mt.cap':                 { zh: '上限 {cap}',   en: 'Cap {cap}' },
   'mt.pause':               { zh: '暂停',         en: 'Pause' },
@@ -235,9 +235,9 @@ export const dict: Dict = {
   'mt.estCost':             { zh: '估算花费',     en: 'Est. cost' },
   'mt.session.resume':      { zh: '续接 session', en: 'Resumed session' },
   'mt.session.new':         { zh: '新 session',   en: 'New session' },
-  'mt.notes':               { zh: 'd2p 自己记的笔记 · {n} 条', en: 'd2p notes · {n}' },
+  'mt.notes':               { zh: 'ZeroU 自己记的笔记 · {n} 条', en: 'ZeroU notes · {n}' },
   'mt.timeline.title':      { zh: '自治过程 · {n} 轮', en: 'Autonomous run · {n} turns' },
-  'mt.timeline.empty':      { zh: 'd2p 还没开始干活…', en: 'd2p has not started yet…' },
+  'mt.timeline.empty':      { zh: 'ZeroU 还没开始干活…', en: 'ZeroU has not started yet…' },
   'mt.step.running':        { zh: '进行中',       en: 'Running' },
   'mt.step.done':           { zh: '完成',         en: 'Done' },
   'mt.step.pending':        { zh: '待开始',       en: 'Pending' },
@@ -299,7 +299,7 @@ export const dict: Dict = {
   'resume.later':             { zh: '稍后',       en: 'Later' },
 
   // ── MockupPhase ─────────────────────────────────────────────────────
-  'mockup.drafting.title':    { zh: 'd2p 正在为你画产品成品的样子…', en: "d2p is drafting what your product looks like…" },
+  'mockup.drafting.title':    { zh: 'ZeroU 正在为你画产品成品的样子…', en: "ZeroU is drafting what your product looks like…" },
   'mockup.drafting.progress': { zh: '已经画好 {done} / {total} 页', en: '{done} / {total} pages drafted' },
   'mockup.review.approve':    { zh: '✓ 这就是我想要的', en: '✓ This is what I want' },
   'mockup.review.revise':     { zh: '✎ 我想改一下', en: '✎ I want changes' },

@@ -1,8 +1,8 @@
-# d2p — Development Document
+# ZeroU — Development Document
 
 > 完整开发文档。新开发会话先读这一份，再按需翻 `docs/details/` 看每个组件的可直接抄实现细节。
 > Companion: `CLAUDE.md`（工作流规则 + 项目坐标）/ `docs/plans/`（具体 PR 计划）/ `docs/details/`（细节文档 10 份）。
-> 锁日：2026-05-12（12 轮 grill 结论）。
+> 锁日：2026-05-12（12 轮 grill 结论）。原代号 d2p（仓库、CLI 命令、内部代号沿用 d2p）。
 > Status: **DRAFT v2**——产品决策已锁，技术细节已展开到 `docs/details/`，未尽事项见 §10。
 
 ## 细节文档索引

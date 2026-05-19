@@ -24,7 +24,7 @@ export function ArchitecturalAlert() {
       <div className="font-medium text-ink mb-1">需要架构决策</div>
       <div className="text-sm text-ink">{rationale}</div>
       <div className="text-xs text-muted mt-2 leading-relaxed">
-        改一下 <code>vision.md</code> 或 <code>preset-overrides.yaml</code> 让方向更明确，d2p 会自动捕获并继续。或者点 Resume 让它再试一次。
+        改一下 <code>vision.md</code> 或 <code>preset-overrides.yaml</code> 让方向更明确，ZeroU 会自动捕获并继续。或者点 Resume 让它再试一次。
       </div>
     </div>
   );

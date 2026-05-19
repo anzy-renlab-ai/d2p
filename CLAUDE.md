@@ -1,4 +1,4 @@
-# d2p — Claude 项目说明
+# ZeroU — Claude 项目说明（原 d2p）
 
 > 给未来 Claude 会话用。仓库特定的坑与本地约定写这里。
 

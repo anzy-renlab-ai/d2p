@@ -65,7 +65,7 @@ export function GitHubSessionSetup() {
         </button>
       </div>
       <div className="text-xs text-muted leading-relaxed">
-        d2p 会用你在 Settings 里填的 GitHub token，把 fix 分支 push 到 origin 并开 PR。
+        ZeroU 会用你在 Settings 里填的 GitHub token，把 fix 分支 push 到 origin 并开 PR。
         不填 repo 就从仓库的 origin URL 自动推断。
       </div>
       <div>

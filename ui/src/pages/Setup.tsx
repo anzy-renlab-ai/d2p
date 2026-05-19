@@ -60,7 +60,7 @@ export function Setup() {
       <div className="max-w-3xl mx-auto py-10 px-6 space-y-6">
         <header className="flex items-end justify-between pb-6 border-b border-warmline">
           <div>
-            <h1 className="text-3xl tracking-tight">d2p</h1>
+            <h1 className="text-3xl tracking-tight">ZeroU</h1>
             <p className="font-mono text-xs text-muted mt-1 break-all">{demo?.path}</p>
           </div>
           <Button variant="ghost" onClick={() => void endSession()}>结束会话</Button>
