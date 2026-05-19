@@ -162,6 +162,7 @@ export type LogEventKind =
   | 'PATHOLOGY_CLEARED'
   | 'BUDGET_SOFT_BREACH'
   | 'BUDGET_HARD_BREACH'
+  | 'SESSION_RESUMED_MARK'
   | 'ERROR';
 
 /** F3 — agent failure-mode signatures we surface as Mission Control badges. */
@@ -618,4 +619,77 @@ export interface PresetRichRes {
   done: number;
   partial: number;
   missing: number;
+}
+
+// ─── Git diff types ────────────────────────────────────────────────────────
+
+export type DiffLineType = 'context' | 'add' | 'del';
+
+export interface DiffLine {
+  type: DiffLineType;
+  text: string;
+  oldLineNo: number | null;
+  newLineNo: number | null;
+}
+
+export interface Hunk {
+  header: string;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: DiffLine[];
+}
+
+export type FileStatus = 'modified' | 'added' | 'deleted' | 'renamed';
+
+export interface FileDiff {
+  path: string;
+  status: FileStatus;
+  oldPath: string | null;  // only set for renamed files
+  insertions: number;
+  deletions: number;
+  binary: boolean;
+  hunks: Hunk[];
+}
+
+// ─── Risk types ────────────────────────────────────────────────────────────
+
+export type RiskBand = 'low' | 'mid' | 'high';
+
+export interface ReviewHunk {
+  path: string;
+  hunkIdx: number;
+  reason: string;
+}
+
+export interface CommitRisk {
+  band: RiskBand;
+  score: number;
+  reasons: string[];
+  reviewHunks: ReviewHunk[];
+}
+
+// ─── Milestone types ───────────────────────────────────────────────────────
+
+export type MilestoneStatus = 'pending' | 'in_progress' | 'done';
+
+export interface MilestoneRow {
+  id: number;
+  sessionId: number;
+  title: string;
+  visionExcerpt: string | null;
+  presetItemIds: string[];
+  status: MilestoneStatus;
+  ordinal: number;
+  completedAt: number | null;
+}
+
+// ─── Resume mark types ─────────────────────────────────────────────────────
+
+export interface ResumeMark {
+  sessionId: number;
+  lastSeenTs: number;
+  gapIdAtPause: number | null;
+  runIdAtPause: string | null;
 }

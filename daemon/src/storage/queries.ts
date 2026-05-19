@@ -22,6 +22,11 @@ import type {
   MergedCommitRow,
   PresetRichRow,
   ClaudeRole,
+  CommitRisk,
+  RiskBand,
+  MilestoneRow,
+  MilestoneStatus,
+  ResumeMark,
 } from '../types.js';
 import { asAbsPath } from '../util/path.js';
 import {
@@ -937,6 +942,178 @@ export class Queries {
         note: stored?.note ?? null,
       };
     });
+  }
+
+  // ─── commit_risk ──────────────────────────────────────────────────────────
+
+  setCommitRisk(sha: string, risk: CommitRisk): void {
+    const now = Date.now();
+    this.db
+      .prepare(
+        `INSERT INTO commit_risk(sha, band, score, reasons_json, review_hunks_json, ts)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(sha) DO UPDATE SET
+           band = excluded.band,
+           score = excluded.score,
+           reasons_json = excluded.reasons_json,
+           review_hunks_json = excluded.review_hunks_json,
+           ts = excluded.ts`,
+      )
+      .run(sha, risk.band, risk.score, JSON.stringify(risk.reasons), JSON.stringify(risk.reviewHunks), now);
+  }
+
+  getCommitRisk(sha: string): CommitRisk | null {
+    interface Row {
+      band: RiskBand;
+      score: number;
+      reasons_json: string;
+      review_hunks_json: string;
+    }
+    const row = this.db
+      .prepare('SELECT band, score, reasons_json, review_hunks_json FROM commit_risk WHERE sha = ?')
+      .get(sha) as Row | undefined;
+    if (!row) return null;
+    return {
+      band: row.band,
+      score: row.score,
+      reasons: JSON.parse(row.reasons_json) as string[],
+      reviewHunks: JSON.parse(row.review_hunks_json) as CommitRisk['reviewHunks'],
+    };
+  }
+
+  // ─── milestones ───────────────────────────────────────────────────────────
+
+  listMilestones(sessionId: number): MilestoneRow[] {
+    interface Row {
+      id: number;
+      session_id: number;
+      title: string;
+      vision_excerpt: string | null;
+      preset_item_ids_json: string;
+      status: MilestoneStatus;
+      ordinal: number;
+      completed_at: number | null;
+    }
+    const rows = this.db
+      .prepare('SELECT * FROM milestones WHERE session_id = ? ORDER BY ordinal ASC')
+      .all(sessionId) as Row[];
+    return rows.map((r) => ({
+      id: r.id,
+      sessionId: r.session_id,
+      title: r.title,
+      visionExcerpt: r.vision_excerpt,
+      presetItemIds: JSON.parse(r.preset_item_ids_json) as string[],
+      status: r.status,
+      ordinal: r.ordinal,
+      completedAt: r.completed_at,
+    }));
+  }
+
+  upsertMilestone(args: {
+    id?: number;
+    sessionId: number;
+    title: string;
+    visionExcerpt?: string | null;
+    presetItemIds?: string[];
+    status?: MilestoneStatus;
+    ordinal?: number;
+    completedAt?: number | null;
+  }): MilestoneRow {
+    if (args.id !== undefined) {
+      // Update existing
+      const sets: string[] = [];
+      const vals: unknown[] = [];
+      if (args.title !== undefined) { sets.push('title = ?'); vals.push(args.title); }
+      if (args.visionExcerpt !== undefined) { sets.push('vision_excerpt = ?'); vals.push(args.visionExcerpt); }
+      if (args.presetItemIds !== undefined) { sets.push('preset_item_ids_json = ?'); vals.push(JSON.stringify(args.presetItemIds)); }
+      if (args.status !== undefined) { sets.push('status = ?'); vals.push(args.status); }
+      if (args.ordinal !== undefined) { sets.push('ordinal = ?'); vals.push(args.ordinal); }
+      if (args.completedAt !== undefined) { sets.push('completed_at = ?'); vals.push(args.completedAt); }
+      if (sets.length > 0) {
+        vals.push(args.id);
+        this.db.prepare(`UPDATE milestones SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+      }
+      return this.getMilestone(args.id)!;
+    }
+    // Insert new
+    const result = this.db
+      .prepare(
+        `INSERT INTO milestones(session_id, title, vision_excerpt, preset_item_ids_json, status, ordinal)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        args.sessionId,
+        args.title,
+        args.visionExcerpt ?? null,
+        JSON.stringify(args.presetItemIds ?? []),
+        args.status ?? 'pending',
+        args.ordinal ?? 0,
+      );
+    return this.getMilestone(result.lastInsertRowid as number)!;
+  }
+
+  getMilestone(id: number): MilestoneRow | null {
+    interface Row {
+      id: number;
+      session_id: number;
+      title: string;
+      vision_excerpt: string | null;
+      preset_item_ids_json: string;
+      status: MilestoneStatus;
+      ordinal: number;
+      completed_at: number | null;
+    }
+    const row = this.db.prepare('SELECT * FROM milestones WHERE id = ?').get(id) as Row | undefined;
+    if (!row) return null;
+    return {
+      id: row.id,
+      sessionId: row.session_id,
+      title: row.title,
+      visionExcerpt: row.vision_excerpt,
+      presetItemIds: JSON.parse(row.preset_item_ids_json) as string[],
+      status: row.status,
+      ordinal: row.ordinal,
+      completedAt: row.completed_at,
+    };
+  }
+
+  // ─── session_resume_marks ─────────────────────────────────────────────────
+
+  markSessionPause(
+    sessionId: number,
+    gapId: number | null,
+    runId: string | null,
+  ): void {
+    const now = Date.now();
+    this.db
+      .prepare(
+        `INSERT INTO session_resume_marks(session_id, last_seen_ts, gap_id_at_pause, run_id_at_pause)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET
+           last_seen_ts = excluded.last_seen_ts,
+           gap_id_at_pause = excluded.gap_id_at_pause,
+           run_id_at_pause = excluded.run_id_at_pause`,
+      )
+      .run(sessionId, now, gapId, runId);
+  }
+
+  loadResumeMark(sessionId: number): ResumeMark | null {
+    interface Row {
+      session_id: number;
+      last_seen_ts: number;
+      gap_id_at_pause: number | null;
+      run_id_at_pause: string | null;
+    }
+    const row = this.db
+      .prepare('SELECT * FROM session_resume_marks WHERE session_id = ?')
+      .get(sessionId) as Row | undefined;
+    if (!row) return null;
+    return {
+      sessionId: row.session_id,
+      lastSeenTs: row.last_seen_ts,
+      gapIdAtPause: row.gap_id_at_pause,
+      runIdAtPause: row.run_id_at_pause,
+    };
   }
 
   /** F4 — per-(role × engine) rollup for Mission Control attribution panel. */

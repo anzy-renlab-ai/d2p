@@ -80,4 +80,31 @@ export async function runCrashRecovery(deps: { queries: Queries; db: Database.Da
       `[d2p daemon] crash recovery: dropped ${halfDone.length} in-flight fixes, paused ${looping.length} sessions`,
     );
   }
+
+  // Check session_resume_marks for the current active session. If a mark
+  // exists, emit SESSION_RESUMED_MARK so the UI banner can show "resume?" —
+  // but do NOT auto-resume the loop. That is always user-driven.
+  const activeSession = q.getCurrentActiveSession();
+  if (activeSession) {
+    const mark = q.loadResumeMark(activeSession.id);
+    if (mark) {
+      const event = q.insertLogEvent(activeSession.id, 'info', 'SESSION_RESUMED_MARK', {
+        sessionId: mark.sessionId,
+        lastSeenTs: mark.lastSeenTs,
+        gapIdAtPause: mark.gapIdAtPause,
+        runIdAtPause: mark.runIdAtPause,
+      });
+      sseHub.publish({
+        id: event.id,
+        ts: event.ts,
+        kind: 'SESSION_RESUMED_MARK',
+        level: 'info',
+        payload: event.payload,
+      });
+      // eslint-disable-next-line no-console
+      console.log(
+        `[d2p daemon] session ${activeSession.id} has a resume mark from ${new Date(mark.lastSeenTs).toISOString()}`,
+      );
+    }
+  }
 }
