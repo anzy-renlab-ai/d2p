@@ -26,7 +26,7 @@ function fakeGap(over: Partial<Gap> = {}): Gap {
 }
 
 beforeEach(() => {
-  useStore.setState({ gaps: [], skipGap: vi.fn(async () => {}) });
+  useStore.setState({ gaps: [], skipGap: vi.fn(async () => {}), locale: 'zh' });
 });
 
 describe('GapList', () => {

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useStore } from '../store.js';
+import { useLocale } from '../i18n/useLocale.js';
 import { GapList } from './GapList.js';
 import { RunLog } from './RunLog.js';
 import { PresetChecklistView } from './PresetChecklistView.js';
@@ -18,6 +19,7 @@ import { mockMilestones, getMilestoneKpi } from '../mock/milestones.js';
 type DrawerKind = 'gaps' | 'preset' | 'log' | 'milestones';
 
 export function StatusStrip() {
+  const { t } = useLocale();
   const session = useStore((s) => s.session);
   const costTotals = useStore((s) => s.costTotals);
   const gaps = useStore((s) => s.gaps);
@@ -50,28 +52,28 @@ export function StatusStrip() {
         />
 
         <KpiCountUp
-          label="待办"
+          label={t('strip.todo')}
           value={gapsInProgress + gapsPending}
           hint={
             gapsInProgress > 0
-              ? `${gapsInProgress} 处理中 · ${gapsPending} 等`
-              : `${gapsPending} 等`
+              ? `${gapsInProgress} ${t('strip.todo.inProgress')} · ${gapsPending} ${t('strip.todo.waiting')}`
+              : `${gapsPending} ${t('strip.todo.waiting')}`
           }
           onClick={() => setOpen(open === 'gaps' ? null : 'gaps')}
           active={open === 'gaps'}
         >
           {gapsComplex > 0 && (
             <span className="bg-rust/15 text-rust px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider">
-              {gapsComplex} 复杂
+              {gapsComplex} {t('strip.todo.complex')}
             </span>
           )}
         </KpiCountUp>
 
         <KpiCountUp
-          label="花费"
+          label={t('strip.cost')}
           value={costTotals.estimatedUsd}
           format={(n) => `$${n.toFixed(2)}`}
-          hint={`${fmtTokens(costTotals.inputTokens + costTotals.outputTokens)} tokens`}
+          hint={`${fmtTokens(costTotals.inputTokens + costTotals.outputTokens)} ${t('strip.cost.tokens')}`}
         />
 
         <div className="flex-1" />
@@ -86,10 +88,10 @@ export function StatusStrip() {
               ? 'bg-forest/15 ring-1 ring-forest/30'
               : 'hover:bg-paper hover:-translate-y-0.5 ring-1 ring-transparent cursor-pointer'
           }`}
-          title="查看 milestone 进度"
+          title={t('strip.milestone')}
           data-testid="milestone-kpi"
         >
-          <span className="text-[10px] uppercase tracking-widest text-muted/60">里程碑</span>
+          <span className="text-[10px] uppercase tracking-widest text-muted/60">{t('strip.milestone')}</span>
           <span className="font-mono text-sm text-ink">
             <span className="text-forest font-medium">{milestoneKpi.done}</span>
             <span className="text-muted/50"> / {milestoneKpi.total}</span>
@@ -103,40 +105,40 @@ export function StatusStrip() {
         </button>
 
         <Kpi
-          label="日志"
-          value="详细事件"
+          label={t('strip.log')}
+          value={t('strip.log.detail')}
           onClick={() => setOpen(open === 'log' ? null : 'log')}
           active={open === 'log'}
         />
 
         <StatusDot
           ok={sseConnected}
-          label={sseConnected ? '在线' : '离线'}
-          hint={session ? `session #${session.id}` : 'no session'}
+          label={sseConnected ? t('strip.online') : t('strip.offline')}
+          hint={session ? t('strip.drawer.session', { id: session.id }) : t('strip.drawer.noSession')}
         />
       </div>
 
       {open === 'gaps' && (
-        <Drawer onClose={() => setOpen(null)} title="待办清单 (gaps)">
+        <Drawer onClose={() => setOpen(null)} title={t('strip.drawer.gaps')}>
           <div className="h-full overflow-hidden">
             <GapList />
           </div>
         </Drawer>
       )}
       {open === 'preset' && (
-        <Drawer onClose={() => setOpen(null)} title="验收清单">
+        <Drawer onClose={() => setOpen(null)} title={t('strip.drawer.preset')}>
           <PresetChecklistView />
         </Drawer>
       )}
       {open === 'log' && (
-        <Drawer onClose={() => setOpen(null)} title="详细事件日志">
+        <Drawer onClose={() => setOpen(null)} title={t('strip.drawer.log')}>
           <div className="h-full overflow-hidden">
             <RunLog />
           </div>
         </Drawer>
       )}
       {open === 'milestones' && (
-        <Drawer onClose={() => setOpen(null)} title="Milestone 进度">
+        <Drawer onClose={() => setOpen(null)} title={t('strip.milestone')}>
           <div className="h-full overflow-hidden overflow-y-auto">
             <MilestonesPanel onClose={() => setOpen(null)} />
           </div>
@@ -201,6 +203,7 @@ function PresetKpi({
   active: boolean;
   onClick: () => void;
 }) {
+  const { t } = useLocale();
   return (
     <button
       type="button"
@@ -211,11 +214,11 @@ function PresetKpi({
           ? 'bg-sage-50 ring-1 ring-sage-600/30'
           : 'hover:bg-paper hover:-translate-y-0.5 ring-1 ring-transparent'
       }`}
-      title="点开查看完整验收清单"
+      title={t('strip.checklistHint')}
     >
       <div className="flex flex-col items-start">
         <span className="text-[10px] uppercase tracking-widest text-muted/60 leading-tight">
-          验收清单
+          {t('strip.checklist')}
         </span>
         <span className="text-sm text-ink leading-tight">
           <CountUp value={done} className="font-medium" />
@@ -297,6 +300,7 @@ function Drawer({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const { t } = useLocale();
   return (
     <div className="fixed inset-x-0 top-[105px] bottom-0 bg-ink/30 z-40 flex anim-drift-in" onClick={onClose}>
       <div
@@ -310,7 +314,7 @@ function Drawer({
             onClick={onClose}
             className="text-xs text-muted hover:text-ink transition-colors font-sans"
           >
-            收起 ✕
+            {t('strip.drawer.close')}
           </button>
         </div>
         <div className="flex-1 overflow-hidden">{children}</div>

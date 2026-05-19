@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import type { Gap, GapStatus } from '../types.js';
 import { useStore } from '../store.js';
+import { useLocale } from '../i18n/useLocale.js';
 import { Button } from './Button.js';
 
-const STATUS_LABEL: Record<GapStatus, string> = {
-  PENDING: '待处理',
-  IN_PROGRESS: '处理中',
-  DONE: '完成',
-  SKIPPED: '跳过',
-  NEED_HUMAN: '需人工',
-  SPLIT_DONE: '已拆分',
+const STATUS_KEY: Record<GapStatus, string> = {
+  PENDING: 'gap.status.pending',
+  IN_PROGRESS: 'gap.status.inProgress',
+  DONE: 'gap.status.done',
+  SKIPPED: 'gap.status.skipped',
+  NEED_HUMAN: 'gap.status.needHuman',
+  SPLIT_DONE: 'gap.status.splitDone',
 };
 
 const STATUS_COLOR: Record<GapStatus, string> = {
@@ -31,6 +32,7 @@ function group(gaps: Gap[]): Map<GapStatus, Gap[]> {
 }
 
 export function GapList() {
+  const { t } = useLocale();
   const gaps = useStore((s) => s.gaps);
   const skipGap = useStore((s) => s.skipGap);
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -40,8 +42,8 @@ export function GapList() {
   return (
     <div className="card overflow-hidden flex flex-col h-full">
       <div className="card-header flex items-center justify-between">
-        <span title="d2p 找出来的产品级缺口清单（缺什么 / 没做什么）">
-          待办清单 <span className="text-xs font-sans text-muted/60 ml-1">(gaps)</span>
+        <span title={t('gap.list.tooltip')}>
+          {t('gap.list.title')} <span className="text-xs font-sans text-muted/60 ml-1">(gaps)</span>
         </span>
         <span className="text-xs font-sans text-muted">{gaps.length}</span>
       </div>
@@ -52,7 +54,7 @@ export function GapList() {
           return (
             <div key={status}>
               <div className="px-4 py-1.5 bg-paper text-[10px] text-muted uppercase tracking-wider font-medium">
-                {STATUS_LABEL[status]} · {items.length}
+                {t(STATUS_KEY[status])} · {items.length}
               </div>
               <ul className="divide-y divide-warmline">
                 {items.map((g) => (
@@ -68,18 +70,18 @@ export function GapList() {
                         {g.title}
                       </button>
                       {g.status === 'PENDING' && (
-                        <Button variant="ghost" onClick={() => void skipGap(g.id)}>跳过</Button>
+                        <Button variant="ghost" onClick={() => void skipGap(g.id)}>{t('gap.skip')}</Button>
                       )}
                     </div>
                     {expanded === g.id && (
                       <div className="mt-2 text-xs text-muted space-y-1 pl-2 border-l-2 border-warmline">
-                        <div><span className="text-muted/60">slug:</span> {g.slug}</div>
-                        <div><span className="text-muted/60">分类:</span> {g.category}</div>
-                        <div><span className="text-muted/60">来源:</span> {g.source}</div>
+                        <div><span className="text-muted/60">{t('gap.detail.slug')}</span> {g.slug}</div>
+                        <div><span className="text-muted/60">{t('gap.detail.category')}</span> {g.category}</div>
+                        <div><span className="text-muted/60">{t('gap.detail.source')}</span> {g.source}</div>
                         <div className="whitespace-pre-wrap">{g.body}</div>
                         {g.expectedFilesChanged.length > 0 && (
                           <div>
-                            <span className="text-muted/60">预计改:</span>{' '}
+                            <span className="text-muted/60">{t('gap.detail.expected')}</span>{' '}
                             {g.expectedFilesChanged.join(', ')}
                           </div>
                         )}
@@ -92,7 +94,7 @@ export function GapList() {
           );
         })}
         {gaps.length === 0 && (
-          <div className="p-6 text-muted text-sm italic font-serif">还没找出来要补什么，等 d2p 扫一下项目…</div>
+          <div className="p-6 text-muted text-sm italic font-serif">{t('gap.empty')}</div>
         )}
       </div>
     </div>

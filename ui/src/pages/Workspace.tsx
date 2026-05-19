@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../store.js';
+import { useLocale } from '../i18n/useLocale.js';
 import { Button } from '../components/Button.js';
 import { ArchitecturalAlert } from '../components/ArchitecturalAlert.js';
 import { PresetOverrideEditor } from '../components/PresetOverrideEditor.js';
@@ -11,6 +12,7 @@ import { StatusStrip } from '../components/StatusStrip.js';
 import { SessionResumeBanner, mockResumeMark } from '../components/SessionResumeBanner.js';
 
 export function Workspace() {
+  const { t } = useLocale();
   const session = useStore((s) => s.session);
   const demo = useStore((s) => s.demo);
   const loopState = useStore((s) => s.loopState);
@@ -49,9 +51,9 @@ export function Workspace() {
               setSelectedProjectId(null);
             }}
             className="text-xs text-muted hover:text-ink transition-colors font-sans"
-            title="返回项目列表"
+            title={t('workspace.demoBack')}
           >
-            ← 项目列表
+            {t('workspace.backToProjects')}
           </button>
           <div className="w-px h-6 bg-warmline" />
           <div>
@@ -63,7 +65,7 @@ export function Workspace() {
             </div>
             <div className="text-xs text-muted mt-0.5 flex items-center gap-2">
               <StatusPill status={session?.status} />
-              {isPausing && <span className="text-coral">(pausing — 当前 attempt 跑完后停)</span>}
+              {isPausing && <span className="text-coral">{t('workspace.pausingInline')}</span>}
             </div>
           </div>
         </div>
@@ -72,27 +74,27 @@ export function Workspace() {
           <div className="w-px h-5 bg-warmline mx-1" />
           {isLooping && (
             <Button variant="secondary" onClick={() => void pauseLoop()} disabled={isPausing}>
-              {isPausing ? 'Pausing…' : 'Pause ⏸'}
+              {isPausing ? t('workspace.pausing') : t('workspace.pause')}
             </Button>
           )}
           {isPaused && (
             <Button variant="primary" onClick={() => void resumeLoop()}>
-              Resume ▶
+              {t('workspace.resume')}
             </Button>
           )}
           {demoMode && !showMultiTurnFullscreen && !mtActive && (
             <Button variant="secondary" onClick={() => startDemoStream()}>
-              试看 multi-turn 主视面 →
+              {t('workspace.tryMultiTurn')}
             </Button>
           )}
-          {demoMode && <Button variant="ghost" onClick={() => stopDemo()}>退出演示</Button>}
-          <Button variant="ghost" onClick={() => setShowSettings(true)}>⚙ 设置 / 切引擎</Button>
-          <Button variant="ghost" onClick={() => void endSession()}>结束会话</Button>
+          {demoMode && <Button variant="ghost" onClick={() => stopDemo()}>{t('workspace.exitDemo')}</Button>}
+          <Button variant="ghost" onClick={() => setShowSettings(true)}>{t('workspace.settings')}</Button>
+          <Button variant="ghost" onClick={() => void endSession()}>{t('workspace.endSession')}</Button>
         </div>
       </header>
       {demoMode && (
         <div className="bg-coral/10 border-b border-coral/30 text-coral text-xs font-sans px-6 py-1.5 text-center">
-          演示模式 · multi-turn 是 mock 数据驱动 · 真任务跑起来形态一样 · 点「退出演示」回去
+          {t('workspace.demoBanner')}
         </div>
       )}
       {showResumeBanner && mockResumeMark && (
@@ -129,7 +131,7 @@ export function Workspace() {
                   onClick={() => setForceShowQueue(false)}
                   className="text-xs text-coral hover:text-rust transition-colors font-sans"
                 >
-                  返回自治视图 →
+                  {t('workspace.backToQueue')}
                 </button>
               )}
             </div>
@@ -137,7 +139,7 @@ export function Workspace() {
               <CommitsTimeline />
               {isPaused && (
                 <div className="card p-4 mt-4">
-                  <div className="text-sm font-medium mb-2">调整验收清单</div>
+                  <div className="text-sm font-medium mb-2">{t('workspace.editChecklist')}</div>
                   <PresetOverrideEditor />
                 </div>
               )}

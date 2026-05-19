@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLocale } from '../i18n/useLocale.js';
 import {
   mockAgentSessions,
   mockTimelinesByRole,
@@ -33,14 +34,14 @@ function sortSessions(list: AgentSession[]): AgentSession[] {
 // Soft, role-tinted cards. No table-grid lines; cards float on the page.
 // Working agent gets a subtle glow + the role's tint background.
 
-function fmtRelative(ts: number): string {
+function fmtRelative(ts: number, t: (k: string, v?: Record<string, string | number>) => string): string {
   const diffMs = Date.now() - ts;
   const s = Math.floor(diffMs / 1000);
-  if (s < 60) return `${s}s 前`;
+  if (s < 60) return t('time.secAgo', { n: s });
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m} 分前`;
+  if (m < 60) return t('time.minAgo', { n: m });
   const h = Math.floor(m / 60);
-  return `${h} 小时前`;
+  return t('time.hourAgo', { n: h });
 }
 
 // Per-role tint: differ=slate, implementer=amber, reviewers=sage, done-check=plum
@@ -55,6 +56,7 @@ const ROLE_TINT: Record<AgentRole, { ringHover: string; bg: string; bgWorking: s
 };
 
 export function SessionsBoard() {
+  const { t } = useLocale();
   const [activeRole, setActiveRole] = useState<AgentRole | null>(null);
   const drawerOpen = activeRole !== null;
 
@@ -63,9 +65,9 @@ export function SessionsBoard() {
       {/* Card grid column */}
       <div className={`${drawerOpen ? 'w-96 flex-shrink-0' : 'flex-1'} overflow-y-auto pr-1`}>
         <div className="flex items-baseline justify-between mb-4 px-1">
-          <h2 className="text-base font-medium text-ink">Agents</h2>
+          <h2 className="text-base font-medium text-ink">{t('agents.title')}</h2>
           <span className="text-xs text-muted/70 font-sans">
-            {mockAgentSessions.length} 个
+            {mockAgentSessions.length}{t('agents.count')}
           </span>
         </div>
         <div className="space-y-3">
@@ -103,6 +105,7 @@ function SessionCard({
   active: boolean;
   onClick: () => void;
 }) {
+  const { t } = useLocale();
   const agent = AGENT_LABEL[session.role];
   const status = STATUS_LABEL[session.status];
   const tint = ROLE_TINT[session.role];
@@ -127,14 +130,14 @@ function SessionCard({
     >
       <div className="flex items-center gap-3 mb-2">
         <span className={`w-1.5 h-6 rounded-full ${isWorking ? 'bg-coral' : 'bg-warmline'}`} />
-        <span className={`text-base font-medium ${tint.text}`}>{agent.zh}</span>
+        <span className={`text-base font-medium ${tint.text}`}>{t(`agents.role.${session.role}`)}</span>
         <span className="text-[10px] uppercase tracking-widest text-muted/50 font-mono">
           {session.role}
         </span>
         <span className="flex-1" />
         <span className="flex items-center gap-1.5">
           <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
-          <span className={`text-xs ${status.color} font-sans`}>{status.zh}</span>
+          <span className={`text-xs ${status.color} font-sans`}>{t(`agents.status.${session.status}`)}</span>
         </span>
       </div>
       {session.currentGapTitle ? (
@@ -142,19 +145,20 @@ function SessionCard({
           {session.currentGapTitle}
         </div>
       ) : (
-        <div className="text-sm text-muted/60 italic font-serif mb-1">没在跑活</div>
+        <div className="text-sm text-muted/60 italic font-serif mb-1">{t('agents.idle')}</div>
       )}
       <div className="text-xs text-muted line-clamp-1">{session.lastTurnSummary}</div>
       <div className="flex items-center gap-3 mt-2 text-[10px] text-muted/60 font-mono">
-        <span>{session.callsThisSession} 次调用</span>
-        {session.turnCountThisGap > 0 && <span>· 当前 {session.turnCountThisGap} turn</span>}
-        <span>· {fmtRelative(session.lastActivityTs)}</span>
+        <span>{session.callsThisSession} {t('agents.calls')}</span>
+        {session.turnCountThisGap > 0 && <span>· {t('agents.currentTurn', { n: session.turnCountThisGap })}</span>}
+        <span>· {fmtRelative(session.lastActivityTs, t)}</span>
       </div>
     </button>
   );
 }
 
 function SessionTimelineDrawer({ role, onClose }: { role: AgentRole; onClose: () => void }) {
+  const { t } = useLocale();
   const agent = AGENT_LABEL[role];
   const tint = ROLE_TINT[role];
   const turns = mockTimelinesByRole[role];
@@ -167,35 +171,35 @@ function SessionTimelineDrawer({ role, onClose }: { role: AgentRole; onClose: ()
       <div className="sticky top-0 bg-cream px-5 py-4 flex items-center justify-between rounded-t-xl">
         <div className="flex items-center gap-3">
           <span className={`w-1.5 h-6 rounded-full bg-coral`} />
-          <span className={`font-medium text-base ${tint.text}`}>{agent.zh}</span>
+          <span className={`font-medium text-base ${tint.text}`}>{t(`agents.role.${role}`)}</span>
           <span className="text-[10px] uppercase tracking-widest text-muted/50 font-mono">
             {role}
           </span>
-          <span className="text-xs text-muted/70">{turns.length} 次调用</span>
+          <span className="text-xs text-muted/70">{turns.length} {t('agents.timeline.calls')}</span>
         </div>
         <button
           type="button"
           onClick={onClose}
           className="text-xs text-muted hover:text-ink transition-colors font-sans"
-          aria-label="关闭时间轴"
+          aria-label={t('strip.drawer.close')}
         >
-          收起 ✕
+          {t('strip.drawer.close')}
         </button>
       </div>
       {turns.length === 0 ? (
-        <div className="p-8 text-sm text-muted italic font-serif">没有历史调用</div>
+        <div className="p-8 text-sm text-muted italic font-serif">{t('agents.timeline.empty')}</div>
       ) : (
         <ol className="px-5 pb-5 space-y-5">
           {turns
             .slice()
             .reverse()
-            .map((t, idx) => (
+            .map((te, idx) => (
               <div
-                key={`${t.turn}-${t.ts}`}
+                key={`${te.turn}-${te.ts}`}
                 className="anim-stagger"
                 style={{ ['--i' as 'width']: idx as unknown as string }}
               >
-                <TimelineEntry t={t} isLast={idx === 0} />
+                <TimelineEntry t={te} isLast={idx === 0} />
               </div>
             ))}
         </ol>
@@ -204,11 +208,12 @@ function SessionTimelineDrawer({ role, onClose }: { role: AgentRole; onClose: ()
   );
 }
 
-function TimelineEntry({ t, isLast }: { t: SessionTurnEntry; isLast: boolean }) {
+function TimelineEntry({ t: te, isLast }: { t: SessionTurnEntry; isLast: boolean }) {
+  const { t } = useLocale();
   return (
     <li
       className="relative pl-6"
-      data-testid={`timeline-entry-${t.turn}`}
+      data-testid={`timeline-entry-${te.turn}`}
     >
       <span
         className={`absolute left-0 top-1.5 w-2.5 h-2.5 rounded-full ${
@@ -217,44 +222,44 @@ function TimelineEntry({ t, isLast }: { t: SessionTurnEntry; isLast: boolean }) 
       />
       <span className="absolute left-[5px] top-5 bottom-0 w-px bg-warmline" />
       <div className="flex items-center gap-2 text-xs mb-2">
-        <span className="font-mono text-coral font-medium">T{t.turn}</span>
-        <span className="font-mono text-muted/70">{t.gapSlug}</span>
-        <span className="text-muted/60 ml-auto">{fmtRelative(t.ts)}</span>
+        <span className="font-mono text-coral font-medium">T{te.turn}</span>
+        <span className="font-mono text-muted/70">{te.gapSlug}</span>
+        <span className="text-muted/60 ml-auto">{fmtRelative(te.ts, t)}</span>
       </div>
       <div className="text-xs space-y-2 text-ink/85">
         <div>
-          <div className="text-[10px] uppercase tracking-widest text-muted/60 mb-0.5">输入</div>
-          <div>{t.inputSummary}</div>
+          <div className="text-[10px] uppercase tracking-widest text-muted/60 mb-0.5">{t('agents.timeline.input')}</div>
+          <div>{te.inputSummary}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-widest text-muted/60 mb-0.5">输出</div>
-          <div>{t.outputSummary}</div>
+          <div className="text-[10px] uppercase tracking-widest text-muted/60 mb-0.5">{t('agents.timeline.output')}</div>
+          <div>{te.outputSummary}</div>
         </div>
-        {t.toolUses.length > 0 && (
+        {te.toolUses.length > 0 && (
           <div>
-            <div className="text-[10px] uppercase tracking-widest text-muted/60 mb-0.5">用了什么</div>
+            <div className="text-[10px] uppercase tracking-widest text-muted/60 mb-0.5">{t('agents.timeline.tools')}</div>
             <div className="flex flex-wrap gap-1.5">
-              {t.toolUses.slice(0, 4).map((u, i) => (
+              {te.toolUses.slice(0, 4).map((u, i) => (
                 <span key={i} className="bg-paper text-muted px-2 py-0.5 rounded-full text-[11px]">
                   {u}
                 </span>
               ))}
-              {t.toolUses.length > 4 && (
-                <span className="text-[11px] text-muted/60">+{t.toolUses.length - 4}</span>
+              {te.toolUses.length > 4 && (
+                <span className="text-[11px] text-muted/60">+{te.toolUses.length - 4}</span>
               )}
             </div>
           </div>
         )}
-        {(t.commitSha || t.checkpointTag) && (
+        {(te.commitSha || te.checkpointTag) && (
           <div className="pt-1 flex items-center gap-2 flex-wrap text-[11px]">
-            {t.commitSha && (
+            {te.commitSha && (
               <span className="bg-sage-50 text-sage-600 px-2 py-0.5 rounded-full font-mono">
-                commit {t.commitSha.slice(0, 7)}
+                {t('agents.timeline.commit')} {te.commitSha.slice(0, 7)}
               </span>
             )}
-            {t.checkpointTag && (
+            {te.checkpointTag && (
               <span className="bg-coralsoft text-coral px-2 py-0.5 rounded-full font-mono">
-                ⏱ checkpoint
+                ⏱ {t('agents.timeline.checkpoint')}
               </span>
             )}
           </div>
