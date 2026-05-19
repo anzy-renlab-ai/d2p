@@ -864,13 +864,16 @@ export class Queries {
       created_at: number;
       gap_slug: string;
       gap_title: string;
+      pr_number: number | null;
+      pr_url: string | null;
     }
     const clampedLimit = Math.min(limit, 200);
 
     const fixes = this.db
       .prepare(
         `SELECT f.id AS fix_id, f.commit_sha, f.files_changed, f.finished_at, f.created_at,
-                g.slug AS gap_slug, g.title AS gap_title
+                g.slug AS gap_slug, g.title AS gap_title,
+                f.pr_number, f.pr_url
          FROM fixes f
          JOIN gaps g ON g.id = f.gap_id
          WHERE g.session_id = ? AND f.status = 'MERGED'
@@ -908,6 +911,8 @@ export class Queries {
         insertions: 0,
         deletions: 0,
         message: fix.gap_title,
+        prNumber: fix.pr_number,
+        prUrl: fix.pr_url,
         reviewVerdicts: reviews.map((r) => ({
           kind: r.kind as ReviewKind,
           verdict: r.verdict as Verdict | null,
@@ -1159,6 +1164,33 @@ export class Queries {
         estimatedUsd: usd,
       };
     });
+  }
+
+  // ─── auto-PR helpers (renderPrBody source) ─────────────────────────────
+
+  /**
+   * Latest alignment_score for the given fix. Returns null if no alignment
+   * reviewer row exists yet.
+   */
+  latestAlignmentScoreForFix(fixId: number): number | null {
+    const row = this.db
+      .prepare('SELECT alignment_score FROM fixes WHERE id = ?')
+      .get(fixId) as { alignment_score: number | null } | undefined;
+    return row?.alignment_score ?? null;
+  }
+
+  /**
+   * Reason code of the most recent fix attempted on this gap. Used in the
+   * "Other gaps in this session" section of an auto-PR body so the reviewer
+   * sees why each rejected gap was rejected.
+   */
+  latestReasonCodeForGap(gapId: number): ReasonCode | null {
+    const row = this.db
+      .prepare(
+        `SELECT reason_code FROM fixes WHERE gap_id = ? ORDER BY id DESC LIMIT 1`,
+      )
+      .get(gapId) as { reason_code: string | null } | undefined;
+    return (row?.reason_code as ReasonCode | null) ?? null;
   }
 
   // ─── multi-project list ─────────────────────────────────────────────────

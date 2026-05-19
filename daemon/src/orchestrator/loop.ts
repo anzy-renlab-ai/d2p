@@ -34,8 +34,10 @@ import { readPreset, readOverrides, applyOverridesToStatus } from '../preset/loa
 import { stringify as yamlStringify } from 'yaml';
 import { startWatching, stopWatching, consumeDirty } from '../watcher/vision-watcher.js';
 import { GitHubClient, parseGitHubRemote } from '../github/client.js';
-import { pushFixBranch, readOriginUrl } from '../git/push.js';
+import { pushFixBranchOrCherryPick, readOriginUrl } from '../git/push.js';
 import { loadConfig } from '../config/load.js';
+import { renderPrBody, type RejectedGapEntry } from './pr-body.js';
+import { PRICING_PER_MTOK } from '../cost/pricing.js';
 import type { Gap as GapType } from '../types.js';
 
 // MAX_ITERATIONS is a catastrophic safety net only — the loop is intended
@@ -636,27 +638,53 @@ async function pushAndOpenPR(
   const [owner, repo] = repoSpec.split('/');
   if (!owner || !repo) return { error: `bad githubRepo ${repoSpec}` };
 
-  const pushed = await pushFixBranch({
+  const pushed = await pushFixBranchOrCherryPick({
     repoPath: ctx.demoPath,
     branch: `fix/${gap.slug}`,
+    baseBranch: ctx.session.baseBranch,
+    slug: gap.slug,
     token: cfg.github.token,
     owner,
     repo,
   });
   if (!pushed.ok) return { error: `push failed: ${pushed.stderr.slice(0, 300)}` };
+  const prHead = pushed.branch ?? `fix/${gap.slug}`;
 
   const gh = new GitHubClient(cfg.github.token);
+
+  // Gather rejected gaps from the same session for transparency in the PR body.
+  const rejectedGaps = ctx.q.listGaps(ctx.session.id, ['NEED_HUMAN']);
+  const sessionRejections: RejectedGapEntry[] = rejectedGaps
+    .filter((g) => g.id !== gap.id)
+    .map((g) => ({
+      slug: g.slug,
+      title: g.title,
+      severity: g.severity,
+      // Reviewer reason code isn't tracked on gap rows directly — use the
+      // latest fix's reason code if available, otherwise null.
+      reasonCode: ctx.q.latestReasonCodeForGap(g.id) ?? null,
+      status: g.status,
+    }));
+
+  // Latest alignment score for this fix (last review row).
+  const alignmentScore = ctx.q.latestAlignmentScoreForFix(fixId);
+
+  // Session cost-to-date for the PR footer.
+  const cost = ctx.q.costTotals(ctx.session.id, PRICING_PER_MTOK);
+
   const pr = await gh.openPR({
     owner,
     repo,
     title: `fix(${gap.category}): ${gap.title}`,
-    body:
-      `Opened automatically by d2p.\n\n` +
-      `**Gap**: \`${gap.slug}\`\n\n` +
-      `${gap.body}\n\n` +
-      `Severity: ${gap.severity}\n\n` +
-      `_d2p session ${ctx.session.id}, fix ${fixId}_`,
-    head: `fix/${gap.slug}`,
+    body: renderPrBody({
+      session: { id: ctx.session.id, baseBranch: ctx.session.baseBranch },
+      gap,
+      fixId,
+      alignmentScore,
+      sessionRejections,
+      costUsd: cost.estimatedUsd,
+    }),
+    head: prHead,
     base: ctx.session.baseBranch,
   });
   if ('error' in pr) return { error: pr.error };

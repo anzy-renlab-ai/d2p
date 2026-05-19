@@ -596,6 +596,9 @@ export interface MergedCommitRow {
   deletions: number;
   /** commit_message from the gap title if not stored on fix. */
   message: string;
+  /** When the session was github-pr mode, the PR number + html URL. */
+  prNumber: number | null;
+  prUrl: string | null;
   /** Verdicts from reviews linked to this fix. */
   reviewVerdicts: { kind: ReviewKind; verdict: Verdict | null; score: number | null }[];
 }

@@ -213,6 +213,8 @@ export interface MergedCommitRow {
   insertions: number;
   deletions: number;
   message: string;
+  prNumber: number | null;
+  prUrl: string | null;
   reviewVerdicts: { kind: ReviewKind; verdict: Verdict | null; score: number | null }[];
 }
 

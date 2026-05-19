@@ -70,6 +70,8 @@ export function CommitsTimeline() {
         insertions: c.insertions,
         deletions: c.deletions,
         message: c.message,
+        prNumber: c.prNumber,
+        prUrl: c.prUrl,
         reviewVerdicts: c.reviewVerdicts.map((r) => ({
           kind: r.kind,
           verdict: (r.verdict ?? 'partial') as 'pass' | 'fail' | 'partial',
@@ -129,6 +131,18 @@ export function CommitsTimeline() {
                   <span className="text-[11px] text-sage-600 font-sans">+{c.insertions}</span>
                   <span className="text-[11px] text-rust font-sans">−{c.deletions}</span>
                   <span className="flex-1" />
+                  {(c as { prUrl?: string | null; prNumber?: number | null }).prUrl && (
+                    <a
+                      href={(c as { prUrl: string }).prUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2 py-0.5 rounded-full text-[11px] font-sans bg-coral/10 text-coral hover:bg-coral hover:text-cream transition-colors"
+                      data-testid={`pr-link-${c.shortSha}`}
+                      title="Open PR on GitHub"
+                    >
+                      🔗 PR #{(c as { prNumber: number }).prNumber}
+                    </a>
+                  )}
                   {c.reviewVerdicts.map((v, i) => (
                     <span
                       key={i}
