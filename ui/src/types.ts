@@ -178,6 +178,57 @@ export interface MultiTurnState {
 
 export type RiskBand = 'low' | 'mid' | 'high';
 
+export type ReviewKind = 'alignment' | 'behavioral' | 'adversarial';
+export type Verdict = 'pass' | 'fail' | 'partial';
+
+export type ClaudeRole =
+  | 'differ'
+  | 'implementer'
+  | 'alignment'
+  | 'behavioral'
+  | 'adversarial'
+  | 'done-check'
+  | 'repo-summary';
+
+export type AgentRoleStatus = 'working' | 'idle' | 'blocked' | 'stale' | 'done';
+
+export interface AgentSessionAgg {
+  role: ClaudeRole;
+  status: AgentRoleStatus;
+  currentGapSlug: string | null;
+  currentGapTitle: string | null;
+  lastTurnSummary: string | null;
+  turnCountThisGap: number;
+  callsThisSession: number;
+  lastActivityTs: number | null;
+}
+
+export interface MergedCommitRow {
+  sha: string | null;
+  shortSha: string | null;
+  ts: number;
+  gapSlug: string;
+  gapTitle: string;
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  message: string;
+  reviewVerdicts: { kind: ReviewKind; verdict: Verdict | null; score: number | null }[];
+}
+
+export type MilestoneStatus = 'pending' | 'in_progress' | 'done';
+
+export interface MilestoneRow {
+  id: number;
+  sessionId: number;
+  title: string;
+  visionExcerpt: string | null;
+  presetItemIds: string[];
+  status: MilestoneStatus;
+  ordinal: number;
+  completedAt: number | null;
+}
+
 export interface ProjectListItem {
   id: number;
   path: string;

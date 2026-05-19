@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useStore } from '../store.js';
 import { useLocale } from '../i18n/useLocale.js';
 import { agentGamePlatformCommits } from '../mock/agentGamePlatform.js';
 import { mockCommits as _fallbackCommits, mockCheckpoints } from '../mock/sessions.js';
@@ -9,8 +10,9 @@ import { RiskBadge, riskCardRingClass } from './RiskBadge.js';
 import { CommitDiffDrawer } from './CommitDiffDrawer.js';
 import { CheckpointTimeline } from './CheckpointTimeline.js';
 
-// Use real agent-game-platform commits; fall back to sessions mock if empty.
-const mockCommits = agentGamePlatformCommits.length > 0 ? agentGamePlatformCommits : _fallbackCommits;
+// Mock fallback when daemon's commit list is empty — useful in demo mode and
+// first-run states. agent-game-platform mock is preferred, then sessions mock.
+const fallbackCommits = agentGamePlatformCommits.length > 0 ? agentGamePlatformCommits : _fallbackCommits;
 
 // Floating cards on a vertical timeline. No grid lines. Each commit card
 // has primary actions (rewind / diff) inline + reviewer verdict chips.
@@ -50,6 +52,31 @@ export function CommitsTimeline() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [rewindTarget, setRewindTarget] = useState<string | null>(null);
   const [diffTarget, setDiffTarget] = useState<string | null>(null);
+
+  // Real daemon commits when available, else mock fallback so the panel
+  // never renders empty during demos / first-run.
+  const realCommits = useStore((s) => s.commits);
+  const mockCommits = useMemo(() => {
+    if (realCommits.length === 0) return fallbackCommits;
+    return realCommits
+      .filter((c): c is typeof c & { sha: string; shortSha: string } => c.sha !== null && c.shortSha !== null)
+      .map((c) => ({
+        sha: c.sha,
+        shortSha: c.shortSha,
+        ts: c.ts,
+        gapSlug: c.gapSlug,
+        gapTitle: c.gapTitle,
+        filesChanged: c.filesChanged,
+        insertions: c.insertions,
+        deletions: c.deletions,
+        message: c.message,
+        reviewVerdicts: c.reviewVerdicts.map((r) => ({
+          kind: r.kind,
+          verdict: (r.verdict ?? 'partial') as 'pass' | 'fail' | 'partial',
+          score: r.score ?? null,
+        })),
+      }));
+  }, [realCommits]);
 
   const diffCommit = diffTarget ? mockCommits.find((c) => c.sha === diffTarget) ?? null : null;
   const diffFiles = diffTarget

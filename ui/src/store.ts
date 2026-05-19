@@ -1,10 +1,13 @@
 import { create } from 'zustand';
 import type {
+  AgentSessionAgg,
   CurrentSessionRes,
   Demo,
   DetectorOutput,
   Gap,
   HealthResponse,
+  MergedCommitRow,
+  MilestoneRow,
   MultiTurnState,
   PresetStatusItem,
   ProjectListItem,
@@ -79,6 +82,15 @@ interface Store {
   sessionsByProject: Record<number, SessionListItem[]>;
   refreshProjects: () => Promise<void>;
   refreshSessionsByProject: (id: number) => Promise<void>;
+
+  // Workspace panels — populated by polling refreshAll() and by reactive
+  // pushEvent triggers (GAP_DONE, MERGED, REVIEW_VERDICT…).
+  agentsAgg: AgentSessionAgg[];
+  commits: MergedCommitRow[];
+  milestones: MilestoneRow[];
+  refreshAgentsAgg: () => Promise<void>;
+  refreshCommits: () => Promise<void>;
+  refreshMilestones: () => Promise<void>;
 
   // ui chrome
   showSettings: boolean;
@@ -312,6 +324,33 @@ export const useStore = create<Store>((set, get) => ({
       // ignore
     }
   },
+  agentsAgg: [],
+  commits: [],
+  milestones: [],
+  async refreshAgentsAgg() {
+    try {
+      const r = await api.listAgents();
+      set({ agentsAgg: r.sessions });
+    } catch {
+      // ignore
+    }
+  },
+  async refreshCommits() {
+    try {
+      const r = await api.listCommits(50);
+      set({ commits: r.commits });
+    } catch {
+      // ignore
+    }
+  },
+  async refreshMilestones() {
+    try {
+      const r = await api.listMilestones();
+      set({ milestones: r.milestones });
+    } catch {
+      // ignore
+    }
+  },
   showSettings: false,
   setShowSettings: (b) => set({ showSettings: b }),
   selectedProjectId: null,
@@ -373,6 +412,9 @@ export const useStore = create<Store>((set, get) => ({
       get().refreshGaps(),
       get().refreshLoopState(),
       get().refreshProjects(),
+      get().refreshAgentsAgg(),
+      get().refreshCommits(),
+      get().refreshMilestones(),
     ]);
   },
 
@@ -401,6 +443,17 @@ export const useStore = create<Store>((set, get) => ({
       void refresh.refreshSession();
       void refresh.refreshGaps();
       void refresh.refreshLoopState();
+      void refresh.refreshAgentsAgg();
+      void refresh.refreshCommits();
+      void refresh.refreshMilestones();
+    }
+    if (
+      e.kind === 'AGENT_START' ||
+      e.kind === 'AGENT_END' ||
+      e.kind === 'AGENT_THOUGHT' ||
+      e.kind === 'REVIEW_VERDICT'
+    ) {
+      void refresh.refreshAgentsAgg();
     }
     if (e.kind === 'AGENT_START' && (e.payload as { mode?: string }).mode === 'multi-turn') {
       const p = e.payload as {

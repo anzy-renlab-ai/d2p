@@ -1,12 +1,15 @@
 // REST + SSE client for the d2p daemon. Vite proxies /api/* to :5174 in dev.
 
 import type {
+  AgentSessionAgg,
   CurrentSessionRes,
   DetectorOutput,
   DoctorResponse,
   Gap,
   HealthResponse,
   LoopState,
+  MergedCommitRow,
+  MilestoneRow,
   ProjectListItem,
   SessionListItem,
   SseEnvelope,
@@ -149,6 +152,11 @@ export const api = {
   listProjects: () => jsonFetch<{ projects: ProjectListItem[] }>('/api/projects'),
   listSessionsByProject: (id: number) =>
     jsonFetch<{ sessions: SessionListItem[] }>(`/api/projects/${id}/sessions`),
+
+  listAgents: () => jsonFetch<{ sessions: AgentSessionAgg[] }>('/api/sessions'),
+  listCommits: (limit = 50) =>
+    jsonFetch<{ commits: MergedCommitRow[] }>(`/api/commits?limit=${limit}`),
+  listMilestones: () => jsonFetch<{ milestones: MilestoneRow[] }>('/api/milestones'),
 };
 
 /**

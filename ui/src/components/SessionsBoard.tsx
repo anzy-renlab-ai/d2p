@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useStore } from '../store.js';
 import { useLocale } from '../i18n/useLocale.js';
 import {
   mockAgentSessions,
@@ -10,6 +11,20 @@ import {
   type AgentStatus,
   type SessionTurnEntry,
 } from '../mock/sessions.js';
+import type { AgentSessionAgg } from '../types.js';
+
+function adaptAgent(a: AgentSessionAgg): AgentSession {
+  return {
+    role: a.role,
+    status: a.status,
+    currentGapSlug: a.currentGapSlug,
+    currentGapTitle: a.currentGapTitle,
+    lastTurnSummary: a.lastTurnSummary ?? '',
+    turnCountThisGap: a.turnCountThisGap,
+    callsThisSession: a.callsThisSession,
+    lastActivityTs: a.lastActivityTs ?? Date.now(),
+  };
+}
 
 // Sort by status priority — actionable first, idle / stale last. Within the
 // same status bucket preserve original order so role identity is stable.
@@ -60,6 +75,12 @@ export function SessionsBoard() {
   const [activeRole, setActiveRole] = useState<AgentRole | null>(null);
   const drawerOpen = activeRole !== null;
 
+  const realAgents = useStore((s) => s.agentsAgg);
+  const agents = useMemo<AgentSession[]>(
+    () => (realAgents.length > 0 ? realAgents.map(adaptAgent) : mockAgentSessions),
+    [realAgents],
+  );
+
   return (
     <div className="h-full flex gap-5 overflow-hidden" data-testid="sessions-board">
       {/* Card grid column */}
@@ -67,11 +88,11 @@ export function SessionsBoard() {
         <div className="flex items-baseline justify-between mb-4 px-1">
           <h2 className="text-base font-medium text-ink">{t('agents.title')}</h2>
           <span className="text-xs text-muted/70 font-sans">
-            {mockAgentSessions.length}{t('agents.count')}
+            {agents.length}{t('agents.count')}
           </span>
         </div>
         <div className="space-y-3">
-          {sortSessions(mockAgentSessions).map((s, i) => (
+          {sortSessions(agents).map((s, i) => (
             <div
               key={s.role}
               className="anim-stagger"

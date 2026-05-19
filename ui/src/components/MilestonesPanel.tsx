@@ -1,6 +1,30 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useStore } from '../store.js';
 import { mockMilestones, getMilestoneKpi, type Milestone } from '../mock/milestones.js';
 import { mockPresetItemsRich } from '../mock/data.js';
+import type { MilestoneRow } from '../types.js';
+
+// Daemon's MilestoneRow uses `in_progress` (snake-ish) while the mock uses
+// `in-progress` (kebab). Adapter normalizes status casing and renames
+// visionExcerpt → vision_excerpt. doneCount/totalCount are derived loosely
+// from presetItemIds length (we don't yet join preset_status to compute the
+// real done count here).
+function adaptMilestone(m: MilestoneRow): Milestone {
+  const status: Milestone['status'] =
+    m.status === 'in_progress' ? 'in-progress' : (m.status as Milestone['status']);
+  return {
+    id: String(m.id),
+    ordinal: m.ordinal,
+    title: m.title,
+    subtitle: '',
+    status,
+    vision_excerpt: m.visionExcerpt ?? '',
+    presetItemIds: m.presetItemIds,
+    completedAt: m.completedAt,
+    doneCount: status === 'done' ? m.presetItemIds.length : 0,
+    totalCount: m.presetItemIds.length,
+  };
+}
 
 const STATUS_DOT: Record<Milestone['status'], string> = {
   done:        'bg-forest',
@@ -20,8 +44,18 @@ interface MilestonesPanelProps {
 }
 
 /** Horizontal milestone stepper. Clickable steps expand vision excerpt + preset chips. */
-export function MilestonesPanel({ milestones = mockMilestones, onClose }: MilestonesPanelProps) {
+export function MilestonesPanel({ milestones: milestonesProp, onClose }: MilestonesPanelProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
+  const realMilestones = useStore((s) => s.milestones);
+
+  // Priority: explicit prop > real daemon data > mock fallback. Empty daemon
+  // arrays fall through to the mock so first-run users still see the stepper.
+  const milestones = useMemo<Milestone[]>(() => {
+    if (milestonesProp) return milestonesProp;
+    if (realMilestones.length > 0) return realMilestones.map(adaptMilestone);
+    return mockMilestones;
+  }, [milestonesProp, realMilestones]);
+
   const kpi = getMilestoneKpi(milestones);
 
   return (
