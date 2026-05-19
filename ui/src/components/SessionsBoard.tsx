@@ -63,7 +63,7 @@ export function SessionsBoard() {
   return (
     <div className="h-full flex gap-5 overflow-hidden" data-testid="sessions-board">
       {/* Card grid column */}
-      <div className={`${drawerOpen ? 'w-96 flex-shrink-0' : 'flex-1'} overflow-y-auto pr-1`}>
+      <div className={`${drawerOpen ? 'w-96 flex-shrink-0' : 'flex-1'} min-h-0 overflow-y-auto pr-1`}>
         <div className="flex items-baseline justify-between mb-4 px-1">
           <h2 className="text-base font-medium text-ink">{t('agents.title')}</h2>
           <span className="text-xs text-muted/70 font-sans">
@@ -88,7 +88,9 @@ export function SessionsBoard() {
       </div>
 
       {drawerOpen && activeRole && (
-        <div key={activeRole} className="flex-1 anim-drawer-right min-w-0">
+        // Use opacity-only fade (no transform) — wrapping a scroll container
+        // with a transformed ancestor breaks sticky positioning inside.
+        <div key={activeRole} className="flex-1 anim-fade-in min-w-0 min-h-0">
           <SessionTimelineDrawer role={activeRole} onClose={() => setActiveRole(null)} />
         </div>
       )}
@@ -168,7 +170,7 @@ function SessionTimelineDrawer({ role, onClose }: { role: AgentRole; onClose: ()
       className="h-full overflow-y-auto bg-cream rounded-xl shadow-card ring-1 ring-warmline/60"
       data-testid="session-timeline-drawer"
     >
-      <div className="sticky top-0 bg-cream px-5 py-4 flex items-center justify-between rounded-t-xl">
+      <div className="sticky top-0 z-10 bg-cream px-5 py-4 flex items-center justify-between rounded-t-xl border-b border-warmline/60">
         <div className="flex items-center gap-3">
           <span className={`w-1.5 h-6 rounded-full bg-coral`} />
           <span className={`font-medium text-base ${tint.text}`}>{t(`agents.role.${role}`)}</span>
@@ -194,13 +196,9 @@ function SessionTimelineDrawer({ role, onClose }: { role: AgentRole; onClose: ()
             .slice()
             .reverse()
             .map((te, idx) => (
-              <div
-                key={`${te.turn}-${te.ts}`}
-                className="anim-stagger"
-                style={{ ['--i' as 'width']: idx as unknown as string }}
-              >
-                <TimelineEntry t={te} isLast={idx === 0} />
-              </div>
+              // No anim-stagger wrapper here — its transform creates a
+              // containing block that breaks the drawer's sticky header.
+              <TimelineEntry key={`${te.turn}-${te.ts}`} t={te} isLast={idx === 0} />
             ))}
         </ol>
       )}

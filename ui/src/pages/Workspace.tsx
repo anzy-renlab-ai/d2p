@@ -127,9 +127,9 @@ export function Workspace() {
       ) : (
         <>
           <StatusStrip />
-          <div className="flex-1 grid grid-cols-12 gap-8 px-8 py-7 overflow-hidden">
-            <div className="col-span-7 overflow-hidden flex flex-col gap-3">
-              <div className="flex-1 overflow-hidden">
+          <div className="flex-1 min-h-0 grid grid-cols-12 gap-8 px-8 py-7 overflow-hidden">
+            <div className="col-span-7 min-h-0 overflow-hidden flex flex-col gap-3">
+              <div className="flex-1 min-h-0 overflow-hidden">
                 <SessionsBoard />
               </div>
               {mtActive && (
@@ -142,7 +142,7 @@ export function Workspace() {
                 </button>
               )}
             </div>
-            <div className="col-span-5 overflow-hidden">
+            <div className="col-span-5 min-h-0 overflow-hidden">
               <CommitsTimeline />
               {isPaused && (
                 <div className="card p-4 mt-4">
