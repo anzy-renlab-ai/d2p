@@ -1,0 +1,247 @@
+import { useState } from 'react';
+import { Button } from './Button.js';
+import { CountUp } from './CountUp.js';
+import {
+  mockProjects,
+  STATUS_META,
+  TYPE_LABEL,
+  type ProjectSummary,
+} from '../mock/projects.js';
+
+// Multi-project home — replaces the single-demo Landing layout for users who
+// have more than one project under d2p. Click a project card → enter its
+// Workspace (current session + sessions board + commits + rewind).
+//
+// Backed by mockProjects for now; daemon wire-in will swap to a real
+// GET /api/projects when the multi-project tracking lands.
+
+const TONE_BADGE: Record<'good' | 'warn' | 'bad' | 'mute' | 'active', { chip: string; dot: string }> = {
+  good:   { chip: 'bg-sage-50 text-sage-600',  dot: 'bg-sage-600' },
+  warn:   { chip: 'bg-coralsoft text-coral',   dot: 'bg-coral' },
+  bad:    { chip: 'bg-rust/10 text-rust',      dot: 'bg-rust' },
+  mute:   { chip: 'bg-paper text-muted/70',    dot: 'bg-muted/40' },
+  active: { chip: 'bg-coral/10 text-coral',    dot: 'bg-coral anim-breathe-dot' },
+};
+
+const VERDICT_BADGE: Record<ProjectSummary['visionVerdict'], { label: string; cls: string }> = {
+  yes:     { label: 'vision ✓', cls: 'bg-sage-50 text-sage-600' },
+  partial: { label: 'vision 部分', cls: 'bg-coralsoft text-coral' },
+  no:      { label: 'vision ✗', cls: 'bg-rust/10 text-rust' },
+  pending: { label: 'vision 未定', cls: 'bg-paper text-muted/70' },
+};
+
+function fmtRelative(ts: number): string {
+  const diffMs = Date.now() - ts;
+  const s = Math.floor(diffMs / 1000);
+  if (s < 60) return `${s}s 前`;
+  const mm = Math.floor(s / 60);
+  if (mm < 60) return `${mm} 分前`;
+  const hh = Math.floor(mm / 60);
+  if (hh < 24) return `${hh} 小时前`;
+  return `${Math.floor(hh / 24)} 天前`;
+}
+
+export interface ProjectsHomeProps {
+  onOpenProject: (p: ProjectSummary) => void;
+  onAddProject: () => void;
+  onDemoMode: () => void;
+}
+
+export function ProjectsHome({ onOpenProject, onAddProject, onDemoMode }: ProjectsHomeProps) {
+  const [filter, setFilter] = useState<'all' | 'active' | 'done'>('all');
+
+  const filtered = mockProjects.filter((p) => {
+    if (filter === 'active') return p.status === 'looping' || p.status === 'paused' || p.status === 'error';
+    if (filter === 'done') return p.status === 'done';
+    return true;
+  });
+  const sorted = [...filtered].sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    return b.lastCommitTs - a.lastCommitTs;
+  });
+
+  const activeCount = mockProjects.filter((p) => p.status === 'looping').length;
+  const totalCost = mockProjects.reduce((s, p) => s + p.costUsd, 0);
+
+  return (
+    <div className="min-h-screen bg-paper">
+      <div className="max-w-6xl mx-auto pt-12 pb-16 px-8">
+        <header className="mb-10 flex items-start justify-between gap-8">
+          <div>
+            <h1 className="text-5xl tracking-tight text-ink">d2p</h1>
+            <p className="text-lg text-muted mt-3 font-serif italic">
+              把每个 demo 推到 product。
+            </p>
+            <div className="text-sm text-muted mt-4 flex items-center gap-4 font-sans">
+              <span>
+                <CountUp value={mockProjects.length} className="text-ink font-medium" /> 个项目
+              </span>
+              <span className="text-muted/40">·</span>
+              <span className="text-coral">
+                <CountUp value={activeCount} className="font-medium" /> 在跑
+              </span>
+              <span className="text-muted/40">·</span>
+              <span>
+                累计花费{' '}
+                <CountUp
+                  value={totalCost}
+                  format={(n) => `$${n.toFixed(2)}`}
+                  className="text-ink font-medium"
+                />
+              </span>
+            </div>
+          </div>
+          <Button variant="primary" onClick={onAddProject}>
+            + 新建项目
+          </Button>
+        </header>
+
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex gap-1">
+            {(['all', 'active', 'done'] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                className={`text-xs px-3 py-1.5 rounded-full font-sans transition-colors ${
+                  filter === f
+                    ? 'bg-ink text-cream'
+                    : 'text-muted hover:text-ink hover:bg-warmline/40'
+                }`}
+              >
+                {f === 'all' ? '全部' : f === 'active' ? '活跃' : '已完工'}
+                <span className={`ml-1.5 ${filter === f ? 'text-cream/60' : 'text-muted/50'}`}>
+                  {f === 'all'
+                    ? mockProjects.length
+                    : f === 'active'
+                      ? mockProjects.filter((p) => p.status === 'looping' || p.status === 'paused' || p.status === 'error').length
+                      : mockProjects.filter((p) => p.status === 'done').length}
+                </span>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={onDemoMode}
+            className="text-xs text-coral hover:text-rust transition-colors font-sans"
+          >
+            试看 multi-turn 演示 →
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {sorted.map((p, i) => (
+            <div
+              key={p.id}
+              className="anim-stagger"
+              style={{ ['--i' as 'width']: i as unknown as string }}
+            >
+              <ProjectCard project={p} onClick={() => onOpenProject(p)} />
+            </div>
+          ))}
+          <AddProjectCard onClick={onAddProject} stagger={sorted.length} />
+        </div>
+
+        {sorted.length === 0 && (
+          <div className="text-center text-muted italic font-serif py-16">
+            这个分类下没有项目
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProjectCard({ project: p, onClick }: { project: ProjectSummary; onClick: () => void }) {
+  const status = STATUS_META[p.status];
+  const tone = TONE_BADGE[status.tone];
+  const verdict = VERDICT_BADGE[p.visionVerdict];
+  const presetPct = p.presetTotal ? Math.round((p.presetDone / p.presetTotal) * 100) : 0;
+  const isActive = p.status === 'looping';
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid={`project-card-${p.id}`}
+      className={`w-full text-left bg-cream rounded-xl px-5 py-4 lift-on-hover ring-1 ${
+        isActive
+          ? 'ring-coral/20 shadow-card anim-breathe'
+          : 'ring-warmline/60 shadow-card hover:shadow-cardHover'
+      }`}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2 min-w-0">
+          {p.pinned && <span className="text-coral/70 text-xs">📌</span>}
+          <span className="text-base font-medium text-ink truncate">{p.name}</span>
+          <span className="text-[10px] uppercase tracking-widest text-muted/50 font-mono">
+            {TYPE_LABEL[p.inferredType]}
+          </span>
+        </div>
+        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-sans ${tone.chip}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${tone.dot}`} />
+          {status.label}
+        </span>
+      </div>
+
+      <div className="text-xs font-mono text-muted/70 mb-3 truncate">{p.path}</div>
+
+      <div className="space-y-2">
+        <div>
+          <div className="flex items-baseline justify-between text-[11px] font-sans mb-1">
+            <span className="text-muted/70">验收清单</span>
+            <span className="text-ink">
+              <span className="font-medium">{p.presetDone}</span>
+              <span className="text-muted/50"> / {p.presetTotal}</span>
+              <span className="text-sage-600 ml-2 font-medium">{presetPct}%</span>
+            </span>
+          </div>
+          <div className="w-full h-1.5 bg-paper rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-sage-600 to-sage-600/70 transition-all duration-700 ease-out-quart"
+              style={{ width: `${presetPct}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-sans ${verdict.cls}`}>
+            {verdict.label}
+          </span>
+          {p.agentsWorking > 0 && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-sans bg-coral/10 text-coral">
+              <span className="w-1.5 h-1.5 rounded-full bg-coral anim-breathe-dot" />
+              {p.agentsWorking} agent 在跑
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-sans bg-paper text-muted/70 font-mono">
+            ${p.costUsd.toFixed(2)}
+          </span>
+        </div>
+
+        <div className="pt-2 text-xs text-muted line-clamp-1">
+          <span className="text-muted/50">最新：</span>
+          <span className="text-ink/80">{p.lastCommitMsg}</span>
+          <span className="text-muted/50 ml-2">· {fmtRelative(p.lastCommitTs)}</span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function AddProjectCard({ onClick, stagger }: { onClick: () => void; stagger: number }) {
+  return (
+    <div className="anim-stagger" style={{ ['--i' as 'width']: stagger as unknown as string }}>
+      <button
+        type="button"
+        onClick={onClick}
+        data-testid="add-project-card"
+        className="w-full h-full min-h-[200px] flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-warmline text-muted hover:border-coral hover:text-coral transition-colors duration-200 ease-out-quart bg-paper/30"
+      >
+        <span className="text-3xl">+</span>
+        <span className="text-sm font-sans">新建项目</span>
+        <span className="text-[11px] text-muted/60 font-serif italic">给个文件夹路径，d2p 接手</span>
+      </button>
+    </div>
+  );
+}

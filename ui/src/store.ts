@@ -72,6 +72,10 @@ interface Store {
   // ui chrome
   showSettings: boolean;
   setShowSettings: (b: boolean) => void;
+  /** Set when the user clicks a project on ProjectsHome → enter Workspace.
+   *  null means stay on ProjectsHome (default home for multi-project users). */
+  selectedProjectId: number | null;
+  setSelectedProjectId: (id: number | null) => void;
 
   // actions
   refreshHealth: () => Promise<void>;
@@ -273,6 +277,8 @@ export const useStore = create<Store>((set, get) => ({
   summaryMdPath: null,
   showSettings: false,
   setShowSettings: (b) => set({ showSettings: b }),
+  selectedProjectId: null,
+  setSelectedProjectId: (id) => set({ selectedProjectId: id }),
 
   async refreshHealth() {
     try {

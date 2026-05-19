@@ -22,6 +22,7 @@ export function Workspace() {
   const demoMode = useStore((s) => s.multiTurnDemoMode);
   const startDemoStream = useStore((s) => s.startMultiTurnDemoStream);
   const stopDemo = useStore((s) => s.stopMultiTurnDemo);
+  const setSelectedProjectId = useStore((s) => s.setSelectedProjectId);
   const isPaused = session?.status === 'PAUSED';
   const isLooping = session?.status === 'LOOPING';
   const isPausing = loopState?.pauseRequested === true && loopState?.isRunning === true;
@@ -35,16 +36,30 @@ export function Workspace() {
   return (
     <div className="h-screen flex flex-col bg-paper">
       <header className="border-b border-warmline bg-cream px-6 py-4 flex items-center justify-between">
-        <div>
-          <div className="flex items-baseline gap-3">
-            <h1 className="text-xl tracking-tight">d2p</h1>
-            <span className="font-mono text-xs text-muted truncate max-w-md" title={demo?.path}>
-              {demo?.path}
-            </span>
-          </div>
-          <div className="text-xs text-muted mt-0.5 flex items-center gap-2">
-            <StatusPill status={session?.status} />
-            {isPausing && <span className="text-coral">(pausing — 当前 attempt 跑完后停)</span>}
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => {
+              if (demoMode) stopDemo();
+              setSelectedProjectId(null);
+            }}
+            className="text-xs text-muted hover:text-ink transition-colors font-sans"
+            title="返回项目列表"
+          >
+            ← 项目列表
+          </button>
+          <div className="w-px h-6 bg-warmline" />
+          <div>
+            <div className="flex items-baseline gap-3">
+              <h1 className="text-xl tracking-tight">d2p</h1>
+              <span className="font-mono text-xs text-muted truncate max-w-md" title={demo?.path}>
+                {demo?.path}
+              </span>
+            </div>
+            <div className="text-xs text-muted mt-0.5 flex items-center gap-2">
+              <StatusPill status={session?.status} />
+              {isPausing && <span className="text-coral">(pausing — 当前 attempt 跑完后停)</span>}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">

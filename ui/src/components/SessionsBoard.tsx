@@ -6,8 +6,29 @@ import {
   STATUS_LABEL,
   type AgentRole,
   type AgentSession,
+  type AgentStatus,
   type SessionTurnEntry,
 } from '../mock/sessions.js';
+
+// Sort by status priority — actionable first, idle / stale last. Within the
+// same status bucket preserve original order so role identity is stable.
+const STATUS_PRIORITY: Record<AgentStatus, number> = {
+  working: 0,
+  blocked: 1,
+  done: 2,
+  idle: 3,
+  stale: 4,
+};
+
+function sortSessions(list: AgentSession[]): AgentSession[] {
+  return list
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => {
+      const dp = STATUS_PRIORITY[a.s.status] - STATUS_PRIORITY[b.s.status];
+      return dp !== 0 ? dp : a.i - b.i;
+    })
+    .map((x) => x.s);
+}
 
 // Soft, role-tinted cards. No table-grid lines; cards float on the page.
 // Working agent gets a subtle glow + the role's tint background.
@@ -48,7 +69,7 @@ export function SessionsBoard() {
           </span>
         </div>
         <div className="space-y-3">
-          {mockAgentSessions.map((s, i) => (
+          {sortSessions(mockAgentSessions).map((s, i) => (
             <div
               key={s.role}
               className="anim-stagger"

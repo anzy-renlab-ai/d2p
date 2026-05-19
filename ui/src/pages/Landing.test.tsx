@@ -20,26 +20,28 @@ beforeEach(() => {
 });
 
 describe('Landing', () => {
-  it('renders d2p heading and start button', () => {
+  it('renders d2p heading and at least one 新建项目 button', () => {
     render(<Landing />);
     expect(screen.getByRole('heading', { name: 'd2p' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Start session/ })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /新建项目/ }).length).toBeGreaterThan(0);
   });
 
-  it('refuses empty path', () => {
+  it('refuses empty path in the add-project modal', () => {
     render(<Landing />);
-    fireEvent.click(screen.getByRole('button', { name: /Start session/ }));
+    // Click the header "新建项目" — first button with that name.
+    fireEvent.click(screen.getAllByRole('button', { name: /新建项目/ })[0]!);
+    fireEvent.click(screen.getByRole('button', { name: /开始/ }));
     expect(screen.getByText(/请填一个绝对路径/)).toBeInTheDocument();
   });
 
-  it('calls startSession with the typed path', async () => {
+  it('calls startSession with the typed path from the modal', async () => {
     const startSession = vi.fn(async () => {});
     useStore.setState({ startSession });
     render(<Landing />);
+    fireEvent.click(screen.getAllByRole('button', { name: /新建项目/ })[0]!);
     const input = screen.getByRole('textbox');
     fireEvent.change(input, { target: { value: 'C:\\demos\\thing' } });
-    fireEvent.click(screen.getByRole('button', { name: /Start session/ }));
-    // Wait microtask
+    fireEvent.click(screen.getByRole('button', { name: /开始/ }));
     await new Promise((r) => setTimeout(r, 10));
     expect(startSession).toHaveBeenCalledWith('C:\\demos\\thing');
   });

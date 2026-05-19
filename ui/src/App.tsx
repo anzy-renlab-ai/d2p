@@ -24,6 +24,7 @@ export function App() {
   const showSettings = useStore((s) => s.showSettings);
   const setShowSettings = useStore((s) => s.setShowSettings);
   const demoMode = useStore((s) => s.multiTurnDemoMode);
+  const selectedProjectId = useStore((s) => s.selectedProjectId);
 
   if (showSettings) {
     return <Settings onClose={() => setShowSettings(false)} />;
@@ -37,12 +38,16 @@ export function App() {
   const isTerminalAndStale =
     session && (session.status === 'ENDED' || session.status === 'DONE') && !summaryMdPath;
 
+  // Multi-project routing:
+  //   default → Landing (ProjectsHome 卡片网格)
+  //   user opens a project (selectedProjectId set) → drill into Setup /
+  //   Workspace / Done depending on that project's session state
+  //   demoMode → straight to Workspace with mock data
   let body;
   if (demoMode) {
-    // multi-turn demo route — preempt normal session routing so the user
-    // can see the Workspace + multi-turn main canvas without spinning up
-    // a real session.
     body = <Workspace />;
+  } else if (selectedProjectId == null) {
+    body = <Landing />;
   } else if (!session || isTerminalAndStale) {
     body = <Landing />;
   } else if (session.status === 'SETUP') {

@@ -2,15 +2,26 @@ import { useState } from 'react';
 import { useStore } from '../store.js';
 import { Button } from '../components/Button.js';
 import { ErrorBanner } from '../components/ErrorBanner.js';
+import { ProjectsHome } from '../components/ProjectsHome.js';
+import type { ProjectSummary } from '../mock/projects.js';
 
 export function Landing() {
   const startSession = useStore((s) => s.startSession);
   const startDemo = useStore((s) => s.startMultiTurnDemo);
+  const setSelectedProjectId = useStore((s) => s.setSelectedProjectId);
   const healthError = useStore((s) => s.healthError);
   const health = useStore((s) => s.health);
+  const [showAdd, setShowAdd] = useState(false);
   const [path, setPath] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Open a project → drill into its Workspace. The store routes by
+  // selectedProjectId; real wire-in will populate session state for that
+  // project once daemon tracks multiple projects.
+  const onOpenProject = (p: ProjectSummary) => {
+    setSelectedProjectId(p.id);
+  };
 
   async function onStart() {
     setError(null);
@@ -29,36 +40,29 @@ export function Landing() {
   }
 
   return (
-    <div className="min-h-screen bg-paper">
-      <div className="max-w-2xl mx-auto pt-20 px-6">
-        <header className="mb-12">
-          <h1 className="text-5xl tracking-tight text-ink">d2p</h1>
-          <p className="text-lg text-muted mt-3 font-serif italic">
-            把 demo 推到 product。
-          </p>
-          <p className="text-sm text-muted mt-2 leading-relaxed">
-            你给一个本地 demo + 一句愿景。
-            d2p 派 Claude 自动迭代，4 层 reviewer 把关，
-            preset 与 vision 双绿才停手。
-          </p>
-        </header>
+    <>
+      <ProjectsHome
+        onOpenProject={onOpenProject}
+        onAddProject={() => setShowAdd(true)}
+        onDemoMode={() => startDemo()}
+      />
 
-        {healthError && (
-          <div className="mb-6">
+      {(healthError || (health && !health.claudeCli.found)) && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 max-w-2xl w-full px-4 z-30 anim-drift-in">
+          {healthError && (
             <ErrorBanner
               message={
                 <>
                   连不上 daemon（{healthError}）。
-                  先在终端跑 <code className="bg-coralsoft px-1.5 py-0.5 rounded">d2p start</code> 或{' '}
+                  先在终端跑{' '}
+                  <code className="bg-coralsoft px-1.5 py-0.5 rounded">d2p start</code>{' '}
+                  或{' '}
                   <code className="bg-coralsoft px-1.5 py-0.5 rounded">npm run dev</code>。
                 </>
               }
             />
-          </div>
-        )}
-
-        {health && !health.claudeCli.found && (
-          <div className="mb-6">
+          )}
+          {health && !health.claudeCli.found && (
             <ErrorBanner
               message={
                 <>
@@ -67,61 +71,59 @@ export function Landing() {
                 </>
               }
             />
-          </div>
-        )}
-
-        <section className="card p-6 space-y-4">
-          <div>
-            <label className="label">Demo 文件夹（绝对路径）</label>
-            <input
-              type="text"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-              placeholder={navigator.platform.startsWith('Win') ? 'D:\\demos\\my-saas' : '/Users/me/demos/my-saas'}
-              className="input input-mono text-base py-3"
-              spellCheck={false}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void onStart();
-              }}
-            />
-          </div>
-          {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
-          <div className="flex items-center justify-between pt-2">
-            <p className="text-xs text-muted leading-relaxed max-w-xs">
-              没 <code>.git</code> 自动 init，worktree 放在父目录的
-              <code> .d2p-worktrees/</code>，不污染你的仓库。
-            </p>
-            <Button
-              onClick={() => void onStart()}
-              disabled={!health}
-              loading={busy}
-              loadingText="新建 session 中…"
-            >
-              Start session →
-            </Button>
-          </div>
-        </section>
-
-        <section className="mt-8 card p-5 bg-coralsoft/30 border-coral/30">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex-1">
-              <div className="text-sm font-medium text-ink mb-1">还没启动 demo？先看效果</div>
-              <p className="text-xs text-muted leading-relaxed">
-                跑一段 mock 数据演示：复杂 gap 走 multi-turn 自治时
-                Workspace 主视面长啥样、turn 时间轴怎么滚、自治完成怎么收尾。
-                <span className="text-muted/60">（不连 daemon，不烧 token）</span>
-              </p>
-            </div>
-            <Button variant="secondary" onClick={() => startDemo()}>
-              试看 multi-turn →
-            </Button>
-          </div>
-        </section>
-
-        <div className="mt-12 text-xs text-muted/70 text-center font-serif italic">
-          demo → product · made for hands-off iteration
+          )}
         </div>
-      </div>
-    </div>
+      )}
+
+      {showAdd && (
+        <div
+          className="fixed inset-0 bg-ink/40 flex items-center justify-center z-50 anim-drift-in"
+          onClick={() => setShowAdd(false)}
+        >
+          <div
+            className="bg-cream rounded-2xl shadow-cardHover max-w-lg w-full p-6 space-y-4 mx-4 anim-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-xl font-medium text-ink">新建项目</div>
+            <p className="text-sm text-muted">
+              给个本地文件夹路径，d2p 自动 init git、识别项目类型、问你 vision，然后接手。
+            </p>
+            <div>
+              <label className="label">Demo 文件夹（绝对路径）</label>
+              <input
+                type="text"
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder={navigator.platform.startsWith('Win') ? 'D:\\demos\\my-saas' : '/Users/me/demos/my-saas'}
+                className="input input-mono text-base py-3"
+                spellCheck={false}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void onStart();
+                }}
+              />
+            </div>
+            {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAdd(false)}
+                className="px-4 py-2 text-sm text-muted hover:text-ink transition-colors font-sans"
+              >
+                取消
+              </button>
+              <Button
+                onClick={() => void onStart()}
+                disabled={!health}
+                loading={busy}
+                loadingText="新建 session 中…"
+              >
+                开始 →
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
