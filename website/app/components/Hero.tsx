@@ -2,7 +2,6 @@
 
 import { ArrowRight } from 'lucide-react';
 import { useLang } from '../i18n';
-import { HeroDashboard } from './HeroDashboard';
 import { LangToggle } from './LangToggle';
 import { ChipBadge } from './primitives/ChipBadge';
 
@@ -88,11 +87,34 @@ export function Hero() {
             </div>
           </div>
 
-          {/* Right: mini dashboard animation */}
+          {/* Right: 62s demo video — auto-loop with mint accent frame */}
           <div className="relative">
-            <div className="aspect-[5/4] max-h-[640px] w-full lg:aspect-auto lg:h-[68vh] lg:max-h-none">
-              <HeroDashboard />
+            <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-[#0A0A0A] shadow-2xl ring-1 ring-[#7CFFB2]/30">
+              <video
+                src="/zerou-demo.mp4"
+                autoPlay
+                loop
+                muted
+                playsInline
+                preload="auto"
+                className="h-full w-full object-cover"
+                aria-label="ZeroU 60-second demo loop"
+              />
+              {/* subtle mint corner glow */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 rounded-2xl"
+                style={{
+                  boxShadow: '0 0 80px -20px rgba(124, 255, 178, 0.35) inset',
+                }}
+              />
             </div>
+            <p className="mt-3 text-center font-mono text-[11px] tracking-wider text-muted/70">
+              {t(
+                '60s demo · the whole pipeline · real data from PR #6',
+                '60 秒 demo · 全流程 · PR #6 真实数据',
+              )}
+            </p>
           </div>
         </div>
       </div>

@@ -46,3 +46,6 @@ ui/vite-test.*
 
 # git worktrees for parallel agents
 .worktrees/
+
+# pitchkit ephemeral artifacts
+tmp/
