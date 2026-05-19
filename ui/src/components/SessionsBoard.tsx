@@ -128,16 +128,16 @@ function SessionCard({
       data-testid={`session-card-${session.role}`}
       aria-pressed={active}
     >
-      <div className="flex items-center gap-3 mb-2">
-        <span className={`w-1.5 h-6 rounded-full ${isWorking ? 'bg-coral' : 'bg-warmline'}`} />
+      <div className="flex items-center gap-3 mb-2 flex-wrap">
+        <span className={`w-1.5 h-6 rounded-full flex-shrink-0 ${isWorking ? 'bg-coral' : 'bg-warmline'}`} />
         <span className={`text-base font-medium ${tint.text}`}>{t(`agents.role.${session.role}`)}</span>
         <span className="text-[10px] uppercase tracking-widest text-muted/50 font-mono">
           {session.role}
         </span>
-        <span className="flex-1" />
-        <span className="flex items-center gap-1.5">
+        <span className="flex-1 min-w-0" />
+        <span className="flex items-center gap-1.5 flex-shrink-0 ml-auto">
           <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
-          <span className={`text-xs ${status.color} font-sans`}>{t(`agents.status.${session.status}`)}</span>
+          <span className={`text-xs ${status.color} font-sans whitespace-nowrap`}>{t(`agents.status.${session.status}`)}</span>
         </span>
       </div>
       {session.currentGapTitle ? (
