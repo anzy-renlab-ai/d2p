@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  background-color: #f5f2ec; /* paper */
+  color: #1f1f1e;            /* ink */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Selection */
+::selection {
+  background-color: rgba(201, 100, 66, 0.18);
+  color: #1f1f1e;
+}
+
+/* Focus ring — coral 2px + 2px offset */
+:where(a, button, [role='button'], input, select, textarea):focus-visible {
+  outline: 2px solid #c96442;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Reduced motion: stop all infinite loops, jump to terminal state */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Subtle dotted grid utility used by hero background */
+.bg-dotted {
+  background-image: radial-gradient(rgba(31, 31, 30, 0.06) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Marquee-free, but allow custom breathe utility name parity with ui/ */
+.anim-breathe {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
