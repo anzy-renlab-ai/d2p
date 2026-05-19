@@ -1,8 +1,55 @@
+import { useEffect, useMemo } from 'react';
 import { useStore } from '../store.js';
 import { useLocale } from '../i18n/useLocale.js';
 import { CountUp } from './CountUp.js';
-import { mockProjects, STATUS_META } from '../mock/projects.js';
+import { mockProjects, STATUS_META, type ProjectStatus, type ProjectSummary } from '../mock/projects.js';
 import { sessionsForProject, type SessionSummary } from '../mock/sessionsHistory.js';
+import type { ProjectListItem, SessionListItem, SessionStatus } from '../types.js';
+
+function adaptStatus(s: SessionStatus | null): ProjectStatus {
+  if (s === 'LOOPING') return 'looping';
+  if (s === 'PAUSED') return 'paused';
+  if (s === 'DONE') return 'done';
+  if (s === 'SETUP') return 'setup';
+  return 'idle';
+}
+
+function adaptProjectFromReal(p: ProjectListItem): ProjectSummary {
+  return {
+    id: p.id,
+    name: p.name,
+    path: p.path,
+    inferredType: (p.inferredType ?? 'saas-web') as ProjectSummary['inferredType'],
+    status: adaptStatus(p.latestSessionStatus),
+    agentsWorking: p.agentsWorking,
+    agentsTotal: p.agentsTotal,
+    presetDone: p.presetDone,
+    presetTotal: p.presetTotal,
+    visionVerdict: p.visionVerdict,
+    lastCommitTs: p.lastCommitTs ?? p.lastSessionAt ?? p.firstSeenAt,
+    lastCommitMsg: p.lastCommitMsg ?? '',
+    costUsd: p.estimatedUsd,
+    pinned: false,
+  };
+}
+
+function adaptSessionFromReal(s: SessionListItem, projectId: number): SessionSummary {
+  return {
+    id: s.id,
+    projectId,
+    status: adaptStatus(s.status),
+    startedAt: s.startedAt,
+    endedAt: s.endedAt,
+    title: `Session #${s.id}`,
+    gapsFound: 0,
+    gapsDone: 0,
+    gapsNeedHuman: 0,
+    commitCount: s.commitsCount,
+    topRisk: s.topRisk ?? 'none',
+    costUsd: 0,
+    agentCalls: s.agentCalls,
+  };
+}
 
 // Sessions list for one project: drill from ProjectsHome → here → click a
 // session to enter Workspace. Each row shows status + summary + topRisk + cost.
@@ -47,9 +94,35 @@ export function SessionsList() {
   const setSelectedProjectId = useStore((s) => s.setSelectedProjectId);
   const setSelectedSessionId = useStore((s) => s.setSelectedSessionId);
   const startDemo = useStore((s) => s.startMultiTurnDemo);
+  const realProjects = useStore((s) => s.projects);
+  const realSessionsMap = useStore((s) => s.sessionsByProject);
+  const refreshSessionsByProject = useStore((s) => s.refreshSessionsByProject);
 
-  const project = mockProjects.find((p) => p.id === selectedProjectId);
-  const sessions = selectedProjectId ? sessionsForProject(selectedProjectId) : [];
+  // Fetch sessions for this project from daemon. Mock fallback when daemon
+  // has nothing yet (so first-run users still see the demo flow).
+  useEffect(() => {
+    if (selectedProjectId !== null) {
+      void refreshSessionsByProject(selectedProjectId);
+    }
+  }, [selectedProjectId, refreshSessionsByProject]);
+
+  const project: ProjectSummary | null = useMemo(() => {
+    if (selectedProjectId === null) return null;
+    const real = realProjects.find((p) => p.id === selectedProjectId);
+    if (real) return adaptProjectFromReal(real);
+    return mockProjects.find((p) => p.id === selectedProjectId) ?? null;
+  }, [selectedProjectId, realProjects]);
+
+  const sessions: SessionSummary[] = useMemo(() => {
+    if (selectedProjectId === null) return [];
+    const realRows = realSessionsMap[selectedProjectId];
+    if (realRows && realRows.length > 0) {
+      return realRows.map((r) => adaptSessionFromReal(r, selectedProjectId));
+    }
+    // No real sessions yet for this project (or daemon empty) — fall back to
+    // the mock history so the page is never empty in a first-run demo.
+    return sessionsForProject(selectedProjectId);
+  }, [selectedProjectId, realSessionsMap]);
 
   if (!project) return null;
   const status = STATUS_META[project.status];

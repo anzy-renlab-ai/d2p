@@ -27,6 +27,8 @@ import type {
   MilestoneRow,
   MilestoneStatus,
   ResumeMark,
+  ProjectListItem,
+  SessionListItem,
 } from '../types.js';
 import { asAbsPath } from '../util/path.js';
 import {
@@ -1155,6 +1157,151 @@ export class Queries {
         cacheReadTokens: r.cache_in ?? 0,
         cacheWriteTokens: r.cache_out ?? 0,
         estimatedUsd: usd,
+      };
+    });
+  }
+
+  // ─── multi-project list ─────────────────────────────────────────────────
+
+  /**
+   * All registered demos with their session counts and latest session pointer.
+   * Backs the ProjectsHome page. Derived counts (agents working, preset done,
+   * cost, last commit) are computed best-effort from the latest session.
+   */
+  listProjects(
+    perMtokPricing: Record<string, { input: number; output: number }>,
+  ): ProjectListItem[] {
+    interface Row {
+      id: number;
+      path: string;
+      first_seen_at: number;
+      last_session_at: number | null;
+      inferred_type: string | null;
+      total_sessions: number;
+      latest_session_id: number | null;
+      latest_session_status: SessionStatus | null;
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT d.id, d.path, d.first_seen_at, d.last_session_at, d.inferred_type,
+                COUNT(s.id) AS total_sessions,
+                (SELECT id FROM sessions WHERE demo_id = d.id ORDER BY started_at DESC LIMIT 1) AS latest_session_id,
+                (SELECT status FROM sessions WHERE demo_id = d.id ORDER BY started_at DESC LIMIT 1) AS latest_session_status
+         FROM demos d LEFT JOIN sessions s ON s.demo_id = d.id
+         GROUP BY d.id
+         ORDER BY COALESCE(d.last_session_at, d.first_seen_at) DESC`,
+      )
+      .all() as Row[];
+
+    return rows.map((r) => {
+      const parts = r.path.replace(/[/\\]+$/, '').split(/[/\\]/);
+      const name = parts[parts.length - 1] || r.path;
+
+      let agentsWorking = 0;
+      let agentsTotal = 0;
+      let presetDone = 0;
+      let presetTotal = 0;
+      let visionVerdict: ProjectListItem['visionVerdict'] = 'pending';
+      let lastCommitTs: number | null = null;
+      let lastCommitMsg: string | null = null;
+      let estimatedUsd = 0;
+
+      const sid = r.latest_session_id;
+      if (sid !== null) {
+        const agentRows = this.aggregateSessionsByRole(sid);
+        agentsTotal = agentRows.length;
+        agentsWorking = agentRows.filter((a) => a.status === 'working').length;
+
+        const presetRows = this.latestPresetStatus(sid);
+        presetTotal = presetRows.length;
+        presetDone = presetRows.filter((p) => p.status === 'done').length;
+
+        if (r.latest_session_status === 'DONE') {
+          visionVerdict = presetTotal > 0 && presetDone === presetTotal ? 'yes' : 'partial';
+        } else if (presetTotal > 0 && presetDone > 0) {
+          visionVerdict = 'partial';
+        }
+
+        const merged = this.listMergedCommits(sid, 1);
+        const top = merged[0];
+        if (top) {
+          lastCommitTs = top.ts;
+          lastCommitMsg = top.message;
+        }
+
+        estimatedUsd = this.costTotals(sid, perMtokPricing).estimatedUsd;
+      }
+
+      return {
+        id: r.id,
+        path: r.path,
+        name,
+        inferredType: r.inferred_type as ProjectType | null,
+        firstSeenAt: r.first_seen_at,
+        lastSessionAt: r.last_session_at,
+        totalSessions: r.total_sessions,
+        latestSessionId: r.latest_session_id,
+        latestSessionStatus: r.latest_session_status,
+        agentsWorking,
+        agentsTotal,
+        presetDone,
+        presetTotal,
+        visionVerdict,
+        lastCommitTs,
+        lastCommitMsg,
+        estimatedUsd,
+      };
+    });
+  }
+
+  /**
+   * Sessions for a given demo with derived counts (commits via fixes, agent
+   * calls via AGENT_START events, top risk band).
+   */
+  listSessionsByDemo(demoId: number): SessionListItem[] {
+    interface Row {
+      id: number;
+      started_at: number;
+      ended_at: number | null;
+      status: SessionStatus;
+      preset_type: string | null;
+    }
+    const sessions = this.db
+      .prepare(
+        `SELECT id, started_at, ended_at, status, preset_type
+         FROM sessions WHERE demo_id = ? ORDER BY started_at DESC`,
+      )
+      .all(demoId) as Row[];
+
+    const commitsCountStmt = this.db.prepare(
+      `SELECT COUNT(*) AS n FROM fixes f JOIN gaps g ON g.id = f.gap_id
+       WHERE g.session_id = ? AND f.status = 'MERGED' AND f.commit_sha IS NOT NULL`,
+    );
+    const callsCountStmt = this.db.prepare(
+      `SELECT COUNT(*) AS n FROM log_events WHERE session_id = ? AND kind = 'AGENT_START'`,
+    );
+    const topRiskStmt = this.db.prepare(
+      `SELECT cr.band FROM commit_risk cr
+       JOIN fixes f ON f.commit_sha = cr.sha
+       JOIN gaps g ON g.id = f.gap_id
+       WHERE g.session_id = ?
+       ORDER BY CASE cr.band WHEN 'high' THEN 0 WHEN 'mid' THEN 1 ELSE 2 END
+       LIMIT 1`,
+    );
+
+    return sessions.map((r) => {
+      const commitsCount = (commitsCountStmt.get(r.id) as { n: number }).n;
+      const agentCalls = (callsCountStmt.get(r.id) as { n: number }).n;
+      const topRiskRow = topRiskStmt.get(r.id) as { band: RiskBand } | undefined;
+      return {
+        id: r.id,
+        startedAt: r.started_at,
+        endedAt: r.ended_at,
+        status: r.status,
+        presetType: r.preset_type as ProjectType | null,
+        commitsCount,
+        agentCalls,
+        topRisk: topRiskRow ? topRiskRow.band : null,
       };
     });
   }

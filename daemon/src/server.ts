@@ -21,6 +21,7 @@ import { commitsRoutes } from './routes/commits.js';
 import { riskRoutes } from './routes/risk.js';
 import { milestonesRoutes } from './routes/milestones.js';
 import { corePathsRoutes } from './routes/core-paths.js';
+import { projectsRoutes } from './routes/projects.js';
 import { runCrashRecovery } from './recovery/startup.js';
 import { loadConfig } from './config/load.js';
 import { setActiveEngine } from './engines/registry.js';
@@ -37,6 +38,7 @@ app.use(
 
 app.route('/api/session', sessionRoutes);
 app.route('/api/sessions', sessionsRoutes);
+app.route('/api/projects', projectsRoutes);
 app.route('/api/commits', commitsRoutes);
 app.route('/api/commits', riskRoutes);
 app.route('/api/milestones', milestonesRoutes);

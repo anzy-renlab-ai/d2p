@@ -7,7 +7,9 @@ import type {
   HealthResponse,
   MultiTurnState,
   PresetStatusItem,
+  ProjectListItem,
   Session,
+  SessionListItem,
   SseEnvelope,
   VisionRoundRes,
   CostTotals,
@@ -69,6 +71,14 @@ interface Store {
 
   // end
   summaryMdPath: string | null;
+
+  // multi-project list (ProjectsHome / SessionsList)
+  projects: ProjectListItem[];
+  /** Sessions list keyed by demo (project) id. Lazy-loaded when user opens
+   *  a project. Falls back to [] until refreshSessionsByProject is called. */
+  sessionsByProject: Record<number, SessionListItem[]>;
+  refreshProjects: () => Promise<void>;
+  refreshSessionsByProject: (id: number) => Promise<void>;
 
   // ui chrome
   showSettings: boolean;
@@ -284,6 +294,24 @@ export const useStore = create<Store>((set, get) => ({
     });
   },
   summaryMdPath: null,
+  projects: [],
+  sessionsByProject: {},
+  async refreshProjects() {
+    try {
+      const r = await api.listProjects();
+      set({ projects: r.projects });
+    } catch {
+      // ignore — keeps last known state
+    }
+  },
+  async refreshSessionsByProject(id) {
+    try {
+      const r = await api.listSessionsByProject(id);
+      set((s) => ({ sessionsByProject: { ...s.sessionsByProject, [id]: r.sessions } }));
+    } catch {
+      // ignore
+    }
+  },
   showSettings: false,
   setShowSettings: (b) => set({ showSettings: b }),
   selectedProjectId: null,
@@ -344,6 +372,7 @@ export const useStore = create<Store>((set, get) => ({
       get().refreshSession(),
       get().refreshGaps(),
       get().refreshLoopState(),
+      get().refreshProjects(),
     ]);
   },
 

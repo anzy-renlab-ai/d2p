@@ -175,3 +175,36 @@ export interface MultiTurnState {
   turns: MultiTurnTurn[];
   selfReportedComplete: boolean;
 }
+
+export type RiskBand = 'low' | 'mid' | 'high';
+
+export interface ProjectListItem {
+  id: number;
+  path: string;
+  name: string;
+  inferredType: ProjectType | null;
+  firstSeenAt: number;
+  lastSessionAt: number | null;
+  totalSessions: number;
+  latestSessionId: number | null;
+  latestSessionStatus: SessionStatus | null;
+  agentsWorking: number;
+  agentsTotal: number;
+  presetDone: number;
+  presetTotal: number;
+  visionVerdict: 'yes' | 'partial' | 'no' | 'pending';
+  lastCommitTs: number | null;
+  lastCommitMsg: string | null;
+  estimatedUsd: number;
+}
+
+export interface SessionListItem {
+  id: number;
+  startedAt: number;
+  endedAt: number | null;
+  status: SessionStatus;
+  presetType: ProjectType | null;
+  commitsCount: number;
+  agentCalls: number;
+  topRisk: RiskBand | null;
+}

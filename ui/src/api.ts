@@ -7,6 +7,8 @@ import type {
   Gap,
   HealthResponse,
   LoopState,
+  ProjectListItem,
+  SessionListItem,
   SseEnvelope,
   VisionRoundRes,
 } from './types.js';
@@ -143,6 +145,10 @@ export const api = {
         docsUrl: string;
       }[];
     }>('/api/deploy/targets'),
+
+  listProjects: () => jsonFetch<{ projects: ProjectListItem[] }>('/api/projects'),
+  listSessionsByProject: (id: number) =>
+    jsonFetch<{ sessions: SessionListItem[] }>(`/api/projects/${id}/sessions`),
 };
 
 /**

@@ -693,3 +693,49 @@ export interface ResumeMark {
   gapIdAtPause: number | null;
   runIdAtPause: string | null;
 }
+
+// ─── Project list types ────────────────────────────────────────────────────
+
+/**
+ * One entry in the ProjectsHome list. Derived from demos joined with their
+ * most-recent session. Fields beyond the minimum (cost, preset progress, etc.)
+ * are computed best-effort and may be null when not yet recorded.
+ */
+export interface ProjectListItem {
+  id: number;
+  path: string;
+  name: string;
+  inferredType: ProjectType | null;
+  firstSeenAt: number;
+  lastSessionAt: number | null;
+  totalSessions: number;
+  latestSessionId: number | null;
+  latestSessionStatus: SessionStatus | null;
+  /** Number of roles whose last AGENT_START has no matching AGENT_END / verdict. */
+  agentsWorking: number;
+  /** Total roles in this session (7 once the loop has started, else 0). */
+  agentsTotal: number;
+  presetDone: number;
+  presetTotal: number;
+  /** YES once vision finalized + all preset items done; else 'pending'. */
+  visionVerdict: 'yes' | 'partial' | 'no' | 'pending';
+  /** ts/msg of the most recent merged commit on the latest session. */
+  lastCommitTs: number | null;
+  lastCommitMsg: string | null;
+  estimatedUsd: number;
+}
+
+/**
+ * One entry in the per-project SessionsList. Augments the bare Session row
+ * with derived counts.
+ */
+export interface SessionListItem {
+  id: number;
+  startedAt: number;
+  endedAt: number | null;
+  status: SessionStatus;
+  presetType: ProjectType | null;
+  commitsCount: number;
+  agentCalls: number;
+  topRisk: RiskBand | null;
+}

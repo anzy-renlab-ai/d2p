@@ -1,20 +1,51 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from './Button.js';
 import { CountUp } from './CountUp.js';
 import { useLocale } from '../i18n/useLocale.js';
+import { useStore } from '../store.js';
 import {
   mockProjects,
   STATUS_META,
   TYPE_LABEL,
+  type ProjectStatus,
   type ProjectSummary,
 } from '../mock/projects.js';
+import type { ProjectListItem, SessionStatus } from '../types.js';
 
-// Multi-project home — replaces the single-demo Landing layout for users who
-// have more than one project under d2p. Click a project card → enter its
-// Workspace (current session + sessions board + commits + rewind).
-//
-// Backed by mockProjects for now; daemon wire-in will swap to a real
-// GET /api/projects when the multi-project tracking lands.
+// Multi-project home — pulls real /api/projects from the store and adapts the
+// thin ProjectListItem rows to the rich ProjectSummary display shape. Falls
+// back to mockProjects when no real projects are registered yet (so first-run
+// users still see something meaningful).
+
+function statusFromSession(s: SessionStatus | null): ProjectStatus {
+  if (s === 'LOOPING') return 'looping';
+  if (s === 'PAUSED') return 'paused';
+  if (s === 'DONE') return 'done';
+  if (s === 'SETUP') return 'setup';
+  return 'idle';
+}
+
+const INFERRED_FALLBACK: ProjectSummary['inferredType'] = 'saas-web';
+
+function adaptProject(p: ProjectListItem): ProjectSummary {
+  const inferred = (p.inferredType ?? INFERRED_FALLBACK) as ProjectSummary['inferredType'];
+  return {
+    id: p.id,
+    name: p.name,
+    path: p.path,
+    inferredType: inferred,
+    status: statusFromSession(p.latestSessionStatus),
+    agentsWorking: p.agentsWorking,
+    agentsTotal: p.agentsTotal,
+    presetDone: p.presetDone,
+    presetTotal: p.presetTotal,
+    visionVerdict: p.visionVerdict,
+    lastCommitTs: p.lastCommitTs ?? p.lastSessionAt ?? p.firstSeenAt,
+    lastCommitMsg: p.lastCommitMsg ?? '',
+    costUsd: p.estimatedUsd,
+    pinned: false,
+  };
+}
 
 const TONE_BADGE: Record<'good' | 'warn' | 'bad' | 'mute' | 'active', { chip: string; dot: string }> = {
   good:   { chip: 'bg-sage-50 text-sage-600',  dot: 'bg-sage-600' },
@@ -51,8 +82,22 @@ export interface ProjectsHomeProps {
 export function ProjectsHome({ onOpenProject, onAddProject, onDemoMode }: ProjectsHomeProps) {
   const { t } = useLocale();
   const [filter, setFilter] = useState<'all' | 'active' | 'done'>('all');
+  const realProjects = useStore((s) => s.projects);
+  const refreshProjects = useStore((s) => s.refreshProjects);
 
-  const filtered = mockProjects.filter((p) => {
+  // Refresh on mount so users adding projects elsewhere see the update.
+  useEffect(() => {
+    void refreshProjects();
+  }, [refreshProjects]);
+
+  // Source-of-truth selection: real projects when registered, else mock for
+  // an empty home that still has something to show new users.
+  const projects: ProjectSummary[] = useMemo(
+    () => (realProjects.length > 0 ? realProjects.map(adaptProject) : mockProjects),
+    [realProjects],
+  );
+
+  const filtered = projects.filter((p) => {
     if (filter === 'active') return p.status === 'looping' || p.status === 'paused' || p.status === 'error';
     if (filter === 'done') return p.status === 'done';
     return true;
@@ -62,8 +107,8 @@ export function ProjectsHome({ onOpenProject, onAddProject, onDemoMode }: Projec
     return b.lastCommitTs - a.lastCommitTs;
   });
 
-  const activeCount = mockProjects.filter((p) => p.status === 'looping').length;
-  const totalCost = mockProjects.reduce((s, p) => s + p.costUsd, 0);
+  const activeCount = projects.filter((p) => p.status === 'looping').length;
+  const totalCost = projects.reduce((s, p) => s + p.costUsd, 0);
 
   return (
     <div className="min-h-screen bg-paper">
@@ -76,7 +121,7 @@ export function ProjectsHome({ onOpenProject, onAddProject, onDemoMode }: Projec
             </p>
             <div className="text-sm text-muted mt-4 flex items-center gap-4 font-sans">
               <span>
-                <CountUp value={mockProjects.length} className="text-ink font-medium" /> {t('home.summary.projects')}
+                <CountUp value={projects.length} className="text-ink font-medium" /> {t('home.summary.projects')}
               </span>
               <span className="text-muted/40">·</span>
               <span className="text-coral">
@@ -114,10 +159,10 @@ export function ProjectsHome({ onOpenProject, onAddProject, onDemoMode }: Projec
                 {f === 'all' ? t('home.filter.all') : f === 'active' ? t('home.filter.active') : t('home.filter.done')}
                 <span className={`ml-1.5 ${filter === f ? 'text-cream/60' : 'text-muted/50'}`}>
                   {f === 'all'
-                    ? mockProjects.length
+                    ? projects.length
                     : f === 'active'
-                      ? mockProjects.filter((p) => p.status === 'looping' || p.status === 'paused' || p.status === 'error').length
-                      : mockProjects.filter((p) => p.status === 'done').length}
+                      ? projects.filter((p) => p.status === 'looping' || p.status === 'paused' || p.status === 'error').length
+                      : projects.filter((p) => p.status === 'done').length}
                 </span>
               </button>
             ))}
