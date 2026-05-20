@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ZeroU · demo 跑通了。product 还差 24 件事。</title>
+  <meta name="description" content="ZeroU 是一台本地 daemon。给它一个 demo 文件夹 + 一晚时间。它派 6 个 agent 干活,4 层 reviewer 把关,只有过审的 fix 才合 main,过不了的全部写进 NEED_HUMAN。开源 · 自带 LLM key · 不藏。" />
+  <meta name="theme-color" content="#0A0A0A" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="ZeroU — demo 跑通了。product 还差 24 件事。" />
+  <meta property="og:description" content="本地 daemon,6 个 agent + 4 层 reviewer。一晚把 demo 推到 product,过不了的全写进 PR。" />
+  <meta property="og:site_name" content="ZeroU" />
+  <meta property="og:locale" content="zh_CN" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="ZeroU — demo 跑通了。product 还差 24 件事。" />
+  <meta name="twitter:description" content="本地 daemon,4 层 reviewer。一晚把 demo 推到 product,过不了的全写进 PR。" />
+
+  <!-- Favicon (inline SVG, 0 字符 ZeroU 图标:一个圆里夹 0/U) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230A0A0A'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%237CFFB2' stroke-width='2.4'/%3E%3Cpath d='M16 16v6' stroke='%237CFFB2' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,400;1,8..60,500&family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" />
+
+  <link rel="stylesheet" href="styles.css?v=1" />
+</head>
+<body>
+
+  <!-- Dim grain overlay (SVG feTurbulence, multiply blend) -->
+  <svg class="grain" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+    <filter id="zg-noise" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.92" numOctaves="2" stitchTiles="stitch" />
+      <feColorMatrix values="0 0 0 0 0.95  0 0 0 0 0.95  0 0 0 0 0.92  0 0 0 0.12 0" />
+    </filter>
+    <rect width="100%" height="100%" filter="url(#zg-noise)" />
+  </svg>
+
+  <a class="skip-link" href="#main">跳到正文</a>
+
+  <!-- ─────────────────────────────────────────── Docket / shift top bar -->
+  <header class="docket" role="banner">
+    <div class="docket-inner">
+      <a class="docket-brand" href="#top" aria-label="ZeroU 首页">
+        <span class="docket-mark" aria-hidden="true"></span>
+        <span class="docket-name">ZeroU</span>
+        <span class="docket-tag">demo → product · overnight shift</span>
+      </a>
+      <nav class="docket-nav" aria-label="主导航">
+        <a href="#shift">夜班记录</a>
+        <a href="#gates">4 层 reviewer</a>
+        <a href="#sworn">不撤销的事</a>
+        <a href="https://github.com/Upp-Ljl/d2p" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a class="docket-cta" href="#download">↓ clone</a>
+      </nav>
+    </div>
+    <div class="docket-progress" aria-hidden="true"></div>
+  </header>
+
+  <main id="main">
+
+    <!-- ─────────────────────────────────────────── Hero -->
+    <section class="hero" id="top" aria-labelledby="hero-h1">
+      <div class="container">
+        <div class="hero-eyebrow">
+          <span class="stamp" aria-hidden="true">夜班 · 01</span>
+          <span>一晚一份真 shift · 看 ZeroU 怎么开的工</span>
+        </div>
+
+        <h1 class="hero-h1" id="hero-h1">
+          <span class="frag" style="--d:.05s">demo 跑通了。</span><br />
+          <span class="frag frag-stamp" style="--d:.55s"><span class="accent-em-wrap"><em class="accent-em"><span class="char" style="--c:0s">p</span><span class="char" style="--c:.04s">r</span><span class="char" style="--c:.08s">o</span><span class="char" style="--c:.12s">d</span><span class="char" style="--c:.16s">u</span><span class="char" style="--c:.20s">c</span><span class="char" style="--c:.24s">t</span><span class="char" style="--c:.30s">&nbsp;</span><span class="char" style="--c:.34s">还</span><span class="char" style="--c:.38s">差</span><span class="char" style="--c:.42s">&nbsp;</span><span class="char" style="--c:.46s">24</span><span class="char" style="--c:.52s">&nbsp;</span><span class="char" style="--c:.56s">件</span><span class="char" style="--c:.60s">事</span></em><span class="accent-marker" aria-hidden="true"></span></span><span class="accent-dot">。</span></span>
+        </h1>
+
+        <p class="hero-lede">
+          ZeroU 不替你写完<span class="redact" style="--rd:1.4s">「最后那点 product 代码」</span>。它先读你的 <span class="redact" style="--rd:1.65s">vision</span>、扫你的 <span class="redact" style="--rd:1.9s">demo</span>、派 <span class="redact" style="--rd:2.15s">6 个 agent</span> 干活 — 4 层 reviewer 都过了才合 main。
+        </p>
+
+        <p class="hero-mono">
+          下面是一份真用户的 shift。1h 31min · $4.24 · 28 项 preset 跑掉 8 项 · 2 PR 合上 main · <em class="accent-em-soft">24 件事写进了 PR body</em>，没藏。
+        </p>
+
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="#shift">↓ 看 1h 31min 真跑</a>
+          <span class="hero-cta-meta">macOS · Windows · 自带 LLM key · 不上传代码</span>
+        </div>
+
+        <!-- Reviewer pipeline live readout (4 stages animating) -->
+        <div class="pipeline" aria-label="ZeroU reviewer pipeline · 实时" data-pipeline>
+          <div class="pipeline-rail" aria-hidden="true"></div>
+          <ol class="pipeline-stages">
+            <li class="pstage" data-stage="static" data-tag="STATIC">
+              <span class="pstage-dot" aria-hidden="true"></span>
+              <span class="pstage-name">static gate</span>
+              <span class="pstage-detail">tsc · npm test · build</span>
+              <span class="pstage-verdict" data-verdict>—</span>
+            </li>
+            <li class="pstage" data-stage="alignment" data-tag="ALIGN">
+              <span class="pstage-dot" aria-hidden="true"></span>
+              <span class="pstage-name">alignment</span>
+              <span class="pstage-detail">是否对题 / scope creep</span>
+              <span class="pstage-verdict" data-verdict>—</span>
+            </li>
+            <li class="pstage" data-stage="behavioral" data-tag="BEHAV">
+              <span class="pstage-dot" aria-hidden="true"></span>
+              <span class="pstage-name">behavioral</span>
+              <span class="pstage-detail">approach 是否扎实</span>
+              <span class="pstage-verdict" data-verdict>—</span>
+            </li>
+            <li class="pstage" data-stage="adversarial" data-tag="ADVERS">
+              <span class="pstage-dot" aria-hidden="true"></span>
+              <span class="pstage-name">adversarial</span>
+              <span class="pstage-detail">攻击向量 N 条</span>
+              <span class="pstage-verdict" data-verdict>—</span>
+            </li>
+          </ol>
+        </div>
+
+        <ul class="hero-trust" aria-label="承诺">
+          <li><span aria-hidden="true">●</span>本地优先</li>
+          <li><span aria-hidden="true">●</span>自带 LLM key</li>
+          <li><span aria-hidden="true">●</span>4 层 reviewer</li>
+          <li><span aria-hidden="true">●</span>MIT 开源</li>
+        </ul>
+      </div>
+    </section>
+
+    <hr class="section-rule" />
+
+    <!-- ─────────────────────────────────────────── Shift logs (3 cases) -->
+    <section class="cases" id="shift" aria-labelledby="cases-h2">
+      <div class="container">
+        <h2 class="sr-only" id="cases-h2">ZeroU 一晚做了什么 · 三段 shift 记录</h2>
+
+        <!-- ─────── SHIFT 01 — Setup → Vision → Loop start -->
+        <article class="case" aria-labelledby="case-01-title" data-case-num="01">
+          <header class="case-head">
+            <div class="case-label">
+              <span class="case-num">夜班记录 · 01</span>
+              <span class="case-slug">10:11 PM · setup → vision → 28 项 preset 落库</span>
+            </div>
+            <h3 class="case-title" id="case-01-title">
+              你给一个 folder,<em class="accent-em">它接过来,自己读完</em>。
+            </h3>
+            <p class="case-summary">
+              subject:agent-game-platform · Next.js + Bun · 一个粗糙的扑克观赏 demo。ZeroU 用 detector 推断项目类型,挑 saas-web preset,带你做 5 轮 vision elicit,把"你要做什么"沉淀到 .d2p/vision.md。下面是它手里那一刻的三样东西。
+            </p>
+          </header>
+
+          <div class="exhibits">
+            <article class="exhibit">
+              <span class="exhibit-tag">一 · 项目类型</span>
+              <div class="exhibit-head">detector · haiku · 0.95 confidence</div>
+              <pre class="exhibit-body">{
+  "type": "saas-web",
+  "confidence": 0.95,
+  "evidence": [
+    "Next.js + Bun + Supabase",
+    "Auth routes",
+    "Playwright e2e"
+  ]
+}</pre>
+              <div class="exhibit-foot">扫了 manifest + README + tree</div>
+            </article>
+
+            <article class="exhibit">
+              <span class="exhibit-tag">二 · 你的 vision</span>
+              <div class="exhibit-head">vision · 5 轮 A/B/C · 写进 vision.md</div>
+              <pre class="exhibit-body">## 产品定位
+竞技化的德州扑克
+观赏与社交平台 —
+让玩家在看牌、讨论、
+交流中感受真实牌局
+氛围。
+
+## 商业模式
+抽水 (rake)。
+## KPI
+DAU / MAU ≥ 30%</pre>
+              <div class="exhibit-foot">vision.md · 90 行 · 在你本地</div>
+            </article>
+
+            <article class="exhibit">
+              <span class="exhibit-tag">三 · 你的 preset</span>
+              <div class="exhibit-head">saas-web · 28 项验收清单</div>
+              <pre class="exhibit-body">[done]    auth-signup       Supabase
+[done]    auth-session      HttpOnly
+[done]    db-real           Postgres
+[done]    err-handler       Sentry
+[missing] auth-csrf         待验证
+[missing] auth-recovery     未实现
+[missing] db-backup         无文档
+[missing] ci-pipeline       不存在
+...还有 12 项 partial / missing</pre>
+              <div class="exhibit-foot">8/28 done · 12 partial · 8 missing</div>
+            </article>
+          </div>
+
+          <aside class="verdict" aria-label="ZeroU 的 shift 启动判定">
+            <span class="case-stamp case-stamp-mint" aria-hidden="true">已点火</span>
+            <div class="verdict-tag">
+              <span>ZEROU · 进入 LOOP 状态</span>
+              <span class="verdict-meta">vision elicit <span data-count-to="5">0</span> 轮 · 写库 <span data-count-to="28">0</span> 项</span>
+            </div>
+            <blockquote class="verdict-body">
+              「我已经知道你要做什么 (vision.md)、你的 demo 缺什么 (preset 8/28)、应该派谁去补 (6 个 agent role)。我现在派 differ 去扫,出一份 gap 列表。剩下的你不用动手。」
+            </blockquote>
+            <footer class="verdict-sign">
+              <span>状态 · LOOPING</span>
+              <span aria-hidden="true">·</span>
+              <span>下一步 · differ → gap 队列 → implementer 接单</span>
+              <span class="verdict-sign-by">ZeroU · loop orchestrator</span>
+            </footer>
+          </aside>
+        </article>
+
+        <hr class="case-rule" />
+
+        <!-- ─────── SHIFT 02 — 4-layer reviewer pipeline -->
+        <article class="case" aria-labelledby="case-02-title" data-case-num="02">
+          <header class="case-head">
+            <div class="case-label">
+              <span class="case-num">夜班记录 · 02</span>
+              <span class="case-slug">11:13 PM · fix #27 通过 4 层 reviewer</span>
+            </div>
+            <h3 class="case-title" id="case-02-title">
+              AI 写完代码,<em class="accent-em">交给 AI 审 4 次</em>。
+            </h3>
+            <p class="case-summary">
+              subject:gap docs-changelog-missing · implementer 在 worktree 里写完 commit。这一次,4 道闸口全开:语法过得去吗?对题吗?思路扎实吗?攻击得动吗?都过了,才有资格合 main。下面是 fix #27 一次过审的真档案。
+            </p>
+          </header>
+
+          <div class="rehearsal">
+            <div class="rehearsal-subject">
+              <span class="exhibit-tag exhibit-tag-static">fix #27 · commit 5aedd6e</span>
+              <pre class="exhibit-body exhibit-body-small">+ CHANGELOG.md (新增)
++ 39 行
+- 0 行
+
+gap.slug:
+  docs-changelog-missing
+gap.severity: P3
+gap.category: docs</pre>
+              <div class="exhibit-foot">implementer · sonnet · 一次成稿</div>
+            </div>
+
+            <div class="rehearsal-voices">
+              <article class="voice voice-pass">
+                <div class="voice-name">static gate</div>
+                <div class="voice-role">tsc · npm test · build</div>
+                <p class="voice-line">「typecheck 没碰到。test 跑了 41 个全过。build 干净。」</p>
+                <div class="voice-pass-tag">PASSED · 0 errors</div>
+              </article>
+              <article class="voice voice-pass">
+                <div class="voice-name">alignment</div>
+                <div class="voice-role">haiku · 对题快检</div>
+                <p class="voice-line">「写的就是 CHANGELOG。没动别处。score 0.98。」</p>
+                <div class="voice-pass-tag">PASSED · 0.98 / 0.7 阈值</div>
+              </article>
+              <article class="voice voice-pass">
+                <div class="voice-name">behavioral</div>
+                <div class="voice-role">sonnet · fresh context 深审</div>
+                <p class="voice-line">「conventional changelog 格式,日期对的,版本号在 manifest 里能对上。APPROVE。」</p>
+                <div class="voice-pass-tag">APPROVE · 88% confidence</div>
+              </article>
+              <article class="voice voice-pass">
+                <div class="voice-name">adversarial</div>
+                <div class="voice-role">sonnet · 攻击视角</div>
+                <p class="voice-line">「这是 docs 改动,不在高敏 category(auth/sql/crypto),不触发。直接放行。」</p>
+                <div class="voice-pass-tag">SKIPPED · low sensitivity</div>
+              </article>
+            </div>
+          </div>
+
+          <aside class="verdict verdict-merged" aria-label="ZeroU 的 merge verdict">
+            <span class="case-stamp case-stamp-mint" aria-hidden="true">已合并</span>
+            <div class="verdict-tag">
+              <span>ZEROU · 合并到 main</span>
+              <span class="verdict-meta">total review <span data-count-to="9">0</span>s · 路径 <span data-count-to="4">0</span> 层 · cost ¢<span data-count-to="13">0</span></span>
+            </div>
+            <blockquote class="verdict-body">
+              「fix #27 一次过 — static / alignment / behavioral / adversarial 四道都开。merge commit <span class="mono-emph">5aedd6e</span> 已落 main。这种 gap (docs / changelog / readme / license / env example) 通过率最高,大部分一次走完。」
+            </blockquote>
+            <footer class="verdict-sign">
+              <span>真 PR · github.com/anzy-renlab-ai/agent-game-platform/pull/6</span>
+              <span aria-hidden="true">·</span>
+              <span>这一晚共合 · 2 个 fix</span>
+              <span class="verdict-sign-by">ZeroU · reviewer pipeline</span>
+            </footer>
+          </aside>
+        </article>
+
+        <hr class="case-rule" />
+
+        <!-- ─────── SHIFT 03 — Transparency / NEED_HUMAN -->
+        <article class="case" aria-labelledby="case-03-title" data-case-num="03">
+          <header class="case-head">
+            <div class="case-label">
+              <span class="case-num">夜班记录 · 03</span>
+              <span class="case-slug">透明 · 它不会做的事写在 PR 里</span>
+            </div>
+            <h3 class="case-title" id="case-03-title">
+              不偷偷塞,<em class="accent-em">把它做不到的事公示出来</em>。
+            </h3>
+            <p class="case-summary">
+              AI 写代码最大的暗病是"假装做完了"——偷偷 .skip 测试、加 @ts-ignore、关 CSRF、把 vision 不一致的部分藏起来。ZeroU 反着来:reviewer 拒掉的 gap 全部进 NEED_HUMAN 列表,写在 PR body 里给你看。下面是同一个 session 的两种"交付"。
+            </p>
+          </header>
+
+          <div class="comparison">
+            <article class="compare compare-not">
+              <span class="exhibit-tag exhibit-tag-static compare-tag-muted">不是这样</span>
+              <div class="compare-mode">他人模式 · 偷偷塞</div>
+              <p class="compare-line compare-line-strike">
+                「session #4 — 28 项全 ✓,fix 全 merged。Enhanced! ✨」
+              </p>
+              <div class="compare-note">
+                ↑ 实际:auth-csrf 被 .skip 了 / db-backup-path 用 @ts-ignore 跳过 / 24 项 vision-不一致都没说<br />
+                这是 marketing 干的事,不是工程干的事。
+              </div>
+            </article>
+
+            <article class="compare compare-is">
+              <span class="exhibit-tag exhibit-tag-static compare-tag-mint">这样才对</span>
+              <div class="compare-mode">ZEROU · 写进 PR body</div>
+              <p class="compare-line">
+                「session #4 · 1h 31min · cost <span class="compare-em">$4.24</span> · merged: 2 · NEED_HUMAN:<span class="compare-em"> 24 项</span> — 每一项都附 reviewer 拒掉的原因。」
+              </p>
+              <div class="compare-note">
+                ↑ PR body 第三段:全部 24 项 · slug · severity · reason_code<br />
+                你 review PR 的人,一眼看见它做不到什么。
+              </div>
+            </article>
+          </div>
+
+          <!-- Real PR body excerpt -->
+          <div class="receipt">
+            <header class="receipt-head">
+              <span class="receipt-stamp">REAL PR BODY</span>
+              <span class="receipt-meta">github.com/anzy-renlab-ai/agent-game-platform/pull/6</span>
+            </header>
+            <pre class="receipt-body">## Other gaps in this session (24 not in this PR)
+
+These were surfaced by the differ but the reviewer pipeline
+rejected the auto-fix. Marked `NEED_HUMAN` in this session's
+state; left for you to triage.
+
+- `auth-csrf-protection`         (P1) — reviewer marked INCOMPLETE
+- `auth-password-recovery`       (P1) — retry budget exhausted
+- `db-backup-path`               (P2) — reviewer marked BUGGY
+- `db-migrations`                (P2) — reviewer marked INCOMPLETE
+- `tests-smoke`                  (P1) — alignment score below 0.7
+- `tests-unit`                   (P2) — reviewer marked INCOMPLETE
+- `deploy-env-doc`               (P1) — implementer returned empty edits
+- `ci-pipeline`                  (P2) — retry budget exhausted
+- `ui-loading-states`            (P2) — alignment scope creep
+- `ui-empty-states`              (P2) — reviewer marked INCOMPLETE
+...还有 14 项
+
+---
+d2p session #4, base `main` · cost ~$4.24
+See `.d2p/session-summary.md` in the repo for the full run log.</pre>
+            <div class="receipt-foot">— 你 review 的不是"它做了什么",是"它做不到什么"。</div>
+          </div>
+
+        </article>
+
+      </div>
+    </section>
+
+    <hr class="section-rule" />
+
+    <!-- ─────────────────────────────────────────── Video — the 60s real run -->
+    <section class="theatre" id="watch" aria-labelledby="theatre-h2">
+      <div class="container">
+        <div class="case-label">
+          <span class="case-num">看带 · 04</span>
+          <span class="case-slug">一晚 1h 31min 压成 60 秒</span>
+        </div>
+        <h2 class="case-title" id="theatre-h2">
+          看一眼 1h 31min 的真班次。
+        </h2>
+        <p class="case-summary">
+          没旁白也行 · 全用真数据 · 真 commit sha · 真 PR · 真 reviewer 评分。
+        </p>
+        <div class="theatre-frame">
+          <video
+            src="zerou-demo.mp4"
+            controls
+            autoplay
+            loop
+            muted
+            playsinline
+            preload="auto"
+            class="theatre-video"
+            aria-label="ZeroU 60-second shift recap"
+          ></video>
+          <div class="theatre-glow" aria-hidden="true"></div>
+        </div>
+        <div class="theatre-strip" aria-label="本次 shift 数据">
+          <div class="strip-cell"><span class="strip-label">duration</span><span class="strip-val">1h 31min</span></div>
+          <div class="strip-cell"><span class="strip-label">cost</span><span class="strip-val">$4.24</span></div>
+          <div class="strip-cell"><span class="strip-label">merged</span><span class="strip-val">2 / 28</span></div>
+          <div class="strip-cell"><span class="strip-label">need_human</span><span class="strip-val">24 公示</span></div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="section-rule" />
+
+    <!-- ─────────────────────────────────────────── 4 gates explainer -->
+    <section class="gates" id="gates" aria-labelledby="gates-h2">
+      <div class="container">
+        <div class="case-label">
+          <span class="case-num">机制 · 05</span>
+          <span class="case-slug">为什么是 4 道 reviewer · 不是 1 个</span>
+        </div>
+        <h2 class="case-title" id="gates-h2">
+          每个 fix 走 <em class="accent-em">4 道门</em> 才有机会合 main。
+        </h2>
+        <p class="case-summary">
+          单一 LLM critic 是常见做法,但 LLM 自审的盲点也是公认的——它判不出自己的盲区。ZeroU 用 4 个角色 + 不同 fresh context 把这道盲区切碎。任一道不过,整 fix 回退或升级 NEED_HUMAN。
+        </p>
+
+        <ol class="gate-list">
+          <li class="gate">
+            <span class="gate-num">G1.</span>
+            <h3 class="gate-h">不是 AI · 是命令行。</h3>
+            <p class="gate-p">
+              <code>tsc --noEmit · npm test · npm run build</code>
+              。先用你的项目自己的 check 命令跑一遍 — 跑不过的 fix 根本进不了 reviewer。
+            </p>
+            <span class="gate-tag">static gate</span>
+          </li>
+          <li class="gate">
+            <span class="gate-num">G2.</span>
+            <h3 class="gate-h">对题快检 · 不偏题、不 scope creep。</h3>
+            <p class="gate-p">haiku 模型 quick pass:这个 fix 写的是 vision 想要的吗?有没有顺手改了别的?score &lt; 0.7 自动驳回。</p>
+            <span class="gate-tag">alignment</span>
+          </li>
+          <li class="gate">
+            <span class="gate-num">G3.</span>
+            <h3 class="gate-h">思路审核 · approach 扎不扎实。</h3>
+            <p class="gate-p">sonnet,fresh context,从零看 diff。verdict 四档:APPROVE / RETRY_WITH_HINTS / ROLLBACK / SPLIT_INTO。失败给重试提示。</p>
+            <span class="gate-tag">behavioral</span>
+          </li>
+          <li class="gate">
+            <span class="gate-num">G4.</span>
+            <h3 class="gate-h">攻击视角 · 它能被打穿吗。</h3>
+            <p class="gate-p">高敏 category (auth / sql / crypto) 才触发。sonnet 出 N 条 attack vector,一条 BREAK 整 fix 就 rollback。</p>
+            <span class="gate-tag">adversarial</span>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <hr class="section-rule" />
+
+    <!-- ─────────────────────────────────────────── 5 sworn promises -->
+    <section class="promises" id="sworn" aria-labelledby="promises-h2">
+      <div class="container">
+        <div class="case-label">
+          <span class="case-num">不可撤销 · 06</span>
+          <span class="case-slug">v1 不会让步的五条</span>
+        </div>
+        <h2 class="case-title" id="promises-h2">5 件不可撤销的事。</h2>
+        <p class="case-summary">改任意一条意味着 ZeroU 不再是 ZeroU。</p>
+
+        <ol class="promise-list">
+          <li class="promise">
+            <span class="promise-num">01.</span>
+            <h3 class="promise-h">双绿才停。</h3>
+            <p class="promise-p">preset 全部 done + done-check agent 判定 vision verdict YES。少一个绿都不 SESSION_DONE。</p>
+          </li>
+          <li class="promise">
+            <span class="promise-num">02.</span>
+            <h3 class="promise-h">NEED_HUMAN 写进 PR body。</h3>
+            <p class="promise-p">reviewer 拒掉的 gap 不藏。每个 PR 自带"它做不到的事"清单 + reason code。你 review 的是诚实的 delta。</p>
+          </li>
+          <li class="promise">
+            <span class="promise-num">03.</span>
+            <h3 class="promise-h">4 道 reviewer 一道不能少。</h3>
+            <p class="promise-p">不是配置选项。static / alignment / behavioral / adversarial 全开 — 这是它存在的理由。</p>
+          </li>
+          <li class="promise">
+            <span class="promise-num">04.</span>
+            <h3 class="promise-h">本地 daemon · 代码不离机。</h3>
+            <p class="promise-p">不是云服务。daemon 在你电脑上跑,worktree 在你磁盘上写,merge 在你本地 git。我们手里没有你的代码。</p>
+          </li>
+          <li class="promise">
+            <span class="promise-num">05.</span>
+            <h3 class="promise-h">全开源 · 你的 LLM key。</h3>
+            <p class="promise-p">MIT · 自带 Anthropic / OpenAI-compat key · 零后端 · 没有 SaaS 转身位。删了就是全删,我们手里不留东西。</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────────────────── Affirmation (4 lines) -->
+    <section class="affirmation" aria-labelledby="affirm-h2">
+      <div class="container affirmation-inner">
+        <div class="affirmation-eyebrow">一句话讲完</div>
+        <p class="affirmation-body" id="affirm-h2">
+          它派 <em class="accent-em">6 个 agent</em>。<br />
+          它跑 <em class="accent-em">4 层 reviewer</em>。<br />
+          它在一晚把你的 demo 推到 product。<br />
+          做不到的事,<em class="accent-em">写进 PR 里</em>。
+        </p>
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────────────────── Download / clone -->
+    <section class="download" id="download" aria-labelledby="dl-h2">
+      <div class="container download-inner">
+        <div class="download-text">
+          <div class="download-eyebrow">本地优先 · 自带 LLM key</div>
+          <h2 class="download-h" id="dl-h2">克隆一份,跑一次。</h2>
+          <p class="download-p">5 MB daemon · macOS · Windows · Linux · cc 历史不上传 · 仓库不外发。删 app 就是全删 — 我们手里没有你任何东西。</p>
+        </div>
+        <div class="download-actions">
+          <a class="btn btn-primary btn-large" href="https://github.com/Upp-Ljl/d2p" target="_blank" rel="noopener noreferrer" data-platform="github">
+            <span class="btn-icon" aria-hidden="true">↓</span>
+            <span>ZeroU · 克隆仓库</span>
+            <span class="btn-meta">github · MIT</span>
+          </a>
+          <a class="btn btn-secondary" href="https://github.com/anzy-renlab-ai/agent-game-platform/pull/6" target="_blank" rel="noopener noreferrer">→ 看真 PR #6</a>
+          <div class="download-cli">
+            <code>git clone https://github.com/Upp-Ljl/d2p</code>
+            <button class="copy-btn" type="button" data-copy="git clone https://github.com/Upp-Ljl/d2p" aria-label="复制 git clone 命令">复制</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ─────────────────────────────────────────── Footer -->
+  <footer class="footer" role="contentinfo">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <span class="docket-mark" aria-hidden="true"></span>
+        <span>ZeroU</span>
+        <span class="footer-version">v0.1 · 2026</span>
+      </div>
+      <nav class="footer-nav" aria-label="链接">
+        <a href="#shift">夜班记录</a>
+        <a href="#gates">4 层 reviewer</a>
+        <a href="https://github.com/Upp-Ljl/d2p" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://github.com/anzy-renlab-ai/agent-game-platform/pull/6" target="_blank" rel="noopener noreferrer">真 PR #6</a>
+      </nav>
+      <div class="footer-promises" aria-label="承诺">
+        <span>MIT</span>
+        <span aria-hidden="true">·</span>
+        <span>本地优先</span>
+        <span aria-hidden="true">·</span>
+        <span>零上传</span>
+        <span aria-hidden="true">·</span>
+        <span>你的 LLM key</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js?v=1" defer></script>
+</body>
+</html>
