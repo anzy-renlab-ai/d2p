@@ -67,7 +67,7 @@
       <div class="container">
         <div class="hero-eyebrow">
           <span class="stamp" aria-hidden="true">夜班 · 01</span>
-          <span>一晚一份真 shift · 看 ZeroU 怎么开的工</span>
+          <span>三份真 shift · 看 ZeroU 怎么开的工</span>
         </div>
 
         <h1 class="hero-h1" id="hero-h1">
@@ -76,11 +76,11 @@
         </h1>
 
         <p class="hero-lede">
-          ZeroU 不替你写完<span class="redact" style="--rd:1.4s">「最后那点 product 代码」</span>。它先读你的 <span class="redact" style="--rd:1.65s">vision</span>、扫你的 <span class="redact" style="--rd:1.9s">demo</span>、派 <span class="redact" style="--rd:2.15s">6 个 agent</span> 干活 — 4 层 reviewer 都过了才合 main。
+          ZeroU 不替你写完<span class="redact" style="--rd:1.4s">「最后那点 product 代码」</span>。它先扫你的<span class="redact" style="--rd:1.65s">demo</span>、派<span class="redact" style="--rd:1.9s">agent</span>干活 — 4 层 reviewer 过了才合 main。
         </p>
 
         <p class="hero-mono">
-          下面是一份真用户的 shift。1h 31min · $4.24 · 28 项 preset 跑掉 8 项 · 2 PR 合上 main · <em class="accent-em-soft">24 件事写进了 PR body</em>，没藏。
+          一份真 shift。1h 31min · $4.24 · 合 2 / <em class="accent-em-soft">公示 24</em> · 没藏。
         </p>
 
         <div class="hero-cta">
@@ -140,13 +140,13 @@
           <header class="case-head">
             <div class="case-label">
               <span class="case-num">夜班记录 · 01</span>
-              <span class="case-slug">10:11 PM · setup → vision → 28 项 preset 落库</span>
+              <span class="case-slug">10:11 PM · setup · 28 项 preset 落库</span>
             </div>
             <h3 class="case-title" id="case-01-title">
-              你给一个 folder,<em class="accent-em">它接过来,自己读完</em>。
+              给一个 folder。<em class="accent-em">它自己读完了</em>。
             </h3>
             <p class="case-summary">
-              subject:agent-game-platform · Next.js + Bun · 一个粗糙的扑克观赏 demo。ZeroU 用 detector 推断项目类型,挑 saas-web preset,带你做 5 轮 vision elicit,把"你要做什么"沉淀到 .d2p/vision.md。下面是它手里那一刻的三样东西。
+              subject:agent-game-platform · 一个扑克观赏 demo。ZeroU 5 轮 elicit 把 vision 沉到 vision.md。下面是它手里的三样。
             </p>
           </header>
 
@@ -209,7 +209,7 @@ DAU / MAU ≥ 30%</pre>
               <span class="verdict-meta">vision elicit <span data-count-to="5">0</span> 轮 · 写库 <span data-count-to="28">0</span> 项</span>
             </div>
             <blockquote class="verdict-body">
-              「我已经知道你要做什么 (vision.md)、你的 demo 缺什么 (preset 8/28)、应该派谁去补 (6 个 agent role)。我现在派 differ 去扫,出一份 gap 列表。剩下的你不用动手。」
+              「你要什么我知道了 (vision.md)、demo 缺什么我清了 (8/28)、谁去补我也派好了 (6 个 agent)。剩下你不用动手。」
             </blockquote>
             <footer class="verdict-sign">
               <span>状态 · LOOPING</span>
@@ -227,13 +227,13 @@ DAU / MAU ≥ 30%</pre>
           <header class="case-head">
             <div class="case-label">
               <span class="case-num">夜班记录 · 02</span>
-              <span class="case-slug">11:13 PM · fix #27 通过 4 层 reviewer</span>
+              <span class="case-slug">11:13 PM · fix #27 过 4 层</span>
             </div>
             <h3 class="case-title" id="case-02-title">
-              AI 写完代码,<em class="accent-em">交给 AI 审 4 次</em>。
+              AI 写代码。<em class="accent-em">交给 AI 审 4 次</em>。
             </h3>
             <p class="case-summary">
-              subject:gap docs-changelog-missing · implementer 在 worktree 里写完 commit。这一次,4 道闸口全开:语法过得去吗?对题吗?思路扎实吗?攻击得动吗?都过了,才有资格合 main。下面是 fix #27 一次过审的真档案。
+              gap:docs-changelog-missing · implementer 写完 commit。4 道全开:语法过吗?对题吗?思路扎实吗?攻得动吗?都过了才合 main。
             </p>
           </header>
 
@@ -304,13 +304,13 @@ gap.category: docs</pre>
           <header class="case-head">
             <div class="case-label">
               <span class="case-num">夜班记录 · 03</span>
-              <span class="case-slug">透明 · 它不会做的事写在 PR 里</span>
+              <span class="case-slug">做不到的事 · 写在 PR 里</span>
             </div>
             <h3 class="case-title" id="case-03-title">
-              不偷偷塞,<em class="accent-em">把它做不到的事公示出来</em>。
+              不偷偷塞。<em class="accent-em">做不到的全公示</em>。
             </h3>
             <p class="case-summary">
-              AI 写代码最大的暗病是"假装做完了"——偷偷 .skip 测试、加 @ts-ignore、关 CSRF、把 vision 不一致的部分藏起来。ZeroU 反着来:reviewer 拒掉的 gap 全部进 NEED_HUMAN 列表,写在 PR body 里给你看。下面是同一个 session 的两种"交付"。
+              AI 写代码的暗病:.skip 测试、@ts-ignore、关 CSRF、藏 vision 不一致。ZeroU 反着来 — reviewer 拒掉的全进 NEED_HUMAN,写进 PR body。下面是同一 session 的两种"交付"。
             </p>
           </header>
 
@@ -339,6 +339,26 @@ gap.category: docs</pre>
               </div>
             </article>
           </div>
+
+          <!-- MOMENT 2 · NEED_HUMAN public ledger -->
+          <article class="feature-moment feature-moment--ledger" data-fm-ledger>
+            <header class="fm-head">
+              <span class="fm-tag">posted · session #4</span>
+              <span class="fm-meta"><span data-fm-ledger-count>24</span> 件 ZeroU 做不到的事 · 写进 PR body</span>
+            </header>
+            <ol class="fm-ledger">
+              <li class="fm-row" data-slug="auth-csrf-protection"        data-sev="P1" data-code="INCOMPLETE"></li>
+              <li class="fm-row" data-slug="auth-password-recovery"      data-sev="P1" data-code="K_EXHAUSTED"></li>
+              <li class="fm-row" data-slug="db-backup-path"              data-sev="P2" data-code="BUGGY"></li>
+              <li class="fm-row" data-slug="db-migrations"               data-sev="P2" data-code="INCOMPLETE"></li>
+              <li class="fm-row" data-slug="tests-smoke"                 data-sev="P1" data-code="ALIGNMENT_LOW"></li>
+              <li class="fm-row" data-slug="deploy-env-doc"              data-sev="P1" data-code="IMPLEMENTER_FAILURES"></li>
+              <li class="fm-row" data-slug="ci-pipeline"                 data-sev="P2" data-code="K_EXHAUSTED"></li>
+              <li class="fm-row" data-slug="ui-loading-states"           data-sev="P2" data-code="ALIGNMENT_LOW"></li>
+              <li class="fm-row fm-row-more" data-more>+ 14 more · all NEED_HUMAN in PR body</li>
+            </ol>
+            <footer class="fm-foot">每条都附 reason code · reviewer 拒掉的理由不藏。</footer>
+          </article>
 
           <!-- Real PR body excerpt -->
           <div class="receipt">
@@ -378,18 +398,37 @@ See `.d2p/session-summary.md` in the repo for the full run log.</pre>
 
     <hr class="section-rule" />
 
+    <!-- ─────────────────────────────────────────── LIVE CONSOLE (mini-dashboard) -->
+    <section class="live-console-wrap" id="live" aria-labelledby="live-h2">
+      <div class="container">
+        <div class="case-label">
+          <span class="case-num">实时 · 03.5</span>
+          <span class="case-slug">不点 play · 它就在跑</span>
+        </div>
+        <h2 class="case-title" id="live-h2">
+          看 ZeroU <em class="accent-em">现在</em> 在做什么。
+        </h2>
+        <p class="case-summary">
+          产品 UI mini 版。32 秒一个循环:differ → implementer → 4 层 reviewer → merge / NEED_HUMAN。真 sha、真 PR。
+        </p>
+        <div id="zerou-console"></div>
+      </div>
+    </section>
+
+    <hr class="section-rule" />
+
     <!-- ─────────────────────────────────────────── Video — the 60s real run -->
     <section class="theatre" id="watch" aria-labelledby="theatre-h2">
       <div class="container">
         <div class="case-label">
           <span class="case-num">看带 · 04</span>
-          <span class="case-slug">一晚 1h 31min 压成 60 秒</span>
+          <span class="case-slug">1h 31min 压到 60 秒</span>
         </div>
         <h2 class="case-title" id="theatre-h2">
           看一眼 1h 31min 的真班次。
         </h2>
         <p class="case-summary">
-          没旁白也行 · 全用真数据 · 真 commit sha · 真 PR · 真 reviewer 评分。
+          无旁白 · 真数据 · 真 sha · 真 PR · 真评分。
         </p>
         <div class="theatre-frame">
           <video
@@ -417,19 +456,91 @@ See `.d2p/session-summary.md` in the repo for the full run log.</pre>
 
     <hr class="section-rule" />
 
+    <!-- ─────────────────────────────────────────── MOMENT M4 · overnight clock sweep -->
+    <section class="fm-section" id="overnight" aria-labelledby="overnight-h2">
+      <div class="container">
+        <div class="case-label">
+          <span class="case-num">回放 · 04.5</span>
+          <span class="case-slug">一晚的 shift · 压成 8 秒</span>
+        </div>
+        <h2 class="case-title" id="overnight-h2">
+          22:11 → 23:43。<em class="accent-em">1h 31min 压到 8 秒。</em>
+        </h2>
+        <article class="feature-moment feature-moment--overnight" data-fm-overnight>
+          <header class="fm-head">
+            <span class="fm-tag">replay · overnight shift 22:11 → 23:43</span>
+            <span class="fm-meta">1h 31min · $4.24 · 2 merged · 24 NEED_HUMAN</span>
+          </header>
+          <div class="fm-overnight-stage">
+            <div class="fm-clock">
+              <svg viewBox="0 0 160 160" class="fm-clock-svg">
+                <circle cx="80" cy="80" r="74" class="fm-clock-rim" />
+                <g class="fm-clock-ticks">
+                  <line x1="80" y1="10" x2="80" y2="18" />
+                  <line x1="80" y1="150" x2="80" y2="142" />
+                  <line x1="10" y1="80" x2="18" y2="80" />
+                  <line x1="150" y1="80" x2="142" y2="80" />
+                </g>
+                <line data-clock-hour x1="80" y1="80" x2="80" y2="50" class="fm-clock-hand fm-clock-hand-h" />
+                <line data-clock-min  x1="80" y1="80" x2="80" y2="32" class="fm-clock-hand fm-clock-hand-m" />
+                <circle cx="80" cy="80" r="3.5" class="fm-clock-cap" />
+              </svg>
+              <div class="fm-clock-readout" data-clock-readout>22:11</div>
+            </div>
+            <div class="fm-commits">
+              <span class="fm-commits-label">commits to main</span>
+              <ol class="fm-commits-list" data-commit-list>
+                <li class="fm-commit" data-at="22:34"><span class="fm-commit-sha">5aedd6e</span><span class="fm-commit-msg">docs: add CHANGELOG.md</span><span class="fm-commit-time">22:34</span></li>
+                <li class="fm-commit" data-at="23:02"><span class="fm-commit-sha">3d2ad5f</span><span class="fm-commit-msg">chore: env example</span><span class="fm-commit-time">23:02</span></li>
+                <li class="fm-commit" data-at="23:18"><span class="fm-commit-sha">53df272</span><span class="fm-commit-msg">PR opened · 4 reviewers</span><span class="fm-commit-time">23:18</span></li>
+                <li class="fm-commit" data-at="23:41"><span class="fm-commit-sha">4b58841</span><span class="fm-commit-msg">PR lists 24 NEED_HUMAN</span><span class="fm-commit-time">23:41</span></li>
+              </ol>
+            </div>
+          </div>
+          <div class="fm-tickers">
+            <div class="fm-ticker"><span class="fm-ticker-label">cost</span><span class="fm-ticker-val">$<span data-tick="cost" data-to="4.24" data-fmt="float">0.00</span></span></div>
+            <div class="fm-ticker"><span class="fm-ticker-label">merged</span><span class="fm-ticker-val"><span data-tick="merged" data-to="2">0</span></span></div>
+            <div class="fm-ticker"><span class="fm-ticker-label">need_human</span><span class="fm-ticker-val"><span data-tick="needhuman" data-to="24">0</span></span></div>
+          </div>
+          <footer class="fm-foot">无旁白 · 真数据 · 1.5 倍速回放 1h 31min。</footer>
+        </article>
+      </div>
+    </section>
+
+    <hr class="section-rule" />
+
     <!-- ─────────────────────────────────────────── 4 gates explainer -->
     <section class="gates" id="gates" aria-labelledby="gates-h2">
       <div class="container">
         <div class="case-label">
           <span class="case-num">机制 · 05</span>
-          <span class="case-slug">为什么是 4 道 reviewer · 不是 1 个</span>
+          <span class="case-slug">为什么 4 道 · 不是 1 道</span>
         </div>
         <h2 class="case-title" id="gates-h2">
-          每个 fix 走 <em class="accent-em">4 道门</em> 才有机会合 main。
+          每个 fix 走 <em class="accent-em">4 道门</em>。才能合 main。
         </h2>
         <p class="case-summary">
-          单一 LLM critic 是常见做法,但 LLM 自审的盲点也是公认的——它判不出自己的盲区。ZeroU 用 4 个角色 + 不同 fresh context 把这道盲区切碎。任一道不过,整 fix 回退或升级 NEED_HUMAN。
+          单 LLM 自审有盲区——它判不出自己。4 个角色 + 4 份 fresh context 把盲区切碎。一道不过 — fix 回退或升级 NEED_HUMAN。
         </p>
+
+        <!-- MOMENT 1 · 4-lane oscilloscope -->
+        <article class="feature-moment feature-moment--lanes" data-fm-lanes>
+          <header class="fm-head">
+            <span class="fm-tag">live · pipeline oscilloscope</span>
+            <span class="fm-meta" data-fm-label>fix #27 · docs-changelog-missing</span>
+          </header>
+          <div class="fm-lanes-stage">
+            <div class="fm-tray"><span class="fm-tray-mark">incoming</span><span class="fm-chip" data-fm-chip>·</span></div>
+            <ol class="fm-lanes">
+              <li class="fm-lane" data-lane="static"><span class="fm-lane-num">G1</span><span class="fm-lane-name">static gate</span><span class="fm-lane-detail">tsc · test · build</span><span class="fm-lane-track"><span class="fm-lane-blip" data-blip></span></span><span class="fm-lane-verdict" data-verdict>—</span></li>
+              <li class="fm-lane" data-lane="alignment"><span class="fm-lane-num">G2</span><span class="fm-lane-name">alignment</span><span class="fm-lane-detail">haiku · 对题</span><span class="fm-lane-track"><span class="fm-lane-blip" data-blip></span></span><span class="fm-lane-verdict" data-verdict>—</span></li>
+              <li class="fm-lane" data-lane="behavioral"><span class="fm-lane-num">G3</span><span class="fm-lane-name">behavioral</span><span class="fm-lane-detail">sonnet · fresh</span><span class="fm-lane-track"><span class="fm-lane-blip" data-blip></span></span><span class="fm-lane-verdict" data-verdict>—</span></li>
+              <li class="fm-lane" data-lane="adversarial"><span class="fm-lane-num">G4</span><span class="fm-lane-name">adversarial</span><span class="fm-lane-detail">攻击向量</span><span class="fm-lane-track"><span class="fm-lane-blip" data-blip></span></span><span class="fm-lane-verdict" data-verdict>—</span></li>
+            </ol>
+            <div class="fm-sink"><span class="fm-sink-mark" data-fm-sink>— waiting —</span></div>
+          </div>
+          <footer class="fm-foot">一片亮 = 一条 fix。绿到底 = merged。红 = NEED_HUMAN。</footer>
+        </article>
 
         <ol class="gate-list">
           <li class="gate">
@@ -437,29 +548,57 @@ See `.d2p/session-summary.md` in the repo for the full run log.</pre>
             <h3 class="gate-h">不是 AI · 是命令行。</h3>
             <p class="gate-p">
               <code>tsc --noEmit · npm test · npm run build</code>
-              。先用你的项目自己的 check 命令跑一遍 — 跑不过的 fix 根本进不了 reviewer。
+              。跑不过的 fix 根本进不了下一道。
             </p>
             <span class="gate-tag">static gate</span>
           </li>
           <li class="gate">
             <span class="gate-num">G2.</span>
             <h3 class="gate-h">对题快检 · 不偏题、不 scope creep。</h3>
-            <p class="gate-p">haiku 模型 quick pass:这个 fix 写的是 vision 想要的吗?有没有顺手改了别的?score &lt; 0.7 自动驳回。</p>
+            <p class="gate-p">haiku quick pass:写的是 vision 要的吗?顺手改了别的吗?score &lt; 0.7 驳回。</p>
             <span class="gate-tag">alignment</span>
           </li>
           <li class="gate">
             <span class="gate-num">G3.</span>
             <h3 class="gate-h">思路审核 · approach 扎不扎实。</h3>
-            <p class="gate-p">sonnet,fresh context,从零看 diff。verdict 四档:APPROVE / RETRY_WITH_HINTS / ROLLBACK / SPLIT_INTO。失败给重试提示。</p>
+            <p class="gate-p">sonnet · fresh context · 从零看 diff。四档 verdict:APPROVE / RETRY / ROLLBACK / SPLIT。失败给重试提示。</p>
             <span class="gate-tag">behavioral</span>
           </li>
           <li class="gate">
             <span class="gate-num">G4.</span>
-            <h3 class="gate-h">攻击视角 · 它能被打穿吗。</h3>
-            <p class="gate-p">高敏 category (auth / sql / crypto) 才触发。sonnet 出 N 条 attack vector,一条 BREAK 整 fix 就 rollback。</p>
+            <h3 class="gate-h">攻击视角 · 能不能打穿。</h3>
+            <p class="gate-p">高敏 category(auth/sql/crypto)才触发。sonnet 出 N 条 vector,一条 BREAK 整 fix rollback。</p>
             <span class="gate-tag">adversarial</span>
           </li>
         </ol>
+
+        <!-- MOMENT 3 · orchestrator orbit -->
+        <article class="feature-moment feature-moment--orbit" data-fm-orbit>
+          <header class="fm-head">
+            <span class="fm-tag">live · orchestrator dispatch</span>
+            <span class="fm-meta">6 agent · <span data-fm-cycle>0</span> / ∞ dispatch</span>
+          </header>
+          <div class="fm-orbit-stage">
+            <svg class="fm-orbit-lines" viewBox="0 0 600 400" preserveAspectRatio="none" aria-hidden="true">
+              <line data-line="dispatch" x1="300" y1="200" x2="300" y2="200" stroke="#7CFFB2" stroke-width="1.5" stroke-dasharray="4 4" opacity="0" />
+              <line data-line="verdict"  x1="300" y1="200" x2="300" y2="200" stroke="#FFD66B" stroke-width="1.5" stroke-dasharray="3 5" opacity="0" />
+            </svg>
+            <div class="fm-orbit-core" data-fm-core>
+              <span class="fm-orbit-core-mark">ZeroU</span>
+              <span class="fm-orbit-core-sub">orchestrator</span>
+              <span class="fm-orbit-core-ring"></span>
+            </div>
+            <ul class="fm-orbit-agents">
+              <li class="fm-agent" data-agent="detector"         data-pos="0" data-tint="mint"><span class="fm-agent-role">detector</span><span class="fm-agent-model">haiku</span><span class="fm-agent-status" data-status>idle</span></li>
+              <li class="fm-agent" data-agent="differ"           data-pos="1" data-tint="gold"><span class="fm-agent-role">differ</span><span class="fm-agent-model">sonnet</span><span class="fm-agent-status" data-status>idle</span></li>
+              <li class="fm-agent" data-agent="implementer"      data-pos="2" data-tint="mint"><span class="fm-agent-role">implementer</span><span class="fm-agent-model">sonnet</span><span class="fm-agent-status" data-status>idle</span></li>
+              <li class="fm-agent" data-agent="reviewer-static"  data-pos="3" data-tint="ink"><span class="fm-agent-role">reviewer · static</span><span class="fm-agent-model">cli</span><span class="fm-agent-status" data-status>idle</span></li>
+              <li class="fm-agent" data-agent="reviewer-align"   data-pos="4" data-tint="coral"><span class="fm-agent-role">reviewer · align</span><span class="fm-agent-model">haiku</span><span class="fm-agent-status" data-status>idle</span></li>
+              <li class="fm-agent" data-agent="done-check"       data-pos="5" data-tint="gold"><span class="fm-agent-role">done-check</span><span class="fm-agent-model">sonnet</span><span class="fm-agent-status" data-status>idle</span></li>
+            </ul>
+          </div>
+          <footer class="fm-foot">中心派单 · agent 接活 · verdict 回执 · 不停转。</footer>
+        </article>
       </div>
     </section>
 
@@ -479,27 +618,27 @@ See `.d2p/session-summary.md` in the repo for the full run log.</pre>
           <li class="promise">
             <span class="promise-num">01.</span>
             <h3 class="promise-h">双绿才停。</h3>
-            <p class="promise-p">preset 全部 done + done-check agent 判定 vision verdict YES。少一个绿都不 SESSION_DONE。</p>
+            <p class="promise-p">preset 全部 done + vision verdict YES。少一个绿 — 不 SESSION_DONE。</p>
           </li>
           <li class="promise">
             <span class="promise-num">02.</span>
             <h3 class="promise-h">NEED_HUMAN 写进 PR body。</h3>
-            <p class="promise-p">reviewer 拒掉的 gap 不藏。每个 PR 自带"它做不到的事"清单 + reason code。你 review 的是诚实的 delta。</p>
+            <p class="promise-p">reviewer 拒掉的 gap 不藏。每个 PR 自带"做不到的事"+ reason code。review 的是诚实 delta。</p>
           </li>
           <li class="promise">
             <span class="promise-num">03.</span>
             <h3 class="promise-h">4 道 reviewer 一道不能少。</h3>
-            <p class="promise-p">不是配置选项。static / alignment / behavioral / adversarial 全开 — 这是它存在的理由。</p>
+            <p class="promise-p">不是配置项。static / alignment / behavioral / adversarial 全开。这是它存在的理由。</p>
           </li>
           <li class="promise">
             <span class="promise-num">04.</span>
             <h3 class="promise-h">本地 daemon · 代码不离机。</h3>
-            <p class="promise-p">不是云服务。daemon 在你电脑上跑,worktree 在你磁盘上写,merge 在你本地 git。我们手里没有你的代码。</p>
+            <p class="promise-p">不是云服务。daemon 在你电脑跑。worktree 在你磁盘写。merge 在你本地 git。我们手里没你的代码。</p>
           </li>
           <li class="promise">
             <span class="promise-num">05.</span>
             <h3 class="promise-h">全开源 · 你的 LLM key。</h3>
-            <p class="promise-p">MIT · 自带 Anthropic / OpenAI-compat key · 零后端 · 没有 SaaS 转身位。删了就是全删,我们手里不留东西。</p>
+            <p class="promise-p">MIT · 自带 LLM key · 零后端 · 没 SaaS 转身位。删了就是全删,我们手里不留。</p>
           </li>
         </ol>
       </div>
@@ -512,8 +651,8 @@ See `.d2p/session-summary.md` in the repo for the full run log.</pre>
         <p class="affirmation-body" id="affirm-h2">
           它派 <em class="accent-em">6 个 agent</em>。<br />
           它跑 <em class="accent-em">4 层 reviewer</em>。<br />
-          它在一晚把你的 demo 推到 product。<br />
-          做不到的事,<em class="accent-em">写进 PR 里</em>。
+          一晚把 demo 推到 product。<br />
+          做不到的,<em class="accent-em">写进 PR</em>。
         </p>
       </div>
     </section>
@@ -524,7 +663,7 @@ See `.d2p/session-summary.md` in the repo for the full run log.</pre>
         <div class="download-text">
           <div class="download-eyebrow">本地优先 · 自带 LLM key</div>
           <h2 class="download-h" id="dl-h2">克隆一份,跑一次。</h2>
-          <p class="download-p">5 MB daemon · macOS · Windows · Linux · cc 历史不上传 · 仓库不外发。删 app 就是全删 — 我们手里没有你任何东西。</p>
+          <p class="download-p">5 MB daemon · macOS · Windows · Linux · cc 不上传 · 仓库不外发。删 app 就是全删 — 我们手里没你的东西。</p>
         </div>
         <div class="download-actions">
           <a class="btn btn-primary btn-large" href="https://github.com/Upp-Ljl/d2p" target="_blank" rel="noopener noreferrer" data-platform="github">
@@ -570,5 +709,6 @@ See `.d2p/session-summary.md` in the repo for the full run log.</pre>
   </footer>
 
   <script src="script.js?v=1" defer></script>
+  <script src="mini-dashboard/mini-dashboard.js?v=1" defer></script>
 </body>
 </html>

@@ -394,3 +394,295 @@
   // wraps existing counter logic: add a `.is-ticking` class while running
   // already happens via animateCounter — we just style it. CSS hook below.
 })();
+    // ╔══════════════════════════════════════════════════════════╗
+    //   Feature moments preview · inline JS
+    // ╚══════════════════════════════════════════════════════════╝
+
+    var prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // ─── M1 · lane oscilloscope ────────────────────────────────
+    (function () {
+      var stage = document.querySelector('[data-fm-lanes]');
+      if (!stage) return;
+      if (prefersReduced) return;
+      var lanes  = stage.querySelectorAll('.fm-lane');
+      var chip   = stage.querySelector('[data-fm-chip]');
+      var sink   = stage.querySelector('[data-fm-sink]');
+      var label  = stage.querySelector('[data-fm-label]');
+      var demos = [
+        { label: 'fix #27 · docs-changelog-missing', chip: 'ok',
+          lanes: [
+            { v: 'PASS · 0 err' },
+            { v: 'PASS · 0.98' },
+            { v: 'APPROVE · 88%' },
+            { v: 'SKIPPED · low', skipped: true },
+          ],
+          sink: { mark: '✓ merged → main', state: 'pass' } },
+        { label: 'fix #18 · auth-csrf-protection', chip: 'ok',
+          lanes: [
+            { v: 'PASS · 0 err' },
+            { v: 'REJECT · 0.41', fail: true },
+            { v: '— halted', halt: true },
+            { v: '— halted', halt: true },
+          ],
+          sink: { mark: '✗ NEED_HUMAN', state: 'fail' } },
+      ];
+      var demoIdx = 0;
+      function resetLanes() {
+        lanes.forEach(function (lane) {
+          lane.classList.remove('is-active', 'is-pass', 'is-fail', 'is-skipped');
+          var v = lane.querySelector('[data-verdict]');
+          if (v) v.textContent = '—';
+          var blip = lane.querySelector('[data-blip]');
+          if (blip) { blip.style.animation = 'none'; blip.offsetHeight; blip.style.animation = ''; }
+        });
+        sink.textContent = '— waiting —';
+        sink.removeAttribute('data-state');
+        chip.removeAttribute('data-state');
+      }
+      function runDemo(d) {
+        resetLanes();
+        label.textContent = d.label;
+        chip.setAttribute('data-state', d.chip === 'fail' ? 'fail' : 'ok');
+        var i = 0;
+        function nextLane() {
+          if (i >= lanes.length) {
+            sink.textContent = d.sink.mark;
+            sink.setAttribute('data-state', d.sink.state);
+            setTimeout(advance, 2800); return;
+          }
+          var step = d.lanes[i];
+          var lane = lanes[i];
+          if (step.halt) {
+            lane.classList.add('is-skipped');
+            lane.querySelector('[data-verdict]').textContent = step.v;
+            i++; setTimeout(nextLane, 200); return;
+          }
+          lane.classList.add('is-active');
+          setTimeout(function () {
+            lane.classList.remove('is-active');
+            if (step.fail) lane.classList.add('is-fail');
+            else if (step.skipped) lane.classList.add('is-skipped', 'is-pass');
+            else lane.classList.add('is-pass');
+            lane.querySelector('[data-verdict]').textContent = step.v;
+            i++;
+            if (step.fail) {
+              for (var k = i; k < lanes.length; k++) {
+                lanes[k].classList.add('is-skipped');
+                lanes[k].querySelector('[data-verdict]').textContent = '— halted';
+              }
+              sink.textContent = d.sink.mark;
+              sink.setAttribute('data-state', d.sink.state);
+              setTimeout(advance, 3000);
+            } else setTimeout(nextLane, 220);
+          }, 950);
+        }
+        setTimeout(nextLane, 350);
+      }
+      function advance() {
+        demoIdx = (demoIdx + 1) % demos.length;
+        runDemo(demos[demoIdx]);
+      }
+      // Start immediately on preview page (no IO gate so screenshots are deterministic)
+      runDemo(demos[0]);
+    })();
+
+    // ─── M2 · ledger ───────────────────────────────────────────
+    (function () {
+      var stage = document.querySelector('[data-fm-ledger]');
+      if (!stage) return;
+      var rows = stage.querySelectorAll('.fm-row[data-sev]');
+      var more = stage.querySelector('[data-more]');
+      rows.forEach(function (row) {
+        var sev = document.createElement('span');
+        sev.className = 'fm-row-sev';
+        sev.textContent = row.getAttribute('data-sev');
+        var code = document.createElement('span');
+        code.className = 'fm-row-code';
+        code.textContent = row.getAttribute('data-code');
+        row.appendChild(sev);
+        row.appendChild(code);
+      });
+      if (more) more.style.opacity = '0';
+      function revealAll() {
+        rows.forEach(function (row, i) {
+          setTimeout(function () { row.classList.add('is-in'); }, prefersReduced ? 0 : 60 + i * 70);
+        });
+        if (more) setTimeout(function () { more.classList.add('is-in'); more.style.opacity = '1'; }, prefersReduced ? 0 : 80 + rows.length * 70);
+      }
+      revealAll();
+    })();
+
+    // ─── M3 · orbit ────────────────────────────────────────────
+    (function () {
+      var stage = document.querySelector('[data-fm-orbit]');
+      if (!stage) return;
+      if (prefersReduced) return;
+      var agents = stage.querySelectorAll('.fm-agent');
+      var core   = stage.querySelector('[data-fm-core]');
+      var cycleEl= stage.querySelector('[data-fm-cycle]');
+      var svg    = stage.querySelector('.fm-orbit-lines');
+      var lineD  = svg.querySelector('[data-line="dispatch"]');
+      var lineV  = svg.querySelector('[data-line="verdict"]');
+      var stageRectEl = stage.querySelector('.fm-orbit-stage');
+
+      function agentCenter(agent) {
+        var s = stageRectEl.getBoundingClientRect();
+        var a = agent.getBoundingClientRect();
+        return { x: a.left - s.left + a.width / 2, y: a.top - s.top + a.height / 2 };
+      }
+      function coreCenter() {
+        var s = stageRectEl.getBoundingClientRect();
+        var c = core.getBoundingClientRect();
+        return { x: c.left - s.left + c.width / 2, y: c.top - s.top + c.height / 2 };
+      }
+      function viewBoxScale() {
+        var s = stageRectEl.getBoundingClientRect();
+        return { sx: 600 / s.width, sy: 400 / s.height };
+      }
+      function setLine(line, from, to, opacity) {
+        var s = viewBoxScale();
+        line.setAttribute('x1', from.x * s.sx);
+        line.setAttribute('y1', from.y * s.sy);
+        line.setAttribute('x2', to.x   * s.sx);
+        line.setAttribute('y2', to.y   * s.sy);
+        line.setAttribute('opacity', opacity);
+      }
+
+      var idx = 0, cycle = 0;
+      function tick() {
+        var agent = agents[idx];
+        agent.classList.remove('is-done');
+        var status = agent.querySelector('[data-status]');
+        var c = coreCenter(); var a = agentCenter(agent);
+        setLine(lineD, c, a, 0);
+        setLine(lineV, c, c, 0);
+        requestAnimationFrame(function () { setLine(lineD, c, a, 1); });
+        setTimeout(function () { agent.classList.add('is-active'); core.setAttribute('data-pulse', '1'); status.textContent = 'working'; }, 400);
+        setTimeout(function () { status.textContent = 'reporting'; }, 1700);
+        setTimeout(function () { setLine(lineD, c, a, 0); setLine(lineV, a, c, 1); }, 2100);
+        setTimeout(function () { agent.classList.remove('is-active'); agent.classList.add('is-done'); status.textContent = 'done'; core.removeAttribute('data-pulse'); setLine(lineV, a, c, 0); }, 2800);
+        setTimeout(function () {
+          idx = (idx + 1) % agents.length;
+          if (idx === 0) {
+            cycle++;
+            cycleEl.textContent = cycle;
+            agents.forEach(function (ag) { ag.classList.remove('is-done'); ag.querySelector('[data-status]').textContent = 'idle'; });
+          }
+          tick();
+        }, 3200);
+      }
+      cycleEl.textContent = '1';
+      cycle = 1;
+      // Slight delay for layout to settle (positions depend on getBoundingClientRect)
+      setTimeout(tick, 400);
+    })();
+
+    // ─── M4 · overnight ────────────────────────────────────────
+    (function () {
+      var stage = document.querySelector('[data-fm-overnight]');
+      if (!stage) return;
+      var hourHand = stage.querySelector('[data-clock-hour]');
+      var minHand  = stage.querySelector('[data-clock-min]');
+      var readout  = stage.querySelector('[data-clock-readout]');
+      var commits  = stage.querySelectorAll('.fm-commit');
+      var ticks    = stage.querySelectorAll('[data-tick]');
+      var startMin = 22 * 60 + 11;
+      var endMin   = 23 * 60 + 43;
+      var totalMs  = 8000;
+
+      function clockAngles(minutes) {
+        var minA  = ((minutes % 60) / 60) * 360;
+        var hourA = (((minutes / 60) % 12) / 12) * 360;
+        return { hour: hourA, min: minA };
+      }
+      function setHands(minutes) {
+        var a = clockAngles(minutes);
+        hourHand.style.transform = 'rotate(' + a.hour + 'deg)';
+        minHand.style.transform  = 'rotate(' + a.min + 'deg)';
+        var h = Math.floor(minutes / 60);
+        var m = Math.floor(minutes % 60);
+        readout.textContent = (h < 10 ? '0' + h : h) + ':' + (m < 10 ? '0' + m : m);
+      }
+      function parseAt(s) {
+        var p = s.split(':');
+        return parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+      }
+      function tickerUpdate(p) {
+        ticks.forEach(function (el) {
+          var to = parseFloat(el.getAttribute('data-to'));
+          var fmt = el.getAttribute('data-fmt');
+          var v = to * p;
+          if (fmt === 'float') el.textContent = v.toFixed(2);
+          else el.textContent = String(Math.round(v));
+        });
+      }
+      function run() {
+        if (prefersReduced) {
+          setHands(endMin);
+          commits.forEach(function (c) { c.classList.add('is-in'); });
+          tickerUpdate(1);
+          return;
+        }
+        var startTs = performance.now();
+        function loop(now) {
+          var elapsed = now - startTs;
+          var p = Math.min(1, elapsed / totalMs);
+          var ease = 1 - Math.pow(1 - p, 2);
+          var cur = startMin + (endMin - startMin) * ease;
+          setHands(cur);
+          tickerUpdate(ease);
+          commits.forEach(function (c) {
+            var t = parseAt(c.getAttribute('data-at'));
+            if (cur >= t) c.classList.add('is-in');
+          });
+          if (p < 1) requestAnimationFrame(loop);
+          else {
+            setTimeout(function () {
+              commits.forEach(function (c) { c.classList.remove('is-in'); });
+              setHands(startMin); tickerUpdate(0);
+              startTs = performance.now();
+              requestAnimationFrame(loop);
+            }, 2200);
+          }
+        }
+        requestAnimationFrame(loop);
+      }
+      run();
+    })();
+
+// ─── Section transitions · sweep + radar on entry ─────────────────
+(function () {
+  var prefersR = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (prefersR) return;
+
+  // Mark every direct main > section + the cases inner case wrappers
+  var trans = document.querySelectorAll(
+    'main > section, main > .cases, main > .live-console-wrap'
+  );
+  trans.forEach(function (s) {
+    s.setAttribute('data-section-trans', '');
+    // insert radar element (kept in DOM so CSS can animate it)
+    var r = document.createElement('span');
+    r.className = 'section-radar';
+    r.setAttribute('aria-hidden', 'true');
+    s.insertBefore(r, s.firstChild);
+  });
+
+  if (!('IntersectionObserver' in window)) {
+    trans.forEach(function (s) { s.classList.add('section-in', 'section-fully-in'); });
+    return;
+  }
+
+  var ioT = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) {
+        e.target.classList.add('section-in');
+        setTimeout(function () { e.target.classList.add('section-fully-in'); }, 1300);
+        ioT.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.1, rootMargin: '0px 0px -8% 0px' });
+
+  trans.forEach(function (s) { ioT.observe(s); });
+})();

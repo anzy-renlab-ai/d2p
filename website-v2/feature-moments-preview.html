@@ -1,0 +1,874 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ZeroU · feature moments preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,400;1,8..60,500&family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" />
+  <link rel="stylesheet" href="styles.css?v=1" />
+  <style>
+    /* Preview-only chrome */
+    body { padding: 0; }
+    .preview-wrap {
+      max-width: var(--container-max);
+      margin: 0 auto;
+      padding: 48px 24px 96px;
+    }
+    .preview-section {
+      margin: 56px 0;
+    }
+    .preview-h {
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin: 0 0 var(--s-4);
+      display: flex;
+      align-items: baseline;
+      gap: var(--s-3);
+    }
+    .preview-h-num {
+      color: var(--mint);
+      font-weight: 700;
+    }
+    .preview-h-name {
+      color: var(--ink);
+      font-size: 18px;
+      font-family: var(--italic-display);
+      font-style: italic;
+      letter-spacing: 0.02em;
+      font-weight: 400;
+    }
+    .preview-h-desc {
+      color: var(--faint);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      margin-left: auto;
+      text-transform: none;
+    }
+    .preview-page-title {
+      font-family: var(--italic-display);
+      font-style: italic;
+      font-size: clamp(28px, 4vw, 46px);
+      color: var(--ink);
+      margin: 0 0 8px;
+      font-weight: 400;
+      letter-spacing: -0.01em;
+    }
+    .preview-page-lede {
+      font-family: var(--serif);
+      color: var(--ink-soft);
+      max-width: 60ch;
+      margin: 0 0 var(--s-7);
+    }
+    /* ─── Feature-moment styles — duplicated from v2-feature-moments.md ─── */
+    .feature-moment {
+      position: relative;
+      margin: var(--s-7) 0;
+      padding: var(--s-5) var(--s-5) var(--s-6);
+      background: linear-gradient(180deg, var(--bg-soft) 0%, #0C0C0A 100%);
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      overflow: hidden;
+      z-index: 2;
+    }
+    .feature-moment::before {
+      content: '';
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(90deg, rgba(124, 255, 178, 0.04) 1px, transparent 1px),
+        linear-gradient(0deg,  rgba(124, 255, 178, 0.04) 1px, transparent 1px);
+      background-size: 24px 24px;
+      pointer-events: none;
+      mask-image: radial-gradient(ellipse at center, black 40%, transparent 90%);
+      -webkit-mask-image: radial-gradient(ellipse at center, black 40%, transparent 90%);
+      opacity: 0.6;
+      z-index: 0;
+    }
+    .fm-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--s-4);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: var(--s-5);
+      position: relative; z-index: 1;
+    }
+    .fm-tag {
+      color: var(--mint);
+      display: inline-flex; gap: 8px; align-items: center;
+    }
+    .fm-tag::before {
+      content: ''; width: 6px; height: 6px;
+      background: var(--mint); border-radius: 50%;
+      box-shadow: 0 0 8px var(--mint);
+      animation: fmTagPulse 1.6s ease-in-out infinite;
+    }
+    @keyframes fmTagPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: 0.4; transform: scale(0.75); }
+    }
+    .fm-meta { color: var(--ink-soft); font-weight: 600; }
+    .fm-foot {
+      margin-top: var(--s-4);
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--faint);
+      letter-spacing: 0.06em;
+      position: relative; z-index: 1;
+    }
+
+    /* Moment 1 · lanes */
+    .feature-moment--lanes .fm-lanes-stage {
+      position: relative;
+      display: grid;
+      grid-template-rows: 32px 1fr 32px;
+      gap: var(--s-3);
+      height: 420px;
+      z-index: 1;
+    }
+    .fm-tray {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--s-4);
+      font-family: var(--mono);
+      font-size: 10.5px;
+      letter-spacing: 0.14em;
+      color: var(--faint);
+      text-transform: uppercase;
+      border-top: 1px dashed var(--rule);
+      border-bottom: 1px dashed var(--rule);
+      background: rgba(124, 255, 178, 0.025);
+      position: relative;
+    }
+    .fm-tray-mark::before { content: '↓ '; color: var(--mint); }
+    .fm-chip {
+      display: inline-block;
+      width: 10px; height: 10px;
+      background: var(--gold);
+      border-radius: 50%;
+      box-shadow: 0 0 12px rgba(255, 214, 107, 0.7);
+      vertical-align: middle;
+      position: relative;
+    }
+    .fm-chip[data-state='fail'] { background: var(--coral); box-shadow: 0 0 12px rgba(255, 107, 91, 0.7); }
+    .fm-lanes {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: var(--s-3);
+      margin: 0; padding: 0;
+    }
+    .fm-lane {
+      position: relative;
+      display: grid;
+      grid-template-rows: auto auto auto 1fr auto;
+      gap: 4px;
+      padding: var(--s-3) var(--s-3) var(--s-4);
+      background: #0E0E0C;
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      overflow: hidden;
+      transition: border-color 0.3s, background 0.3s;
+    }
+    .fm-lane-num   { font-family: var(--mono); font-size: 10px;  letter-spacing: 0.18em; color: var(--faint); }
+    .fm-lane-name  { font-family: var(--mono); font-size: 12px;  color: var(--ink); font-weight: 600; letter-spacing: 0.06em; }
+    .fm-lane-detail{ font-family: var(--mono); font-size: 10.5px; color: var(--muted); letter-spacing: 0.04em; }
+    .fm-lane-track {
+      position: relative;
+      margin: var(--s-3) auto var(--s-3);
+      width: 2px;
+      background: var(--rule);
+      border-radius: 1px;
+      align-self: stretch;
+      justify-self: center;
+    }
+    .fm-lane-track::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, transparent, var(--mint-faint), transparent);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .fm-lane.is-active .fm-lane-track::before { opacity: 1; }
+    .fm-lane-blip {
+      position: absolute;
+      left: 50%;
+      top: -8px;
+      width: 14px; height: 14px;
+      margin-left: -7px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 12px rgba(255, 214, 107, 0.7);
+      opacity: 0;
+    }
+    .fm-lane.is-active .fm-lane-blip {
+      animation: fmBlipDrop 0.9s cubic-bezier(0.3, 0.7, 0.3, 1) forwards;
+    }
+    .fm-lane.is-pass .fm-lane-blip { background: var(--mint); box-shadow: 0 0 14px rgba(124, 255, 178, 0.8); }
+    .fm-lane.is-fail .fm-lane-blip { background: var(--coral); box-shadow: 0 0 18px rgba(255, 107, 91, 0.9); }
+    @keyframes fmBlipDrop {
+      0%   { opacity: 1; top: -8px; }
+      85%  { opacity: 1; top: calc(100% - 8px); }
+      100% { opacity: 1; top: calc(100% - 8px); }
+    }
+    .fm-lane-verdict {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      letter-spacing: 0.14em;
+      color: var(--faint);
+      text-align: center;
+      padding-top: var(--s-2);
+      border-top: 1px dashed var(--rule);
+      text-transform: uppercase;
+    }
+    .fm-lane.is-pass { border-color: rgba(124, 255, 178, 0.5); background: linear-gradient(180deg, #0E0E0C 0%, rgba(124, 255, 178, 0.06) 100%); }
+    .fm-lane.is-pass .fm-lane-verdict { color: var(--mint); }
+    .fm-lane.is-pass .fm-lane-name    { color: var(--mint); }
+    .fm-lane.is-fail { border-color: rgba(255, 107, 91, 0.55); background: linear-gradient(180deg, #0E0E0C 0%, rgba(255, 107, 91, 0.08) 100%); }
+    .fm-lane.is-fail .fm-lane-verdict { color: var(--coral); }
+    .fm-lane.is-fail .fm-lane-name    { color: var(--coral); }
+    .fm-lane.is-skipped { opacity: 0.45; }
+    .fm-lane.is-skipped .fm-lane-verdict { color: var(--faint); }
+
+    .fm-sink {
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em;
+      color: var(--faint); text-transform: uppercase;
+      border-top: 1px dashed var(--rule);
+      border-bottom: 1px dashed var(--rule);
+      background: rgba(124, 255, 178, 0.02);
+    }
+    .fm-sink-mark[data-state='pass'] { color: var(--mint); }
+    .fm-sink-mark[data-state='pass']::before { content: '✓ '; }
+    .fm-sink-mark[data-state='fail'] { color: var(--coral); }
+    .fm-sink-mark[data-state='fail']::before { content: '✗ '; }
+
+    /* Moment 2 · ledger */
+    .feature-moment--ledger { padding-bottom: var(--s-5); }
+    .fm-ledger { position: relative; z-index: 1; margin: 0; padding: 0; list-style: none; font-family: var(--mono); }
+    .fm-row {
+      display: grid;
+      grid-template-columns: 110px 1fr auto auto;
+      gap: var(--s-3);
+      align-items: center;
+      padding: 10px 8px 11px;
+      border-bottom: 1px dashed var(--rule);
+      opacity: 0;
+      transform: translateY(-4px);
+      transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+    }
+    .fm-row.is-in { opacity: 1; transform: none; }
+    .fm-row::before {
+      content: 'NEED_HUMAN';
+      font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.16em;
+      font-weight: 700; text-align: center;
+      padding: 5px 6px;
+      border: 1.5px solid var(--coral);
+      color: var(--coral);
+      background: rgba(255, 107, 91, 0.06);
+      border-radius: 1px;
+      text-transform: uppercase;
+      transform: rotate(-2deg);
+    }
+    .fm-row::after {
+      content: attr(data-slug);
+      grid-column: 2;
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--ink);
+      letter-spacing: 0.02em;
+    }
+    .fm-row .fm-row-sev, .fm-row .fm-row-code {
+      font-family: var(--mono); font-size: 10.5px;
+      letter-spacing: 0.1em; padding: 3px 8px; border-radius: 1px;
+    }
+    .fm-row .fm-row-sev { border: 1px solid var(--rule); color: var(--ink-soft); font-weight: 600; }
+    .fm-row[data-sev='P1'] .fm-row-sev { border-color: var(--coral); color: var(--coral); }
+    .fm-row[data-sev='P2'] .fm-row-sev { border-color: var(--gold); color: var(--gold); }
+    .fm-row .fm-row-code {
+      background: rgba(124, 255, 178, 0.05);
+      color: var(--mint);
+      border: 1px solid rgba(124, 255, 178, 0.2);
+    }
+    .fm-row[data-code='BUGGY'] .fm-row-code,
+    .fm-row[data-code='INCOMPLETE'] .fm-row-code {
+      background: rgba(255, 107, 91, 0.06); color: var(--coral);
+      border-color: rgba(255, 107, 91, 0.25);
+    }
+    .fm-row[data-code='K_EXHAUSTED'] .fm-row-code,
+    .fm-row[data-code='IMPLEMENTER_FAILURES'] .fm-row-code {
+      background: rgba(255, 214, 107, 0.05); color: var(--gold);
+      border-color: rgba(255, 214, 107, 0.25);
+    }
+    .fm-row-more {
+      grid-template-columns: 1fr;
+      text-align: center;
+      color: var(--muted);
+      font-size: 11.5px;
+      letter-spacing: 0.08em;
+      border-bottom: none;
+      padding-top: var(--s-4);
+    }
+    .fm-row-more::before, .fm-row-more::after { content: none; }
+
+    /* Moment 3 · orbit */
+    .feature-moment--orbit .fm-orbit-stage { position: relative; height: 420px; z-index: 1; }
+    .fm-orbit-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+    .fm-orbit-core {
+      position: absolute; left: 50%; top: 50%;
+      width: 130px; height: 130px;
+      margin-left: -65px; margin-top: -65px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 32%, #1A1A14, #0A0A0A 70%);
+      border: 1.5px solid var(--mint);
+      display: grid; place-content: center; text-align: center;
+      z-index: 3;
+      box-shadow: 0 0 24px rgba(124, 255, 178, 0.25), inset 0 0 16px rgba(124, 255, 178, 0.06);
+    }
+    .fm-orbit-core-mark { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--mint); letter-spacing: 0.04em; }
+    .fm-orbit-core-sub  { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.16em; margin-top: 4px; text-transform: uppercase; }
+    .fm-orbit-core-ring { position: absolute; inset: -10px; border: 1px dashed rgba(124, 255, 178, 0.35); border-radius: 50%; animation: fmCoreRing 14s linear infinite; }
+    @keyframes fmCoreRing { to { transform: rotate(360deg); } }
+    .fm-orbit-core[data-pulse='1'] { box-shadow: 0 0 36px rgba(124, 255, 178, 0.55), inset 0 0 18px rgba(124, 255, 178, 0.12); }
+
+    .fm-orbit-agents { position: absolute; inset: 0; margin: 0; padding: 0; z-index: 2; }
+    .fm-agent {
+      position: absolute; left: 50%; top: 50%;
+      width: 124px;
+      padding: 8px 10px 9px;
+      background: #0E0E0C;
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      font-family: var(--mono);
+      transform: translate(-50%, -50%);
+      transition: border-color 0.25s, background 0.25s, box-shadow 0.25s;
+    }
+    .fm-agent[data-pos='0'] { transform: translate(-50%, -50%) translate(0, -170px); }
+    .fm-agent[data-pos='1'] { transform: translate(-50%, -50%) translate(147px, -85px); }
+    .fm-agent[data-pos='2'] { transform: translate(-50%, -50%) translate(147px,  85px); }
+    .fm-agent[data-pos='3'] { transform: translate(-50%, -50%) translate(0,    170px); }
+    .fm-agent[data-pos='4'] { transform: translate(-50%, -50%) translate(-147px, 85px); }
+    .fm-agent[data-pos='5'] { transform: translate(-50%, -50%) translate(-147px,-85px); }
+    .fm-agent-role  { display: block; font-size: 11.5px; font-weight: 600; color: var(--ink); letter-spacing: 0.04em; }
+    .fm-agent-model { display: block; font-size: 9.5px; color: var(--faint); letter-spacing: 0.16em; text-transform: uppercase; margin-top: 2px; }
+    .fm-agent-status{ display: block; margin-top: 5px; font-size: 9.5px; color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; border-top: 1px dashed var(--rule); padding-top: 4px; }
+    .fm-agent[data-tint='mint']  { --tint: #7CFFB2; }
+    .fm-agent[data-tint='gold']  { --tint: #FFD66B; }
+    .fm-agent[data-tint='coral'] { --tint: #FF6B5B; }
+    .fm-agent[data-tint='ink']   { --tint: #C8C5BA; }
+    .fm-agent.is-active {
+      border-color: var(--tint, var(--mint));
+      background: linear-gradient(180deg, #0E0E0C, color-mix(in srgb, var(--tint, #7CFFB2) 12%, #0E0E0C));
+      box-shadow: 0 0 14px color-mix(in srgb, var(--tint, #7CFFB2) 45%, transparent);
+    }
+    .fm-agent.is-active .fm-agent-role   { color: var(--tint, var(--mint)); }
+    .fm-agent.is-active .fm-agent-status { color: var(--tint, var(--mint)); }
+    .fm-agent.is-done .fm-agent-status { color: var(--mint); }
+    .fm-agent.is-done .fm-agent-status::before { content: '✓ '; }
+
+    /* Moment 4 · overnight */
+    .feature-moment--overnight .fm-overnight-stage {
+      position: relative; z-index: 1;
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: var(--s-6);
+      align-items: start;
+      min-height: 240px;
+    }
+    .fm-clock { display: flex; flex-direction: column; align-items: center; gap: var(--s-3); }
+    .fm-clock-svg { width: 160px; height: 160px; filter: drop-shadow(0 0 12px rgba(124, 255, 178, 0.18)); }
+    .fm-clock-rim { fill: none; stroke: var(--rule); stroke-width: 2; }
+    .fm-clock-ticks line { stroke: var(--muted); stroke-width: 1.5; }
+    .fm-clock-hand { stroke: var(--mint); stroke-linecap: round; transform-origin: 80px 80px; transition: transform 0.08s linear; }
+    .fm-clock-hand-h { stroke-width: 3.5; stroke: var(--gold); }
+    .fm-clock-hand-m { stroke-width: 2; stroke: var(--mint); }
+    .fm-clock-cap { fill: var(--mint); stroke: var(--bg); stroke-width: 1; }
+    .fm-clock-readout { font-family: var(--mono); font-size: 18px; font-weight: 700; letter-spacing: 0.12em; color: var(--mint); }
+
+    .fm-commits { position: relative; border-left: 1px dashed var(--rule); padding-left: var(--s-5); }
+    .fm-commits-label { display: block; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.16em; color: var(--muted); text-transform: uppercase; margin-bottom: var(--s-4); }
+    .fm-commits-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; }
+    .fm-commit {
+      position: relative;
+      display: grid;
+      grid-template-columns: 78px 1fr 56px;
+      gap: var(--s-3);
+      align-items: center;
+      padding: 8px 10px;
+      background: #0E0E0C;
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      font-family: var(--mono);
+      opacity: 0;
+      transform: translateX(-12px);
+      transition: opacity 0.45s ease-out, transform 0.45s ease-out, border-color 0.3s;
+    }
+    .fm-commit.is-in { opacity: 1; transform: none; border-color: rgba(124, 255, 178, 0.35); }
+    .fm-commit::before {
+      content: ''; position: absolute;
+      left: -28px; top: 50%;
+      width: 10px; height: 10px;
+      margin-top: -5px;
+      background: var(--mint); border-radius: 50%;
+      border: 2px solid var(--bg);
+      box-shadow: 0 0 8px rgba(124, 255, 178, 0.55);
+      opacity: 0;
+      transition: opacity 0.4s;
+    }
+    .fm-commit.is-in::before { opacity: 1; }
+    .fm-commit-sha  { font-size: 11px; color: var(--gold); font-weight: 600; letter-spacing: 0.04em; }
+    .fm-commit-msg  { font-size: 11.5px; color: var(--ink-soft); }
+    .fm-commit-time { font-size: 10.5px; color: var(--muted); text-align: right; letter-spacing: 0.06em; }
+
+    .fm-tickers {
+      margin-top: var(--s-6);
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: var(--s-4);
+      position: relative; z-index: 1;
+      padding-top: var(--s-5);
+      border-top: 1px dashed var(--rule);
+    }
+    .fm-ticker { text-align: center; padding: var(--s-3) var(--s-4); }
+    .fm-ticker-label { display: block; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.18em; color: var(--muted); text-transform: uppercase; margin-bottom: 6px; }
+    .fm-ticker-val { display: block; font-family: var(--italic-display); font-size: clamp(34px, 5vw, 52px); font-weight: 400; color: var(--gold); line-height: 1; font-style: italic; }
+    .fm-tickers .fm-ticker:nth-child(2) .fm-ticker-val { color: var(--mint); }
+    .fm-tickers .fm-ticker:nth-child(3) .fm-ticker-val { color: var(--coral); }
+
+    @media (max-width: 720px) {
+      .feature-moment--lanes .fm-lanes-stage { height: 340px; }
+      .fm-lane { padding: 8px; }
+      .fm-lane-detail { display: none; }
+      .feature-moment--orbit .fm-orbit-stage { height: 360px; }
+      .fm-orbit-core { width: 96px; height: 96px; margin: -48px 0 0 -48px; }
+      .fm-orbit-core-mark { font-size: 14px; }
+      .fm-agent { width: 100px; padding: 6px 7px 7px; }
+      .fm-agent-role  { font-size: 10.5px; }
+      .fm-agent-model { font-size: 8.5px; }
+      .fm-agent-status{ font-size: 8.5px; }
+      .fm-agent[data-pos='0'] { transform: translate(-50%, -50%) translate(0,   -130px); }
+      .fm-agent[data-pos='1'] { transform: translate(-50%, -50%) translate(110px,-65px); }
+      .fm-agent[data-pos='2'] { transform: translate(-50%, -50%) translate(110px, 65px); }
+      .fm-agent[data-pos='3'] { transform: translate(-50%, -50%) translate(0,    130px); }
+      .fm-agent[data-pos='4'] { transform: translate(-50%, -50%) translate(-110px,65px); }
+      .fm-agent[data-pos='5'] { transform: translate(-50%, -50%) translate(-110px,-65px); }
+      .feature-moment--overnight .fm-overnight-stage { grid-template-columns: 1fr; gap: var(--s-5); }
+      .fm-clock { flex-direction: row; gap: var(--s-4); }
+      .fm-clock-svg { width: 120px; height: 120px; }
+      .fm-row { grid-template-columns: 90px 1fr; grid-template-rows: auto auto; column-gap: var(--s-3); row-gap: 4px; }
+      .fm-row::before { grid-row: 1 / span 2; }
+      .fm-row::after  { grid-column: 2; grid-row: 1; }
+      .fm-row .fm-row-sev, .fm-row .fm-row-code { grid-column: 2; grid-row: 2; display: inline-block; margin-right: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="preview-wrap">
+    <h1 class="preview-page-title">Feature Moments · v2 preview</h1>
+    <p class="preview-page-lede">4 个亮点重新设计成 visual micro-stage。每段自动循环。下面是独立预览,主 agent 决定合并到 index.html 哪里。</p>
+
+    <section class="preview-section">
+      <h2 class="preview-h">
+        <span class="preview-h-num">M1</span>
+        <span class="preview-h-name">4-lane oscilloscope</span>
+        <span class="preview-h-desc">demo A: full pass · demo B: alignment fail · 6s loop</span>
+      </h2>
+      <!-- ╔══ MOMENT 1 ══╗ -->
+      <article class="feature-moment feature-moment--lanes" data-fm-lanes>
+        <header class="fm-head">
+          <span class="fm-tag">live · pipeline oscilloscope</span>
+          <span class="fm-meta" data-fm-label>fix #27 · docs-changelog-missing</span>
+        </header>
+        <div class="fm-lanes-stage">
+          <div class="fm-tray"><span class="fm-tray-mark">incoming</span><span class="fm-chip" data-fm-chip>·</span></div>
+          <ol class="fm-lanes">
+            <li class="fm-lane" data-lane="static"><span class="fm-lane-num">G1</span><span class="fm-lane-name">static gate</span><span class="fm-lane-detail">tsc · test · build</span><span class="fm-lane-track"><span class="fm-lane-blip" data-blip></span></span><span class="fm-lane-verdict" data-verdict>—</span></li>
+            <li class="fm-lane" data-lane="alignment"><span class="fm-lane-num">G2</span><span class="fm-lane-name">alignment</span><span class="fm-lane-detail">haiku · 对题</span><span class="fm-lane-track"><span class="fm-lane-blip" data-blip></span></span><span class="fm-lane-verdict" data-verdict>—</span></li>
+            <li class="fm-lane" data-lane="behavioral"><span class="fm-lane-num">G3</span><span class="fm-lane-name">behavioral</span><span class="fm-lane-detail">sonnet · fresh</span><span class="fm-lane-track"><span class="fm-lane-blip" data-blip></span></span><span class="fm-lane-verdict" data-verdict>—</span></li>
+            <li class="fm-lane" data-lane="adversarial"><span class="fm-lane-num">G4</span><span class="fm-lane-name">adversarial</span><span class="fm-lane-detail">攻击向量</span><span class="fm-lane-track"><span class="fm-lane-blip" data-blip></span></span><span class="fm-lane-verdict" data-verdict>—</span></li>
+          </ol>
+          <div class="fm-sink"><span class="fm-sink-mark" data-fm-sink>— waiting —</span></div>
+        </div>
+        <footer class="fm-foot">一片亮 = 一条 fix。绿到底 = merged。红 = NEED_HUMAN。</footer>
+      </article>
+    </section>
+
+    <section class="preview-section">
+      <h2 class="preview-h">
+        <span class="preview-h-num">M2</span>
+        <span class="preview-h-name">NEED_HUMAN public ledger</span>
+        <span class="preview-h-desc">8 lines stagger reveal · reason chips · + 14 more</span>
+      </h2>
+      <!-- ╔══ MOMENT 2 ══╗ -->
+      <article class="feature-moment feature-moment--ledger" data-fm-ledger>
+        <header class="fm-head">
+          <span class="fm-tag">posted · session #4</span>
+          <span class="fm-meta"><span data-fm-ledger-count>24</span> 件 ZeroU 做不到的事 · 写进 PR body</span>
+        </header>
+        <ol class="fm-ledger">
+          <li class="fm-row" data-slug="auth-csrf-protection"        data-sev="P1" data-code="INCOMPLETE"></li>
+          <li class="fm-row" data-slug="auth-password-recovery"      data-sev="P1" data-code="K_EXHAUSTED"></li>
+          <li class="fm-row" data-slug="db-backup-path"              data-sev="P2" data-code="BUGGY"></li>
+          <li class="fm-row" data-slug="db-migrations"               data-sev="P2" data-code="INCOMPLETE"></li>
+          <li class="fm-row" data-slug="tests-smoke"                 data-sev="P1" data-code="ALIGNMENT_LOW"></li>
+          <li class="fm-row" data-slug="deploy-env-doc"              data-sev="P1" data-code="IMPLEMENTER_FAILURES"></li>
+          <li class="fm-row" data-slug="ci-pipeline"                 data-sev="P2" data-code="K_EXHAUSTED"></li>
+          <li class="fm-row" data-slug="ui-loading-states"           data-sev="P2" data-code="ALIGNMENT_LOW"></li>
+          <li class="fm-row fm-row-more" data-more>+ 14 more · all NEED_HUMAN in PR body</li>
+        </ol>
+        <footer class="fm-foot">每条都附 reason code · reviewer 拒掉的理由不藏。</footer>
+      </article>
+    </section>
+
+    <section class="preview-section">
+      <h2 class="preview-h">
+        <span class="preview-h-num">M3</span>
+        <span class="preview-h-name">orchestrator orbit</span>
+        <span class="preview-h-desc">center ZeroU · 6 agents · ~3s per dispatch</span>
+      </h2>
+      <!-- ╔══ MOMENT 3 ══╗ -->
+      <article class="feature-moment feature-moment--orbit" data-fm-orbit>
+        <header class="fm-head">
+          <span class="fm-tag">live · orchestrator dispatch</span>
+          <span class="fm-meta">6 agent · <span data-fm-cycle>0</span> / ∞ dispatch</span>
+        </header>
+        <div class="fm-orbit-stage">
+          <svg class="fm-orbit-lines" viewBox="0 0 600 400" preserveAspectRatio="none" aria-hidden="true">
+            <line data-line="dispatch" x1="300" y1="200" x2="300" y2="200" stroke="#7CFFB2" stroke-width="1.5" stroke-dasharray="4 4" opacity="0" />
+            <line data-line="verdict"  x1="300" y1="200" x2="300" y2="200" stroke="#FFD66B" stroke-width="1.5" stroke-dasharray="3 5" opacity="0" />
+          </svg>
+          <div class="fm-orbit-core" data-fm-core>
+            <span class="fm-orbit-core-mark">ZeroU</span>
+            <span class="fm-orbit-core-sub">orchestrator</span>
+            <span class="fm-orbit-core-ring"></span>
+          </div>
+          <ul class="fm-orbit-agents">
+            <li class="fm-agent" data-agent="detector"         data-pos="0" data-tint="mint"><span class="fm-agent-role">detector</span><span class="fm-agent-model">haiku</span><span class="fm-agent-status" data-status>idle</span></li>
+            <li class="fm-agent" data-agent="differ"           data-pos="1" data-tint="gold"><span class="fm-agent-role">differ</span><span class="fm-agent-model">sonnet</span><span class="fm-agent-status" data-status>idle</span></li>
+            <li class="fm-agent" data-agent="implementer"      data-pos="2" data-tint="mint"><span class="fm-agent-role">implementer</span><span class="fm-agent-model">sonnet</span><span class="fm-agent-status" data-status>idle</span></li>
+            <li class="fm-agent" data-agent="reviewer-static"  data-pos="3" data-tint="ink"><span class="fm-agent-role">reviewer · static</span><span class="fm-agent-model">cli</span><span class="fm-agent-status" data-status>idle</span></li>
+            <li class="fm-agent" data-agent="reviewer-align"   data-pos="4" data-tint="coral"><span class="fm-agent-role">reviewer · align</span><span class="fm-agent-model">haiku</span><span class="fm-agent-status" data-status>idle</span></li>
+            <li class="fm-agent" data-agent="done-check"       data-pos="5" data-tint="gold"><span class="fm-agent-role">done-check</span><span class="fm-agent-model">sonnet</span><span class="fm-agent-status" data-status>idle</span></li>
+          </ul>
+        </div>
+        <footer class="fm-foot">中心派单 · agent 接活 · verdict 回执 · 不停转。</footer>
+      </article>
+    </section>
+
+    <section class="preview-section">
+      <h2 class="preview-h">
+        <span class="preview-h-num">M4</span>
+        <span class="preview-h-name">overnight clock sweep</span>
+        <span class="preview-h-desc">22:11 → 23:43 in 8s · commits fly in · 3 number tickers sync</span>
+      </h2>
+      <!-- ╔══ MOMENT 4 ══╗ -->
+      <article class="feature-moment feature-moment--overnight" data-fm-overnight>
+        <header class="fm-head">
+          <span class="fm-tag">replay · overnight shift 22:11 → 23:43</span>
+          <span class="fm-meta">1h 31min · $4.24 · 2 merged · 24 NEED_HUMAN</span>
+        </header>
+        <div class="fm-overnight-stage">
+          <div class="fm-clock">
+            <svg viewBox="0 0 160 160" class="fm-clock-svg">
+              <circle cx="80" cy="80" r="74" class="fm-clock-rim" />
+              <g class="fm-clock-ticks">
+                <line x1="80" y1="10" x2="80" y2="18" />
+                <line x1="80" y1="150" x2="80" y2="142" />
+                <line x1="10" y1="80" x2="18" y2="80" />
+                <line x1="150" y1="80" x2="142" y2="80" />
+              </g>
+              <line data-clock-hour x1="80" y1="80" x2="80" y2="50" class="fm-clock-hand fm-clock-hand-h" />
+              <line data-clock-min  x1="80" y1="80" x2="80" y2="32" class="fm-clock-hand fm-clock-hand-m" />
+              <circle cx="80" cy="80" r="3.5" class="fm-clock-cap" />
+            </svg>
+            <div class="fm-clock-readout" data-clock-readout>22:11</div>
+          </div>
+
+          <div class="fm-commits">
+            <span class="fm-commits-label">commits to main</span>
+            <ol class="fm-commits-list" data-commit-list>
+              <li class="fm-commit" data-at="22:34"><span class="fm-commit-sha">5aedd6e</span><span class="fm-commit-msg">docs: add CHANGELOG.md</span><span class="fm-commit-time">22:34</span></li>
+              <li class="fm-commit" data-at="23:02"><span class="fm-commit-sha">b1f2c91</span><span class="fm-commit-msg">chore: add env example</span><span class="fm-commit-time">23:02</span></li>
+              <li class="fm-commit" data-at="23:18"><span class="fm-commit-sha">8e7a334</span><span class="fm-commit-msg">PR opened · 4 reviewers · 2 merged</span><span class="fm-commit-time">23:18</span></li>
+              <li class="fm-commit" data-at="23:41"><span class="fm-commit-sha">d04ff12</span><span class="fm-commit-msg">PR body lists 24 NEED_HUMAN</span><span class="fm-commit-time">23:41</span></li>
+            </ol>
+          </div>
+        </div>
+        <div class="fm-tickers">
+          <div class="fm-ticker"><span class="fm-ticker-label">cost</span><span class="fm-ticker-val">$<span data-tick="cost" data-to="4.24" data-fmt="float">0.00</span></span></div>
+          <div class="fm-ticker"><span class="fm-ticker-label">merged</span><span class="fm-ticker-val"><span data-tick="merged" data-to="2">0</span></span></div>
+          <div class="fm-ticker"><span class="fm-ticker-label">need_human</span><span class="fm-ticker-val"><span data-tick="needhuman" data-to="24">0</span></span></div>
+        </div>
+        <footer class="fm-foot">无旁白 · 真数据 · 1.5 倍速回放 1h 31min。</footer>
+      </article>
+    </section>
+  </div>
+
+  <script>
+    // ╔══════════════════════════════════════════════════════════╗
+    //   Feature moments preview · inline JS
+    // ╚══════════════════════════════════════════════════════════╝
+
+    var prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // ─── M1 · lane oscilloscope ────────────────────────────────
+    (function () {
+      var stage = document.querySelector('[data-fm-lanes]');
+      if (!stage) return;
+      if (prefersReduced) return;
+      var lanes  = stage.querySelectorAll('.fm-lane');
+      var chip   = stage.querySelector('[data-fm-chip]');
+      var sink   = stage.querySelector('[data-fm-sink]');
+      var label  = stage.querySelector('[data-fm-label]');
+      var demos = [
+        { label: 'fix #27 · docs-changelog-missing', chip: 'ok',
+          lanes: [
+            { v: 'PASS · 0 err' },
+            { v: 'PASS · 0.98' },
+            { v: 'APPROVE · 88%' },
+            { v: 'SKIPPED · low', skipped: true },
+          ],
+          sink: { mark: '✓ merged → main', state: 'pass' } },
+        { label: 'fix #18 · auth-csrf-protection', chip: 'ok',
+          lanes: [
+            { v: 'PASS · 0 err' },
+            { v: 'REJECT · 0.41', fail: true },
+            { v: '— halted', halt: true },
+            { v: '— halted', halt: true },
+          ],
+          sink: { mark: '✗ NEED_HUMAN', state: 'fail' } },
+      ];
+      var demoIdx = 0;
+      function resetLanes() {
+        lanes.forEach(function (lane) {
+          lane.classList.remove('is-active', 'is-pass', 'is-fail', 'is-skipped');
+          var v = lane.querySelector('[data-verdict]');
+          if (v) v.textContent = '—';
+          var blip = lane.querySelector('[data-blip]');
+          if (blip) { blip.style.animation = 'none'; blip.offsetHeight; blip.style.animation = ''; }
+        });
+        sink.textContent = '— waiting —';
+        sink.removeAttribute('data-state');
+        chip.removeAttribute('data-state');
+      }
+      function runDemo(d) {
+        resetLanes();
+        label.textContent = d.label;
+        chip.setAttribute('data-state', d.chip === 'fail' ? 'fail' : 'ok');
+        var i = 0;
+        function nextLane() {
+          if (i >= lanes.length) {
+            sink.textContent = d.sink.mark;
+            sink.setAttribute('data-state', d.sink.state);
+            setTimeout(advance, 2800); return;
+          }
+          var step = d.lanes[i];
+          var lane = lanes[i];
+          if (step.halt) {
+            lane.classList.add('is-skipped');
+            lane.querySelector('[data-verdict]').textContent = step.v;
+            i++; setTimeout(nextLane, 200); return;
+          }
+          lane.classList.add('is-active');
+          setTimeout(function () {
+            lane.classList.remove('is-active');
+            if (step.fail) lane.classList.add('is-fail');
+            else if (step.skipped) lane.classList.add('is-skipped', 'is-pass');
+            else lane.classList.add('is-pass');
+            lane.querySelector('[data-verdict]').textContent = step.v;
+            i++;
+            if (step.fail) {
+              for (var k = i; k < lanes.length; k++) {
+                lanes[k].classList.add('is-skipped');
+                lanes[k].querySelector('[data-verdict]').textContent = '— halted';
+              }
+              sink.textContent = d.sink.mark;
+              sink.setAttribute('data-state', d.sink.state);
+              setTimeout(advance, 3000);
+            } else setTimeout(nextLane, 220);
+          }, 950);
+        }
+        setTimeout(nextLane, 350);
+      }
+      function advance() {
+        demoIdx = (demoIdx + 1) % demos.length;
+        runDemo(demos[demoIdx]);
+      }
+      // Start immediately on preview page (no IO gate so screenshots are deterministic)
+      runDemo(demos[0]);
+    })();
+
+    // ─── M2 · ledger ───────────────────────────────────────────
+    (function () {
+      var stage = document.querySelector('[data-fm-ledger]');
+      if (!stage) return;
+      var rows = stage.querySelectorAll('.fm-row[data-sev]');
+      var more = stage.querySelector('[data-more]');
+      rows.forEach(function (row) {
+        var sev = document.createElement('span');
+        sev.className = 'fm-row-sev';
+        sev.textContent = row.getAttribute('data-sev');
+        var code = document.createElement('span');
+        code.className = 'fm-row-code';
+        code.textContent = row.getAttribute('data-code');
+        row.appendChild(sev);
+        row.appendChild(code);
+      });
+      if (more) more.style.opacity = '0';
+      function revealAll() {
+        rows.forEach(function (row, i) {
+          setTimeout(function () { row.classList.add('is-in'); }, prefersReduced ? 0 : 60 + i * 70);
+        });
+        if (more) setTimeout(function () { more.classList.add('is-in'); more.style.opacity = '1'; }, prefersReduced ? 0 : 80 + rows.length * 70);
+      }
+      revealAll();
+    })();
+
+    // ─── M3 · orbit ────────────────────────────────────────────
+    (function () {
+      var stage = document.querySelector('[data-fm-orbit]');
+      if (!stage) return;
+      if (prefersReduced) return;
+      var agents = stage.querySelectorAll('.fm-agent');
+      var core   = stage.querySelector('[data-fm-core]');
+      var cycleEl= stage.querySelector('[data-fm-cycle]');
+      var svg    = stage.querySelector('.fm-orbit-lines');
+      var lineD  = svg.querySelector('[data-line="dispatch"]');
+      var lineV  = svg.querySelector('[data-line="verdict"]');
+      var stageRectEl = stage.querySelector('.fm-orbit-stage');
+
+      function agentCenter(agent) {
+        var s = stageRectEl.getBoundingClientRect();
+        var a = agent.getBoundingClientRect();
+        return { x: a.left - s.left + a.width / 2, y: a.top - s.top + a.height / 2 };
+      }
+      function coreCenter() {
+        var s = stageRectEl.getBoundingClientRect();
+        var c = core.getBoundingClientRect();
+        return { x: c.left - s.left + c.width / 2, y: c.top - s.top + c.height / 2 };
+      }
+      function viewBoxScale() {
+        var s = stageRectEl.getBoundingClientRect();
+        return { sx: 600 / s.width, sy: 400 / s.height };
+      }
+      function setLine(line, from, to, opacity) {
+        var s = viewBoxScale();
+        line.setAttribute('x1', from.x * s.sx);
+        line.setAttribute('y1', from.y * s.sy);
+        line.setAttribute('x2', to.x   * s.sx);
+        line.setAttribute('y2', to.y   * s.sy);
+        line.setAttribute('opacity', opacity);
+      }
+
+      var idx = 0, cycle = 0;
+      function tick() {
+        var agent = agents[idx];
+        agent.classList.remove('is-done');
+        var status = agent.querySelector('[data-status]');
+        var c = coreCenter(); var a = agentCenter(agent);
+        setLine(lineD, c, a, 0);
+        setLine(lineV, c, c, 0);
+        requestAnimationFrame(function () { setLine(lineD, c, a, 1); });
+        setTimeout(function () { agent.classList.add('is-active'); core.setAttribute('data-pulse', '1'); status.textContent = 'working'; }, 400);
+        setTimeout(function () { status.textContent = 'reporting'; }, 1700);
+        setTimeout(function () { setLine(lineD, c, a, 0); setLine(lineV, a, c, 1); }, 2100);
+        setTimeout(function () { agent.classList.remove('is-active'); agent.classList.add('is-done'); status.textContent = 'done'; core.removeAttribute('data-pulse'); setLine(lineV, a, c, 0); }, 2800);
+        setTimeout(function () {
+          idx = (idx + 1) % agents.length;
+          if (idx === 0) {
+            cycle++;
+            cycleEl.textContent = cycle;
+            agents.forEach(function (ag) { ag.classList.remove('is-done'); ag.querySelector('[data-status]').textContent = 'idle'; });
+          }
+          tick();
+        }, 3200);
+      }
+      cycleEl.textContent = '1';
+      cycle = 1;
+      // Slight delay for layout to settle (positions depend on getBoundingClientRect)
+      setTimeout(tick, 400);
+    })();
+
+    // ─── M4 · overnight ────────────────────────────────────────
+    (function () {
+      var stage = document.querySelector('[data-fm-overnight]');
+      if (!stage) return;
+      var hourHand = stage.querySelector('[data-clock-hour]');
+      var minHand  = stage.querySelector('[data-clock-min]');
+      var readout  = stage.querySelector('[data-clock-readout]');
+      var commits  = stage.querySelectorAll('.fm-commit');
+      var ticks    = stage.querySelectorAll('[data-tick]');
+      var startMin = 22 * 60 + 11;
+      var endMin   = 23 * 60 + 43;
+      var totalMs  = 8000;
+
+      function clockAngles(minutes) {
+        var minA  = ((minutes % 60) / 60) * 360;
+        var hourA = (((minutes / 60) % 12) / 12) * 360;
+        return { hour: hourA, min: minA };
+      }
+      function setHands(minutes) {
+        var a = clockAngles(minutes);
+        hourHand.style.transform = 'rotate(' + a.hour + 'deg)';
+        minHand.style.transform  = 'rotate(' + a.min + 'deg)';
+        var h = Math.floor(minutes / 60);
+        var m = Math.floor(minutes % 60);
+        readout.textContent = (h < 10 ? '0' + h : h) + ':' + (m < 10 ? '0' + m : m);
+      }
+      function parseAt(s) {
+        var p = s.split(':');
+        return parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+      }
+      function tickerUpdate(p) {
+        ticks.forEach(function (el) {
+          var to = parseFloat(el.getAttribute('data-to'));
+          var fmt = el.getAttribute('data-fmt');
+          var v = to * p;
+          if (fmt === 'float') el.textContent = v.toFixed(2);
+          else el.textContent = String(Math.round(v));
+        });
+      }
+      function run() {
+        if (prefersReduced) {
+          setHands(endMin);
+          commits.forEach(function (c) { c.classList.add('is-in'); });
+          tickerUpdate(1);
+          return;
+        }
+        var startTs = performance.now();
+        function loop(now) {
+          var elapsed = now - startTs;
+          var p = Math.min(1, elapsed / totalMs);
+          var ease = 1 - Math.pow(1 - p, 2);
+          var cur = startMin + (endMin - startMin) * ease;
+          setHands(cur);
+          tickerUpdate(ease);
+          commits.forEach(function (c) {
+            var t = parseAt(c.getAttribute('data-at'));
+            if (cur >= t) c.classList.add('is-in');
+          });
+          if (p < 1) requestAnimationFrame(loop);
+          else {
+            setTimeout(function () {
+              commits.forEach(function (c) { c.classList.remove('is-in'); });
+              setHands(startMin); tickerUpdate(0);
+              startTs = performance.now();
+              requestAnimationFrame(loop);
+            }, 2200);
+          }
+        }
+        requestAnimationFrame(loop);
+      }
+      run();
+    })();
+  </script>
+</body>
+</html>
