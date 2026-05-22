@@ -9,6 +9,19 @@ import { runMigrations } from '../storage/migrations/index.js';
 import { sseHub } from '../log/sse.js';
 import { PRICING_PER_MTOK } from '../cost/pricing.js';
 import { git } from '../subproc/git.js';
+import { currentCriticPolicy } from '../engines/registry.js';
+
+/** Per v0.7 §3.1 + MVP-0.5 spec §A.6, sessions can only start when cross-engine
+ *  reviewer policy is active (worker + critic in different LLM families).
+ *  Smoke / test fixtures set D2P_ALLOW_DEGRADED_REVIEWER=1 to bypass — this is
+ *  a test-only escape hatch, not a user-facing feature. */
+function crossEngineBlockedReason(): string | null {
+  if (process.env.D2P_ALLOW_DEGRADED_REVIEWER === '1') return null;
+  const policy = currentCriticPolicy();
+  if (!policy) return null; // engine not yet initialized — let downstream code surface
+  if (policy.crossFamily) return null;
+  return policy.reason; // 'no-critic-configured' | 'same-family-as-worker'
+}
 
 // Single DB instance per daemon process.
 const db: Database.Database = openDatabase();
@@ -19,6 +32,27 @@ export const dbHandle: Database.Database = db;
 export const sessionRoutes = new Hono();
 
 sessionRoutes.post('/start', async (c) => {
+  // Cross-engine reviewer policy is a hard prerequisite for session start
+  // (v0.7 §3.1 + MVP-0.5 spec §A.6). Check before parsing body so onboarding
+  // UI gets immediate signal without needing to construct a valid request.
+  const blocker = crossEngineBlockedReason();
+  if (blocker) {
+    return c.json(
+      {
+        type: 'about:blank',
+        title: 'cross-engine reviewer required',
+        status: 412,
+        code: 'E_CROSS_ENGINE_REQUIRED',
+        detail:
+          blocker === 'no-critic-configured'
+            ? 'Configure a second LLM engine (criticEngine in ~/.d2p/config.json) of a different family from worker. Run `d2p doctor` for guidance.'
+            : 'Worker and critic engines share the same LLM family. Choose a critic of a different family (e.g. worker=claude-cli + critic=codex-cli).',
+        reason: blocker,
+      },
+      412,
+    );
+  }
+
   let body: StartSessionReq;
   try {
     body = (await c.req.json()) as StartSessionReq;
