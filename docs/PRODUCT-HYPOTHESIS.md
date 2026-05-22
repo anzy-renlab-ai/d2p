@@ -425,7 +425,7 @@ v0.7 已答 28 问。Round 1 + Round 2 累计 7 个 grill POV。还能 grill 的
 1. **不卖企业版 / hosted SaaS / multi-tenant** (不变)
 2. **不让用户审 diff 作为 default workflow** (不变)
 3. **不放低严格 done 标准** (不变)
-4. **不持 API key**——全 cc / Codex CLI / Gemini CLI subprocess (不变)
+4. **默认 CLI subprocess，d2p 不中转 key**——默认 cc / Codex / Gemini CLI subprocess（用户已登录 = d2p 可用）。**允许** opt-in HTTP+key fallback（anthropic-api / openai-compat 覆盖 MiniMax / DeepSeek / OpenRouter / Codex-via-OpenRouter 等 token-plan 用户）——key 存用户本地 `~/.d2p/config.json`，d2p **不转发** key 给自家 server，**不上传** key 到任何第三方除用户配置的 baseUrl。Spirit: 用户控制 key 始终在用户机器上。**v0.7 修订自 α 决策**（之前 hard "不持 key" 跟现实 MiniMax / DeepSeek 用户 break）。
 5. **不 vendor-lock LLM 提供商**——MVP-0 强制 cross-engine default (Q3.1) 落地这条 (不变)
 6. 🔧 **不为大厂在抄而妥协红线 1-5** + **governance 设计** (v0.7 加):
    - **Multi-maintainer 否决**: 项目 ≥3 maintainer 时，任何红线松绑 PR 需要 ≥2/3 maintainer approve。MVP-0 阶段 (只 1 maintainer) 这条 enforce 不了——**承认这条 v0.7 仍是 willpower**，未来工程化。
