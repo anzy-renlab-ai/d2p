@@ -34,10 +34,30 @@ const AnthropicApiSchema = z.object({
   models: ModelMap,
 });
 
+const PartialModelMap = z.object({
+  haiku: z.string().min(1).optional(),
+  sonnet: z.string().min(1).optional(),
+  opus: z.string().min(1).optional(),
+});
+
+const CodexCliSchema = z.object({
+  kind: z.literal('codex-cli'),
+  bin: z.string().optional(),
+  models: PartialModelMap.optional(),
+});
+
+const GeminiCliSchema = z.object({
+  kind: z.literal('gemini-cli'),
+  bin: z.string().optional(),
+  models: PartialModelMap.optional(),
+});
+
 const EngineSchema = z.discriminatedUnion('kind', [
   ClaudeCliSchema,
   OpenAICompatSchema,
   AnthropicApiSchema,
+  CodexCliSchema,
+  GeminiCliSchema,
 ]);
 
 const GitHubSchema = z.object({
@@ -130,6 +150,10 @@ export function describeEngine(cfg: EngineConfig): string {
       return `openai-compat @ ${cfg.baseUrl}`;
     case 'anthropic-api':
       return `anthropic-api @ ${cfg.baseUrl ?? 'https://api.anthropic.com'}`;
+    case 'codex-cli':
+      return `codex-cli (${cfg.bin ?? 'PATH:codex'})`;
+    case 'gemini-cli':
+      return `gemini-cli (${cfg.bin ?? 'PATH:gemini'})`;
   }
 }
 
