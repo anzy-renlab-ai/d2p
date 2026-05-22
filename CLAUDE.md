@@ -92,6 +92,25 @@ Trivial = 单行 typo / <50 行 docs / 单 config 改 — 直接 commit。
 任何一段缺 → plan reject。
 多个无关改动 → 拆成多个 plan。
 
+#### 2.5. SPEC-SPLIT — dev doc 与 test doc 独立写
+
+**何时用**：非 trivial 新模块（>3 文件 / 新公开 API / 复杂状态机 / 跨进程边界）。Trivial 改动跳过。
+
+**4 步流程**：
+
+1. **写 dev doc**：`docs/details/<NN>-<slug>-spec.md`，含全实现细节、库选择、文件 layout、数据结构。
+2. **提取 public surface**：`docs/details/<NN>-<slug>-public-surface.md`。**只含**：函数签名 / 接口 / 行为契约（编号 B-X-Y） / 失败模式 / 错误码 / 配置 schema。**不含**：实现细节 / 库选择 / 内部数据结构 / 文件路径。
+3. **派独立 subagent 写 test doc**：Prompt **显式禁止**读 spec / 源码——**只读 public surface**。subagent 写到 `docs/details/<NN>-<slug>-tests.md`。每个 Behavior 至少 1 个 happy path + 1 个 negative test。Coverage Map 反查表必给。
+4. **比对找 gap**：写 `docs/details/<NN>-<slug>-comparison-report.md`。三类 gap：
+   - (A) dev doc 承诺但 test 没覆盖 → test 补
+   - (B) test 假设但 surface 没暴露 → **surface 缺 contract**（最有价值的 gap，是真实 contract gap）
+   - (C) 两边说话不一致 → unify
+5. 修 gap (surface / dev doc / 实现) 然后才进 TEAMWORK 并行实现。
+
+**Why**：Knight-Leveson 1986 N-version independent failure 在文档层的应用。**dev 写者 + test 写者读不同 input** 写出来的 doc 能挖出单一作者写不出的真 contract gap——dev 作者知道实现就不会觉得 surface 缺什么。已在 `docs/details/11-mvp-0.5-comparison-report.md` 实证（subagent 黑盒视角挖出 2 个真 surface gap：JSON schema 没暴露 / CLI trigger 没暴露）。
+
+**Skip when**：单文件 typo / docs-only / config 改 / <50 LOC 单函数工具 / 已有 spec 无新公开 API 的修补。
+
 #### 3. TEAMWORK — 并行派单
 
 N tasks 并行的条件：写集不重叠 + 每个 >15min + 互不依赖。
