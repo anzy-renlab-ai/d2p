@@ -37,6 +37,26 @@ describe('engineFamily', () => {
     ).toBe('api.deepseek.com');
   });
 
+  it('codex-cli family is "openai"', () => {
+    expect(engineFamily({ kind: 'codex-cli' })).toBe('openai');
+  });
+
+  it('gemini-cli family is "google"', () => {
+    expect(engineFamily({ kind: 'gemini-cli' })).toBe('google');
+  });
+
+  it('codex-cli vs claude-cli are cross-family', () => {
+    const p = pickCriticEngine({ kind: 'claude-cli' }, { kind: 'codex-cli' });
+    expect(p.crossFamily).toBe(true);
+    expect(p.reason).toBe('cross-family-active');
+  });
+
+  it('gemini-cli vs claude-cli are cross-family', () => {
+    const p = pickCriticEngine({ kind: 'claude-cli' }, { kind: 'gemini-cli' });
+    expect(p.crossFamily).toBe(true);
+    expect(p.reason).toBe('cross-family-active');
+  });
+
   it('falls back to unknown for malformed baseUrl', () => {
     expect(
       engineFamily({

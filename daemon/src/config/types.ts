@@ -5,12 +5,39 @@
 
 import type { ClaudeModel } from '../types.js';
 
-export type EngineKind = 'claude-cli' | 'openai-compat' | 'anthropic-api';
+export type EngineKind =
+  | 'claude-cli'
+  | 'openai-compat'
+  | 'anthropic-api'
+  | 'codex-cli'
+  | 'gemini-cli';
 
 export interface ClaudeCliEngineConfig {
   kind: 'claude-cli';
   /** Path to the `claude` binary; defaults to PATH lookup. */
   bin?: string;
+}
+
+/** OpenAI Codex CLI subprocess engine. The CLI handles auth (login flow or
+ *  OPENAI_API_KEY) — d2p doesn't hold the key. */
+export interface CodexCliEngineConfig {
+  kind: 'codex-cli';
+  /** Path to the `codex` binary; defaults to PATH lookup (or D2P_CODEX_BIN). */
+  bin?: string;
+  /** Override per-tier model ids. Omit any tier to fall back to defaults
+   *  defined in engines/codex-cli.ts. */
+  models?: Partial<Record<ClaudeModel, string>>;
+}
+
+/** Google Gemini CLI subprocess engine. The CLI handles auth (login flow or
+ *  GEMINI_API_KEY) — d2p doesn't hold the key. */
+export interface GeminiCliEngineConfig {
+  kind: 'gemini-cli';
+  /** Path to the `gemini` binary; defaults to PATH lookup (or D2P_GEMINI_BIN). */
+  bin?: string;
+  /** Override per-tier model ids. Omit any tier to fall back to defaults
+   *  defined in engines/gemini-cli.ts. */
+  models?: Partial<Record<ClaudeModel, string>>;
 }
 
 export interface OpenAICompatEngineConfig {
@@ -36,7 +63,9 @@ export interface AnthropicApiEngineConfig {
 export type EngineConfig =
   | ClaudeCliEngineConfig
   | OpenAICompatEngineConfig
-  | AnthropicApiEngineConfig;
+  | AnthropicApiEngineConfig
+  | CodexCliEngineConfig
+  | GeminiCliEngineConfig;
 
 export interface GitHubConfig {
   /** PAT with `repo` scope (or fine-grained equivalent). */

@@ -3,6 +3,8 @@ import type { EngineConfig } from '../config/types.js';
 import { ClaudeCliEngine } from './claude-cli.js';
 import { OpenAICompatEngine } from './openai-compat.js';
 import { AnthropicApiEngine } from './anthropic-api.js';
+import { CodexCliEngine } from './codex-cli.js';
+import { GeminiCliEngine } from './gemini-cli.js';
 
 export function buildEngine(cfg: EngineConfig): LLMEngine {
   switch (cfg.kind) {
@@ -12,5 +14,9 @@ export function buildEngine(cfg: EngineConfig): LLMEngine {
       return new OpenAICompatEngine(cfg);
     case 'anthropic-api':
       return new AnthropicApiEngine(cfg);
+    case 'codex-cli':
+      return new CodexCliEngine(cfg);
+    case 'gemini-cli':
+      return new GeminiCliEngine(cfg);
   }
 }

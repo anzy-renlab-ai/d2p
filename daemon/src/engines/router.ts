@@ -29,6 +29,8 @@ export const CRITIC_ROLES: ReadonlySet<ClaudeRole> = new Set<ClaudeRole>([
  *  of its baseUrl, so api.minimaxi.chat and api.deepseek.com are distinct. */
 export function engineFamily(cfg: EngineConfig): string {
   if (cfg.kind === 'claude-cli' || cfg.kind === 'anthropic-api') return 'anthropic';
+  if (cfg.kind === 'codex-cli') return 'openai';
+  if (cfg.kind === 'gemini-cli') return 'google';
   if (cfg.kind === 'openai-compat') {
     try {
       return new URL(cfg.baseUrl).hostname.toLowerCase();
