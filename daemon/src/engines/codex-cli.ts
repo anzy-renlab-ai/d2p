@@ -10,6 +10,15 @@
 // placeholder mirroring what the OpenAI docs publish; if real codex requires
 // e.g. `-m` instead of `--model`, or the prompt over stdin, swap here. Engine
 // callers stay unchanged.
+//
+// TODO(stdin): Large/multi-line prompts via positional argv risk hitting
+// Win32 command-line length cap (~32K) and argv-quoting edge cases. codex
+// exec accepts prompt via stdin when no positional arg is given — once
+// first-machine smoke happens, swap to:
+//   const args = ['exec', '--model', ...]
+//   spawnOpts.stdin = opts.prompt
+// claude-cli has the same shape today; this isn't a regression but is the
+// first thing to validate on real CLI.
 
 import { runSubproc, type SpawnResult, type SpawnOpts } from '../subproc/spawn.js';
 import type { ClaudeCallResult, ClaudeModel, TokenUsage } from '../types.js';

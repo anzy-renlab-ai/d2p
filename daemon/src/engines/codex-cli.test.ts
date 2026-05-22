@@ -71,16 +71,35 @@ describe('CodexCliEngine', () => {
   });
 
   it('stderr with auth hint flags it in the error message', async () => {
+    // Use stderr that triggers looksLikeAuthError regex (matches
+    // `auth(entication)?\s+(failed|required|error)`) but does NOT itself
+    // contain the asserted hint substrings — so the test genuinely verifies
+    // hint injection fires.
     nextResult = makeResult({
       exitCode: 1,
-      stderr: 'Error: not logged in. Run `codex login` first.',
+      stderr: 'authentication failed',
     });
     const eng = new CodexCliEngine({ kind: 'codex-cli' });
     const r = await eng.call({ role: 'detector', model: 'haiku', prompt: 'p' });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe('NON_ZERO_EXIT');
+      // Hint injection path: looksLikeAuthError → ' (auth check failed; run `codex login`)'
+      expect(r.message).toMatch(/auth check failed/);
       expect(r.message).toMatch(/codex login/);
+    }
+  });
+
+  it('non-auth stderr does NOT inject hint (negative path)', async () => {
+    nextResult = makeResult({
+      exitCode: 1,
+      stderr: 'segfault at 0xdeadbeef',
+    });
+    const eng = new CodexCliEngine({ kind: 'codex-cli' });
+    const r = await eng.call({ role: 'detector', model: 'haiku', prompt: 'p' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.message).not.toMatch(/auth check failed/);
     }
   });
 

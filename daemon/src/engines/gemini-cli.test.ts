@@ -72,16 +72,35 @@ describe('GeminiCliEngine', () => {
   });
 
   it('stderr with auth hint flags it in the error message', async () => {
+    // Use stderr that triggers looksLikeAuthError regex (matches
+    // `auth(entication)?\s+(failed|required|error)`) but does NOT itself
+    // contain the asserted hint substrings — so the test genuinely verifies
+    // hint injection fires.
     nextResult = makeResult({
       exitCode: 1,
-      stderr: 'Error: GEMINI_API_KEY not set; please authenticate.',
+      stderr: 'authentication required',
     });
     const eng = new GeminiCliEngine({ kind: 'gemini-cli' });
     const r = await eng.call({ role: 'detector', model: 'haiku', prompt: 'p' });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe('NON_ZERO_EXIT');
-      expect(r.message).toMatch(/GEMINI_API_KEY|gemini auth/);
+      // Hint injection path: looksLikeAuthError → ' (auth check failed; run `gemini auth login` or set GEMINI_API_KEY)'
+      expect(r.message).toMatch(/auth check failed/);
+      expect(r.message).toMatch(/gemini auth login|GEMINI_API_KEY/);
+    }
+  });
+
+  it('non-auth stderr does NOT inject hint (negative path)', async () => {
+    nextResult = makeResult({
+      exitCode: 1,
+      stderr: 'rpc deadline exceeded',
+    });
+    const eng = new GeminiCliEngine({ kind: 'gemini-cli' });
+    const r = await eng.call({ role: 'detector', model: 'haiku', prompt: 'p' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.message).not.toMatch(/auth check failed/);
     }
   });
 

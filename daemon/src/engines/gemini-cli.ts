@@ -9,6 +9,10 @@
 // version (`gemini --help`). The argv order below mirrors the published
 // non-interactive usage; if real gemini requires `-m` instead of `--model`
 // or prompt-via-stdin, swap here without touching engine consumers.
+//
+// TODO(stdin): Same Win32 argv-length risk as codex-cli — large prompts via
+// positional argv can exceed ~32K cap. gemini -p typically supports prompt
+// via stdin (--stdin or piping). Swap to stdin model on first-machine smoke.
 
 import { runSubproc, type SpawnResult, type SpawnOpts } from '../subproc/spawn.js';
 import type { ClaudeCallResult, ClaudeModel, TokenUsage } from '../types.js';
