@@ -69,12 +69,25 @@ async function main() {
     { cwd: demoDir },
   );
 
-  // 2. Spawn daemon with fake claude + isolated DB
+  // 2. Spawn daemon with fake claude + isolated DB + isolated config
   if (!existsSync(FAKE_CLAUDE)) fail(`fake-claude binary missing: ${FAKE_CLAUDE}`);
+
+  // Write smoke-isolated config: force claude-cli engine + fake-claude bin.
+  // Without this, daemon reads ~/.d2p/config.json which may be openai-compat /
+  // anthropic-api (HTTP+key), bypassing the fake-claude shim and either
+  // breaking smoke (no key) or burning real tokens. Per v0.7 red line 4 α:
+  // smoke must isolate from user's actual engine config.
+  const smokeConfigPath = path.join(tmp, 'config.json');
+  writeFileSync(
+    smokeConfigPath,
+    JSON.stringify({ engine: { kind: 'claude-cli', bin: FAKE_CLAUDE } }, null, 2),
+  );
+
   const daemonEnv = {
     ...process.env,
     D2P_DAEMON_PORT: String(PORT),
     D2P_DB_PATH: dbPath,
+    D2P_CONFIG_PATH: smokeConfigPath,
     D2P_CLAUDE_BIN: FAKE_CLAUDE,
   };
   const daemon = spawn(
