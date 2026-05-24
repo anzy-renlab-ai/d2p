@@ -96,6 +96,30 @@ healthRoutes.get('/doctor', async (c) => {
       }
     : null;
 
+  // Per v0.7 §3.1 MVP-0.5 strict cross-engine policy: degraded mode (single
+  // engine family) makes the daemon refuse to start sessions. Surface this
+  // as a doctor check so `d2p doctor` exit code = 1 when degraded, prompting
+  // user to install / configure a second engine.
+  if (enginePolicy) {
+    if (enginePolicy.crossFamily) {
+      checks.push({
+        name: 'cross-engine-reviewer-active',
+        ok: true,
+        detail: `worker=${enginePolicy.worker.family} critic=${enginePolicy.critic?.family ?? 'n/a'}`,
+      });
+    } else {
+      const hint =
+        enginePolicy.reason === 'no-critic-configured'
+          ? 'set criticEngine in ~/.d2p/config.json to a different LLM family'
+          : 'choose a critic engine of a different family from the worker';
+      checks.push({
+        name: 'cross-engine-reviewer-active',
+        ok: false,
+        detail: `degraded (${enginePolicy.reason}): ${hint}. Session start will be refused with E_CROSS_ENGINE_REQUIRED. Override for tests with D2P_ALLOW_DEGRADED_REVIEWER=1.`,
+      });
+    }
+  }
+
   const ok = checks.every((c) => c.ok);
   return c.json({ ok, checks, enginePolicy });
 });

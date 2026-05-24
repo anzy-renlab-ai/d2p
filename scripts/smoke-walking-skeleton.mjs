@@ -89,6 +89,10 @@ async function main() {
     D2P_DB_PATH: dbPath,
     D2P_CONFIG_PATH: smokeConfigPath,
     D2P_CLAUDE_BIN: FAKE_CLAUDE,
+    // Walking-skeleton smoke uses single-engine config (claude-cli only) so
+    // cross-engine policy is degraded. Real users follow v0.7 §3.1 strict
+    // enforce; smoke bypasses to exercise the demo→product flow in isolation.
+    D2P_ALLOW_DEGRADED_REVIEWER: '1',
   };
   const daemon = spawn(
     process.execPath,
