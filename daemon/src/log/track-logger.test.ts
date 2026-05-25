@@ -195,6 +195,61 @@ describe('B-2-1 — rotation removes strictly >7-day-old date dirs', () => {
   });
 });
 
+// ── B-3 — level filtering & silent mode ──────────────────────────────────────
+
+describe('B-3-1 — level filtering', () => {
+  it('T-3-1-1: minLevel:"warn" drops info entries; warn entries are written', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b31-'));
+    const logger = createTrackLogger('foo', { logRoot: tmp, minLevel: 'warn' });
+    logger.log('info', 'x', {});
+    logger.log('warn', 'y', {});
+    await logger.flush();
+    const entries = await readOnlyEntry(logger, { logRoot: tmp, track: 'foo' });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].level).toBe('warn');
+    expect(entries[0].event).toBe('y');
+  });
+
+  it('T-3-1-2: minLevel opts overrides ZEROU_LOG_LEVEL env', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b31b-'));
+    vi.stubEnv('ZEROU_LOG_LEVEL', 'warn');
+    const logger = createTrackLogger('foo', { logRoot: tmp, minLevel: 'debug' });
+    logger.log('debug', 'd', {});
+    await logger.flush();
+    const entries = await readOnlyEntry(logger, { logRoot: tmp, track: 'foo' });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].level).toBe('debug');
+    vi.unstubAllEnvs();
+  });
+});
+
+describe('B-3-2 — silent mode skips disk + rotation', () => {
+  it('T-3-2-1: silent:true creates no file and skips rotation', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b32-'));
+    // Seed old dir; rotation should NOT remove it under silent.
+    const oldDir = await seedDateDir(tmp, 'foo', 10);
+    const logger = createTrackLogger('foo', { logRoot: tmp, silent: true });
+    logger.log('info', 'x', { k: 1 });
+    await logger.flush();
+    // No file created under foo's date dir.
+    const entries = await readdir(path.join(tmp, 'foo'));
+    // Only the seeded old dir should exist; no new date dirs from log()
+    expect(entries.filter((n) => n !== path.basename(oldDir))).toHaveLength(0);
+    await expect(stat(oldDir)).resolves.toBeTruthy(); // not rotated
+  });
+
+  it('T-3-2-2: ZEROU_LOG_NULL=1 globally disables file writes', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b32b-'));
+    vi.stubEnv('ZEROU_LOG_NULL', '1');
+    const logger = createTrackLogger('foo', { logRoot: tmp });
+    logger.log('info', 'x', {});
+    await logger.flush();
+    // Track dir should not exist (no writes at all).
+    await expect(stat(path.join(tmp, 'foo'))).rejects.toThrow();
+    vi.unstubAllEnvs();
+  });
+});
+
 describe('B-2-2 — rotation failure on one dir does not stop sibling removal', () => {
   it('T-2-2-1: one rm failure logged; rotation continues with remaining', async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b22-'));
