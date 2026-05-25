@@ -9,7 +9,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { createTrackLogger } from './track-logger.js';
+import { createTrackLogger, LogError } from './track-logger.js';
 
 let tmp = '';
 
@@ -98,5 +98,36 @@ describe('B-1-2 — entry shape', () => {
     await logger.flush();
     const [entry] = await readOnlyEntry(logger, { logRoot: tmp, track: 'hardener' });
     expect('scope' in entry).toBe(false);
+  });
+});
+
+// ── B-1-3 — child(scope) writes scope:'s' ────────────────────────────────────
+
+describe('B-1-3 — child(scope) writes scope field', () => {
+  it('T-1-3-1: root.child("scan").log writes entries with scope:"scan"; child shares track & trace', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b13-'));
+    const root = createTrackLogger('hardener', { logRoot: tmp });
+    const c = root.child('scan');
+    expect(c.track).toBe('hardener');
+    expect(c.trace).toBe(root.trace);
+
+    c.log('info', 'started', { n: 3 });
+    await c.flush();
+    const [entry] = await readOnlyEntry(root, { logRoot: tmp, track: 'hardener' });
+    expect(entry.scope).toBe('scan');
+    expect(entry.event).toBe('started');
+    expect(entry.n).toBe(3);
+  });
+
+  it('T-1-3-2 (lead-resolved): child("") throws LogError code=LOG-E-3', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b13b-'));
+    const root = createTrackLogger('hardener', { logRoot: tmp });
+    expect(() => root.child('')).toThrow(LogError);
+    try {
+      root.child('');
+    } catch (e) {
+      expect((e as LogError).code).toBe('LOG-E-3');
+      expect((e as Error).message).toMatch(/^LOG-E-3/);
+    }
   });
 });
