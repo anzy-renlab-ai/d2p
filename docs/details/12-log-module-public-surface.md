@@ -41,6 +41,7 @@ export interface CreateTrackLoggerOptions {
   trace?:   string;
   minLevel?: LogLevel;
   silent?:  boolean;
+  parentTrace?: string;   // optional 26-char ULID; when supplied, the new logger uses this as its `trace` instead of generating a fresh ULID.
 }
 
 export function createTrackLogger(
@@ -104,13 +105,24 @@ Rotation runs at most once per **(Node process, track)** pair, tracked via a mod
 
 `logger.child(scope)` returns a `TrackLogger` whose:
 
-- `track` equals the parent's `track`.
+- `track` equals the parent's `track`. **This is load-bearing for cross-module wiring**: `child(scope)` NEVER changes `track`. Downstream modules that need to log under their own `track` while sharing the caller's `trace` MUST use `createTrackLogger(theirTrack, { parentTrace: caller.trace })` (see `parentTrace` below), not `caller.child(...)`.
 - `trace` equals the parent's `trace`.
 - Every entry it writes carries a `scope` field equal to:
   - the supplied `scope` string if called on a root logger,
   - the parent's `scope` joined with `.` and the supplied string if called on an already-scoped logger.
 
 Calling `child('')` (empty string) throws a `LogError` with `code: 'LOG-E-3'` synchronously — scope name validation is parallel to track name validation.
+
+### `parentTrace` (cross-module trace inheritance)
+
+`CreateTrackLoggerOptions.parentTrace` is an optional 26-char ULID. When supplied:
+
+- The new logger's `trace` is set to `parentTrace` verbatim (no fresh ULID is generated, and `CreateTrackLoggerOptions.trace`, if also supplied, is overridden by `parentTrace`).
+- The new logger's `track` is still the `track` argument to `createTrackLogger(...)` — `parentTrace` only inherits `trace`, never `track`.
+
+**This allows downstream modules to share the caller's `trace_id` while keeping their own `track_id`.** Example: a CLI logger `createTrackLogger('cli')` generates trace `T1`; the CLI hands its logger to Protocol-1, which internally constructs `createTrackLogger('critic', { parentTrace: cliLogger.trace })` so all `critic.*` events under `track: 'critic'` carry the same `trace: T1` as the CLI's `cli.*` events. Both tracks can be filtered independently while still reconstructable into a single causal chain by `trace`.
+
+When `parentTrace` is omitted, the logger generates a fresh ULID (the existing default behavior).
 
 ## Error codes
 

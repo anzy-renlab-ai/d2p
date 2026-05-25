@@ -127,11 +127,14 @@ export interface RunOptions {
 
 // Testing note (CriticPolicy construction for unit tests of runPreset):
 //   For unit tests of runPreset that exercise llm-judgment rules, construct a
-//   CriticPolicy per Protocol-1's surface (§Core types) with a mock LLMEngine
-//   whose `callJson(prompt, opts)` returns a value matching the rule's expected
-//   schema. The mock engine implements only the LLMEngine interface — no real
-//   network access is required. This is the supported path for positive
-//   llm-judgment test coverage of runPreset.
+//   CriticPolicy per Protocol-1's surface (§Core types) with a mock critic
+//   engine implementing MinimalCriticEngineSurface — specifically, stub
+//   `call(prompt, opts)` to return a JSON-stringified verdict object matching
+//   the rule's expected schema (Protocol-1 parses JSON internally; the engine
+//   only returns the raw string). The mock engine implements only the three
+//   MinimalCriticEngineSurface members (`call`, `lastCallCostUsd`, `getMeta`)
+//   — no real network access is required. This is the supported path for
+//   positive llm-judgment test coverage of runPreset.
 
 export function runPreset(
   manifest: PresetManifest,
@@ -366,6 +369,10 @@ Implications:
 A `loadPreset(id)` call emits only the per-id sequence (no `preset.list.*` events).
 
 Child scopes used by the module: `parse`, `validate`, `mechanism.<name>` (one per `PresetMechanism`).
+
+### Logging Contract
+
+**Secret redaction invariant**: No `preset.*` log event payload may contain any of these field names at any nesting depth: `apiKey`, `token`, `authorization`, `bearer`. Callers that pass engine configs or credentials through `RunOptions` MUST strip these fields before Protocol-2 logs them. This is a hard contract — Phase-3 tests assert no such field appears anywhere under `track='preset'`.
 
 ## What this surface does NOT promise
 

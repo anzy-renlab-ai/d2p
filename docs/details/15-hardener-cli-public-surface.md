@@ -144,6 +144,7 @@ interface EvidenceBundle {
       version:      number;
       source:       'plugin' | 'project' | 'builtin';
       resolvedPath: string;
+      shadowedBy:   ('plugin' | 'project' | 'builtin')[];   // empty if no shadow; mirrors LoadedPreset.shadowedBy from P2.
     }>;
     engineConfig: {
       worker: {
@@ -189,9 +190,21 @@ interface EvidenceBundle {
 }
 ```
 
+## Preset selection
+
+In MVP-0 (Phase 1 surface), hardener CLI does NOT filter presets by `PresetManifest.appliesTo`. The field is metadata only; future versions MAY add project-type detection. Today:
+
+- When `--preset <id...>` is supplied, the CLI loads only the specified preset ids (resolved via the Protocol-2 3-layer lookup chain).
+- When `--preset` is omitted, the CLI runs ALL installed presets discovered across the 3-layer lookup chain (`@zerou-preset-*` plugins, `<repo>/.zerou/presets/*.md`, built-ins).
+- `PresetManifest.appliesTo` is NOT consulted as a filter in either path. A preset whose `appliesTo: ['cli-tool']` runs against a SaaS-web fixture without skipping — it is the preset author's responsibility to write rules whose `mechanism` config (e.g. `static-grep filePattern`) restricts where they apply.
+
+This pins the consumer side of the Protocol-2 advisory note that `appliesTo` consumption "happens upstream". In Phase 1, upstream (this CLI) explicitly does NOT consume it.
+
 ## Stdout report
 
 Six sections in fixed order: header, preset list (with shadow warnings), findings (grouped by severity then preset, colorized unless `--no-color`), summary, apply summary (if `--apply` used), exit line.
+
+For each preset that produced ≥1 finding, the preset's `manifest.body` (the markdown body after the frontmatter `---` divider, as captured by Protocol-2 in `PresetManifest.body`) is rendered verbatim as a "Remediation guidance" subsection above that preset's findings group. Presets with zero findings do NOT have their `body` rendered. This is the documented consumer of `PresetManifest.body` referenced by the Protocol-2 surface.
 
 ### Summary section (Q11 micro)
 
@@ -245,7 +258,7 @@ configure a second engine (different family from <workerFamily>) to verdict the 
 
 **Gap B4 (A-E-1 clarification)**: `<path>` MUST be a directory. A path that exists but is a regular file is treated as A-E-1 (`cli.path.missing`). No distinct event is emitted for "is a file".
 
-**Gap B6 (A-E-7 defensive-only)**: The CLI always builds and passes a `criticPolicy` to `runPreset` (the `cli.policy` log event is emitted unconditionally). A-E-7 therefore CANNOT fire under normal flow. If it does, treat it as an internal invariant violation; the CLI rethrows as `cli.fatal` (A-E-8) and exits 1. Tests SHOULD NOT attempt to construct a fixture that fires A-E-7 through the public CLI surface.
+**Gap B6 (A-E-7 defensive-only)**: The CLI always builds and passes a `criticPolicy` to `runPreset` (Protocol-1's `critic.policy-selected` event under `track='critic'` is emitted unconditionally as a result). A-E-7 therefore CANNOT fire under normal flow. If it does, treat it as an internal invariant violation; the CLI rethrows as `cli.fatal` (A-E-8) and exits 1. Tests SHOULD NOT attempt to construct a fixture that fires A-E-7 through the public CLI surface.
 
 **Gap B5 (A-E-8 untestable)**: `A-E-8` / `cli.fatal` is a defensive catch-all for uncaught exceptions. By definition it covers situations the public surface does not promise will happen, so it is **not testable from the public surface**. Tests SHOULD NOT assert on `cli.fatal`. Implementations MAY expose internal hooks for exercising this path; those hooks are NOT part of the public surface.
 
@@ -275,8 +288,8 @@ Tests SHOULD NOT invent placeholder kinds like `mock-anthropic`, `mock-openai`, 
 
 ### B-4 — Critic policy & summary (Q11)
 
-- **B-4-1** Fixture with cross-family critic configured → log `cli.policy { crossFamily: true }`, audit.summary counts show some non-`critic-unavailable` verdicts (mocked critic returns mix).
-- **B-4-2** Fixture with single-engine config (no critic pool) → log `cli.policy { crossFamily: false, reason: 'no-critic-configured' }`, summary `criticUnavailable === total findings`, stdout summary contains "configure a second engine".
+- **B-4-1** Fixture with cross-family critic configured → log `critic.policy-selected { crossFamily: true }` under `track='critic'`, audit.summary counts show some non-`critic-unavailable` verdicts (mocked critic returns mix).
+- **B-4-2** Fixture with single-engine config (no critic pool) → log `critic.policy-selected { crossFamily: false, reason: 'no-critic-configured' }` under `track='critic'`, summary `criticUnavailable === total findings`, stdout summary contains "configure a second engine".
 
 ### B-5 — Exit-code threshold (Q9)
 
@@ -313,6 +326,18 @@ Tests SHOULD NOT invent placeholder kinds like `mock-anthropic`, `mock-openai`, 
 - **B-10-5** (Gap A4) Per-preset breakdown: `bundle.summary.byPreset` has exactly one key per preset that produced any finding (presets with zero findings are absent). For every preset key, summing the four counts across all keys equals the corresponding `bundle.summary.counts.*` top-level value (per-preset counts sum to top-level counts exactly).
 - **B-10-6** (Gap B7) Threshold computed before apply: with `--fail-on p1 --apply` against a fixture that yields ≥1 confirmed P1 finding whose only fix is `llm-only` with `verified: false` (so every proposal is skipped), the CLI exits with code 2. The exit code is determined by the confirmed-P1 count BEFORE the apply phase runs; the fact that all proposals were skipped does NOT downgrade the exit to 0.
 
+## Logging Contract
+
+Hardener CLI creates one root logger `createTrackLogger('cli')` at startup; its `trace` (a fresh ULID) becomes the audit's `trace_id` and is shared across every event the CLI emits under `track='cli'` and `track='audit'`. The bundle's `audit.startedAt` ULID equals the CLI logger's `trace`.
+
+When CLI invokes Protocol-1's `reviewBatch` / `reviewFinding` / `proposeFix`, it passes its CLI logger via `opts.logger`. Protocol-1 internally creates its own `track='critic'` logger via `createTrackLogger('critic', { parentTrace: cliLogger.trace })` — so all `critic.*` events land under `track='critic'` while sharing the CLI's `trace`. Filtering log entries by `track` separates concerns; filtering by `trace` reconstructs the full causal chain of one audit run.
+
+Similarly, Protocol-2 calls (`loadPreset`, `listPresets`, `runPreset`) receive the CLI logger and internally emit under `track='preset'` with `parentTrace` plumbed through.
+
+**Policy-selection event ownership (F9 — `cli.policy` removed)**: Policy selection is logged by Protocol-1 as `critic.policy-selected` under `track='critic'`. The CLI does NOT emit a separate `cli.policy` event. Log consumers summarizing audits should read `critic.policy-selected` (per Protocol-1 surface §"Self-emitted log events under `track='critic'`") rather than expecting a CLI-side duplicate.
+
+**Secret redaction**: per the Protocol-1 redaction invariant, no `critic.*` event payload contains `apiKey` / `token` / `authorization` / `bearer` fields at any nesting depth. The CLI also strips these fields from any engine-config payloads it logs under `cli.*` events (e.g. `cli.engine.worker-build-failed`).
+
 ## Self-emitted log events
 
 ### Under `track='cli'`
@@ -331,7 +356,6 @@ Tests SHOULD NOT invent placeholder kinds like `mock-anthropic`, `mock-openai`, 
 | `cli.repo.existing-git` | `info` | `cwd`, `head` |
 | `cli.repo.dirty` | `error` | `cwd` |
 | `cli.engine.worker-build-failed` | `error` | `kind`, `error` |
-| `cli.policy` | `info` | `workerFamily`, `criticFamily`, `crossFamily: boolean`, `reason: string` |
 | `cli.preset.listed` | `info` | `count: number` |
 | `cli.preset.shadow-warn` | `warn` | `presetId`, `winningSource: string`, `shadowedSources: string[]` |
 | `cli.preset.run-failed` | `error` | `presetId`, `errorCode` |

@@ -25,10 +25,11 @@ export type Verdict =
   | 'critic-unavailable';
 
 export interface CriticInfo {
-  engineKind:  string;     // e.g. 'anthropic-api'
+  kind:        string;     // e.g. 'anthropic-api'  (matches EngineConfig.kind vocabulary)
   modelId:     string;     // e.g. 'claude-haiku-4-5-20251001'  (FULL model id, per Q5 micro)
   releaseDate: string;     // ISO 8601 date of the modelId's release, e.g. '2025-10-01'
   family:      string;     // see family taxonomy below
+  costUsd:     number | null;  // per-finding cost captured from engine.lastCallCostUsd() immediately after the call; null when the engine cannot report cost (or when verdict === 'critic-unavailable' because no call was made).
 }
 
 export interface VerdictedFinding extends Finding {
@@ -66,13 +67,21 @@ export interface MinimalCriticEngineSurface {
   lastCallCostUsd(): number | null;
 
   // Static metadata accessor; mirrors the EngineConfig fields.
-  getMeta(): { engineKind: string; modelId: string; releaseDate: string };
+  getMeta(): { kind: string; modelId: string; releaseDate: string };
 }
 ```
 
 Test-author note: mocks only need to implement these three members to satisfy P1's call sites.
 
-**`CriticInfo` provenance**: `CriticInfo.engineKind`, `modelId`, and `releaseDate` come from `engine.getMeta()` (the contract above). The fields mirror the `EngineConfig` passed at engine construction time; engines do NOT query their backend for these strings.
+**`CriticInfo` provenance**: `CriticInfo.kind`, `modelId`, and `releaseDate` come from `engine.getMeta()` (the contract above). The fields mirror the `EngineConfig` passed at engine construction time; engines do NOT query their backend for these strings.
+
+**`CriticInfo.family` provenance**: Protocol-1 derives `CriticInfo.family` by calling `engineFamily(criticEngineConfig)` once per `reviewFinding` / `reviewBatch` invocation. Engines do NOT supply `family` via `getMeta()` — it is computed from the `EngineConfig` passed at construction time.
+
+**`CriticInfo.costUsd` provenance**: Protocol-1 captures `CriticInfo.costUsd` from `engine.lastCallCostUsd()` invoked synchronously immediately after the corresponding `call()` resolves (before yielding to the event loop — see "`lastCallCostUsd()` concurrency" below). `null` when the engine cannot report cost OR when `verdict === 'critic-unavailable'` (no call was made).
+
+**`lastCallCostUsd()` concurrency**: under `reviewBatch` with `concurrency > 1`, this method reads the cost of the engine's most-recently-completed `call()`, not an atomic snapshot of a specific call. Protocol-1 invokes `lastCallCostUsd()` synchronously immediately after each `call()` resolves, before yielding to the event loop — this is sufficient for cost-cap accounting accuracy under the documented contract. Engines are NOT required to serialize their cost reporting. Callers needing per-finding cost MUST consume `bundle.findings[i].critic.costUsd` (exposed on `CriticInfo` above) OR `bundle.perFindingCost` if exposed by P3.
+
+**Secret redaction invariant**: No `critic.*` log event payload may contain any of these field names at any nesting depth: `apiKey`, `token`, `authorization`, `bearer`. Engines that report config metadata via `getMeta()` MUST strip these fields before P1 logs them. This is a hard contract — Phase-3 tests assert no such field appears anywhere under `track='critic'`.
 
 ```typescript
 export interface FixProposal {
@@ -113,14 +122,14 @@ export interface ReviewOptions {
 }
 ```
 
-**Logger track resolution (`track='critic'`)**: When `opts.logger` is supplied, Protocol-1 creates an internal child logger via `opts.logger.child('critic')` to scope its events. This means:
+**Logger track resolution (`track='critic'`, always)**: Protocol-1 ALWAYS emits its events under `track: 'critic'`. The `track` is module-fixed; only the `trace` inherits across modules.
 
-- `entry.track === opts.logger.track` (P1 inherits the caller's track; it does NOT override).
-- `entry.scope` equals `<parent-scope>.critic` if the parent logger has a scope, else just `'critic'`.
+- When `opts.logger` is supplied, Protocol-1 internally calls `createTrackLogger('critic', { parentTrace: opts.logger.trace })`. The new logger's `track` is `'critic'`; its `trace` equals `opts.logger.trace` (shared with the caller). P1 does NOT call `opts.logger.child('critic')` — that would inherit the caller's `track` and break the cross-module convention.
+- When `opts.logger` is omitted, Protocol-1 calls `createTrackLogger('critic')` with no `parentTrace` — a fresh ULID is generated.
 
-When `opts.logger` is omitted, Protocol-1 creates `createTrackLogger('critic')` itself and entries land under `track: 'critic'`, `scope: 'critic'`.
+In both cases, `entry.track === 'critic'` for every P1-emitted event. `entry.scope` is `'critic'` (or one of the child scopes listed below: `prompt-render`, `engine-call`, `fix-verify`).
 
-Test-author note: tests using `captureLogsFor({ track: 'critic' }, ...)` MUST construct the injected test logger with `track: 'critic'` (e.g. `createTrackLogger('critic')`) so events match the filter.
+Test-author note: tests can construct any caller-side logger they want (e.g. `createTrackLogger('cli', {})` to simulate the CLI wiring) and pass it to P1. To observe P1's events, use `captureLogsFor({ track: 'critic' }, ...)` — the two loggers share `trace` via the `parentTrace` plumbing, so a test asserting "audit produced N `critic.*` events under trace T" is straightforward. Tests that DIRECTLY exercise P1 as a library (no caller logger) can simply omit `opts.logger` and capture under `track: 'critic'` as before.
 
 **`allowDegraded` semantics**: `allowDegraded: true` invokes the configured `policy.criticEngine` regardless of `policy.reason`. When `reason: 'no-critic-configured'`, `criticEngine` is built from the worker config — so `allowDegraded: true` effectively asks the worker engine to critic its own findings. This defeats cross-engine decorrelation; use only when no other engine is available.
 
@@ -257,7 +266,7 @@ The critic engine is asked to return a JSON object that strictly conforms to:
 ### B-2 — Single finding review
 
 - **B-2-1** A finding reviewed under a `crossFamily: false` policy with default `opts` returns `verdict: 'critic-unavailable'`, `critic: null`. No critic engine call is made (test asserts the critic mock was never invoked).
-- **B-2-2** A finding reviewed under a `crossFamily: true` policy where the critic mock returns `{verdict:'confirmed', reasoning:'x'}` returns `verdict: 'confirmed'`, `reasoning: 'x'`, `critic.engineKind === <mock kind>`, `critic.modelId` and `critic.releaseDate` populated.
+- **B-2-2** A finding reviewed under a `crossFamily: true` policy where the critic mock returns `{verdict:'confirmed', reasoning:'x'}` returns `verdict: 'confirmed'`, `reasoning: 'x'`, `critic.kind === <mock kind>`, `critic.modelId` and `critic.releaseDate` populated.
 - **B-2-3** Critic returns `{verdict:'needs-context', requiredContext: []}` → result has `verdict: 'false-positive'` AND `requiredContext: null` (NOT `[]` — preserving the invariant `requiredContext: non-empty iff verdict === 'needs-context'`), AND a `critic.coerced-empty-context-to-fp` log entry is recorded.
 - **B-2-4** Critic mock throws a non-rate-limit transport error → result has `verdict: 'critic-unavailable'`, `critic: null`, AND a `critic.invocation-failure` log entry with `errorCode: 'P1-E-2'`.
 - **B-2-5** Critic mock returns a string that is not valid JSON → result has `verdict: 'critic-unavailable'`, AND a `critic.response-parse-failure` log entry with `errorCode: 'P1-E-3'` AND a `raw` field of ≤500 chars.
