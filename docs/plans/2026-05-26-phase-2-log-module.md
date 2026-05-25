@@ -139,8 +139,13 @@ A reviewer with a clean clone runs:
 # Setup (vitest configured per daemon/package.json — no new install)
 cd daemon && npm install && cd ..
 
+# IMPORTANT (M3 amend): always pass `--config vitest.config.ts` when running
+# vitest from the repo root — otherwise vitest walks up and picks the wrong
+# (or no) config, sweeping in ui/* tests and producing 91+ false failures.
+# Phase 1.5 lesson learnt.
+
 # 1. Run all log module tests
-npm test --workspace=daemon -- daemon/src/log/
+(cd daemon && npx vitest run --config vitest.config.ts src/log/)
 # expect: "Test Files 2 passed (2)" and "Tests 39 passed (39)"
 
 # 2. Run smoke script
@@ -167,8 +172,8 @@ jq -c '.scope' "$SAMPLE"
 # expect: null, "work", null
 
 # 6. Coverage check
-npm test --workspace=daemon -- daemon/src/log/ --coverage
-# expect: 100% line + branch on daemon/src/log/track-logger.ts and daemon/src/log/test-helpers.ts
+(cd daemon && npx vitest run --config vitest.config.ts --coverage src/log/)
+# expect: 100% line coverage on daemon/src/log/track-logger.ts and daemon/src/log/test-helpers.ts (branch coverage left for Phase 2.5)
 ```
 
 Deterministic gate: if step 1 or 2 fails, OR step 3-5 outputs deviate from expected text, OR step 6 coverage < 100% on the two files, reviewer **rejects** Phase 2.
