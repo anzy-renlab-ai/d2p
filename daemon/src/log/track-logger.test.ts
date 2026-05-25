@@ -15,6 +15,7 @@ import {
   LogError,
   __setRotationRmForTests,
   __resetMetaLoggersForTests,
+  __resetLiveLoggersForTests,
 } from './track-logger.js';
 import { captureLogsFor } from './test-helpers.js';
 
@@ -22,6 +23,7 @@ let tmp = '';
 
 afterEach(async () => {
   __resetMetaLoggersForTests();
+  __resetLiveLoggersForTests();
   if (tmp) {
     await rm(tmp, { recursive: true, force: true }).catch(() => {});
     tmp = '';
@@ -479,6 +481,61 @@ describe('parentTrace — cross-module trace inheritance (F3 lead decision)', ()
     });
     expect(criticEntries.length).toBe(1);
     expect(criticEntries[0]!.trace).toBe(cli.trace);
+  });
+});
+
+// ── B-6 — durability + beforeExit hook ──────────────────────────────────────
+
+describe('B-6-1 — flush() fsyncs writes', () => {
+  it('T-6-1-1: 50 entries durable on disk after await flush()', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b61-'));
+    const logger = createTrackLogger('foo', { logRoot: tmp });
+    for (let i = 0; i < 50; i++) {
+      logger.log('info', 'tick', { i });
+    }
+    await logger.flush();
+    const entries = await readOnlyEntry(logger, { logRoot: tmp, track: 'foo' });
+    expect(entries).toHaveLength(50);
+    const iSet = new Set(entries.map((e) => e.i));
+    expect(iSet.size).toBe(50);
+  });
+});
+
+describe('B-6-2 — process.beforeExit flushes live loggers + emits log.beforeexit-flushed', () => {
+  it('T-6-2-1: beforeExit flushes pending writes and emits log.beforeexit-flushed', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b62-'));
+    const a = createTrackLogger('A', { logRoot: tmp });
+    const b = createTrackLogger('B', { logRoot: tmp });
+    a.log('info', 'ax', {});
+    b.log('info', 'bx', {});
+    // Note: NO explicit flush. beforeExit should flush them.
+    const { entries: metaEntries } = await captureLogsFor(
+      { track: 'log', eventPattern: /^log\.beforeexit-flushed$/ },
+      async () => {
+        process.emit('beforeExit', 0);
+        // Allow async beforeExit handler to settle.
+        await new Promise((r) => setTimeout(r, 80));
+      },
+    );
+    expect(metaEntries.length).toBeGreaterThanOrEqual(1);
+    const evt = metaEntries[0]!;
+    expect(typeof (evt as Record<string, unknown>).flushedCount).toBe('number');
+    expect(typeof (evt as Record<string, unknown>).durationMs).toBe('number');
+
+    // Both files should now have their entries on disk.
+    const aEntries = await readOnlyEntry(a, { logRoot: tmp, track: 'A' });
+    const bEntries = await readOnlyEntry(b, { logRoot: tmp, track: 'B' });
+    expect(aEntries).toHaveLength(1);
+    expect(bEntries).toHaveLength(1);
+  });
+
+  it('T-6-2-2: silent logger + beforeExit is observable no-op (no error, no file)', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b62b-'));
+    const logger = createTrackLogger('foo', { logRoot: tmp, silent: true });
+    logger.log('info', 'x', {});
+    process.emit('beforeExit', 0);
+    await new Promise((r) => setTimeout(r, 30));
+    await expect(stat(path.join(tmp, 'foo'))).rejects.toThrow();
   });
 });
 

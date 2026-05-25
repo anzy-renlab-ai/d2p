@@ -339,6 +339,15 @@ interface LoggerCore {
   writePromises: Array<Promise<void>>;
   minLevel: LogLevel;
   silent: boolean;
+  isMeta: boolean;
+}
+
+const liveLoggers = new Set<LoggerCore>();
+
+function fsyncFd(fd: number): Promise<void> {
+  return new Promise((resolve, reject) =>
+    fs.fsync(fd, (err) => (err ? reject(err) : resolve())),
+  );
 }
 
 function ensureStream(core: LoggerCore): WriteStream {
@@ -414,6 +423,15 @@ class TrackLoggerImpl implements TrackLogger {
     const pending = this.core.writePromises.slice();
     this.core.writePromises = [];
     await Promise.all(pending);
+    // B-6-1: fsync after all in-flight writes so reads after this point see all
+    // entries durably (not just in page cache).
+    if (this.core.stream && this.core.stream.fd !== null) {
+      try {
+        await fsyncFd(this.core.stream.fd);
+      } catch {
+        // EBADF can happen if stream was already closed concurrently; swallow.
+      }
+    }
   }
 }
 
@@ -435,6 +453,72 @@ export function createTrackLogger(
     writePromises: [],
     minLevel: resolveMinLevel(o),
     silent,
+    isMeta: o._isMeta === true,
   };
+  liveLoggers.add(core);
+  installBeforeExitHook();
   return new TrackLoggerImpl(core, undefined);
+}
+
+// ── beforeExit hook: flush every live logger + emit log.beforeexit-flushed ─
+
+let beforeExitInstalled = false;
+let beforeExitInProgress = false;
+
+function installBeforeExitHook(): void {
+  if (beforeExitInstalled) return;
+  beforeExitInstalled = true;
+  process.on('beforeExit', () => {
+    void runBeforeExitFlush();
+  });
+}
+
+async function runBeforeExitFlush(): Promise<void> {
+  if (beforeExitInProgress) return;
+  beforeExitInProgress = true;
+  const start = Date.now();
+  let flushedCount = 0;
+  // Snapshot live loggers; flush non-meta loggers first so meta events emitted
+  // during flush still have a meta logger ready.
+  const snapshot = Array.from(liveLoggers);
+  for (const core of snapshot) {
+    if (core.isMeta) continue;
+    try {
+      const pending = core.writePromises.slice();
+      core.writePromises = [];
+      await Promise.all(pending);
+      if (core.stream && core.stream.fd !== null) {
+        await fsyncFd(core.stream.fd);
+      }
+      flushedCount++;
+    } catch {
+      /* best-effort */
+    }
+  }
+  const durationMs = Date.now() - start;
+  // Emit log.beforeexit-flushed via each meta logger so observers under any
+  // logRoot see it; then flush the meta loggers themselves.
+  for (const [logRoot] of metaLoggersByRoot) {
+    emitMetaEvent(logRoot, 'info', 'log.beforeexit-flushed', { flushedCount, durationMs });
+  }
+  for (const core of snapshot) {
+    if (!core.isMeta) continue;
+    try {
+      const pending = core.writePromises.slice();
+      core.writePromises = [];
+      await Promise.all(pending);
+      if (core.stream && core.stream.fd !== null) {
+        await fsyncFd(core.stream.fd);
+      }
+    } catch {
+      /* best-effort */
+    }
+  }
+  beforeExitInProgress = false;
+}
+
+// Test-only: clear liveLoggers + reset beforeExit state.
+export function __resetLiveLoggersForTests(): void {
+  liveLoggers.clear();
+  beforeExitInProgress = false;
 }
