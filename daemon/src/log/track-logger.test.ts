@@ -11,6 +11,7 @@ import * as fsSync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createTrackLogger, LogError, __setRotationRmForTests } from './track-logger.js';
+import { captureLogsFor } from './test-helpers.js';
 
 let tmp = '';
 
@@ -247,6 +248,89 @@ describe('B-3-2 — silent mode skips disk + rotation', () => {
     // Track dir should not exist (no writes at all).
     await expect(stat(path.join(tmp, 'foo'))).rejects.toThrow();
     vi.unstubAllEnvs();
+  });
+});
+
+// ── B-4 — captureLogsFor / observer infrastructure ──────────────────────────
+
+describe('B-4-1 — captureLogsFor returns only matching-track entries', () => {
+  it('T-4-1-1: capture for track A only sees A entries, not B', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b41-'));
+    const a = createTrackLogger('A', { logRoot: tmp, silent: true });
+    const b = createTrackLogger('B', { logRoot: tmp, silent: true });
+    const { result, entries } = await captureLogsFor({ track: 'A' }, async () => {
+      a.log('info', 'a-evt', {});
+      b.log('info', 'b-evt', {});
+      return 42;
+    });
+    expect(result).toBe(42);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.track).toBe('A');
+    expect(entries[0]!.event).toBe('a-evt');
+  });
+
+  it('T-4-1-2: eventPattern further filters within track', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b41b-'));
+    const a = createTrackLogger('A', { logRoot: tmp, silent: true });
+    const { entries } = await captureLogsFor(
+      { track: 'A', eventPattern: /^audit\./ },
+      async () => {
+        a.log('info', 'audit.start', {});
+        a.log('info', 'noise', {});
+        a.log('info', 'audit.end', {});
+      },
+    );
+    expect(entries.map((e) => e.event)).toEqual(['audit.start', 'audit.end']);
+  });
+});
+
+describe('B-4-2 — concurrent captureLogsFor isolation', () => {
+  it('T-4-2-1: two concurrent captures each see only their own track', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b42-'));
+    const a = createTrackLogger('A', { logRoot: tmp, silent: true });
+    const b = createTrackLogger('B', { logRoot: tmp, silent: true });
+    const [{ entries: ea }, { entries: eb }] = await Promise.all([
+      captureLogsFor({ track: 'A' }, async () => {
+        for (let i = 0; i < 5; i++) {
+          a.log('info', 'ae', { i });
+          await Promise.resolve();
+        }
+      }),
+      captureLogsFor({ track: 'B' }, async () => {
+        for (let i = 0; i < 5; i++) {
+          b.log('info', 'be', { i });
+          await Promise.resolve();
+        }
+      }),
+    ]);
+    expect(ea).toHaveLength(5);
+    expect(ea.every((e) => e.track === 'A')).toBe(true);
+    expect(eb).toHaveLength(5);
+    expect(eb.every((e) => e.track === 'B')).toBe(true);
+  });
+});
+
+describe('B-4-3 — captureLogsFor cleans up on throw', () => {
+  it('T-4-3-1: capture re-throws and removes its observer; no leak into next capture', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b43-'));
+    const a = createTrackLogger('A', { logRoot: tmp, silent: true });
+    let caught: unknown;
+    try {
+      await captureLogsFor({ track: 'A' }, async () => {
+        a.log('info', 'before-throw', {});
+        throw new Error('boom');
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe('boom');
+
+    // Next capture for B must NOT see any A entries from previous run.
+    const { entries } = await captureLogsFor({ track: 'B' }, async () => {
+      a.log('info', 'after', {});
+    });
+    expect(entries).toHaveLength(0);
   });
 });
 
