@@ -40,6 +40,8 @@ export interface CreateTrackLoggerOptions {
   minLevel?: LogLevel;
   silent?: boolean;
   parentTrace?: string;
+  /** @internal — used to break the meta-logger / rotation recursion cycle. */
+  _isMeta?: boolean;
 }
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
@@ -143,7 +145,11 @@ interface RotationResult {
   failed: Array<{ dateDir: string; error: string }>;
 }
 
-function rotateOldDateDirs(logRoot: string, track: string): RotationResult {
+function rotateOldDateDirs(
+  logRoot: string,
+  track: string,
+  suppressMetaEmit = false,
+): RotationResult {
   const key = `${process.pid}|${track}|${logRoot}`;
   if (rotatedPerProcess.has(key)) return { removed: [], failed: [] };
   rotatedPerProcess.add(key);
@@ -154,6 +160,12 @@ function rotateOldDateDirs(logRoot: string, track: string): RotationResult {
     entries = fs.readdirSync(trackDir);
   } catch {
     // track dir doesn't exist yet — nothing to rotate.
+    if (!suppressMetaEmit) {
+      emitMetaEvent(logRoot, 'info', 'log.rotation-complete', {
+        subjectTrack: track,
+        removedDirs: [],
+      });
+    }
     return { removed: [], failed: [] };
   }
 
@@ -174,6 +186,19 @@ function rotateOldDateDirs(logRoot: string, track: string): RotationResult {
       result.removed.push(abs);
     } catch (err) {
       result.failed.push({ dateDir: abs, error: (err as Error).message });
+    }
+  }
+  if (!suppressMetaEmit) {
+    emitMetaEvent(logRoot, 'info', 'log.rotation-complete', {
+      subjectTrack: track,
+      removedDirs: result.removed,
+    });
+    for (const f of result.failed) {
+      emitMetaEvent(logRoot, 'warn', 'log.rotation-failed', {
+        subjectTrack: track,
+        dateDir: f.dateDir,
+        error: f.error,
+      });
     }
   }
   return result;
@@ -227,28 +252,38 @@ function notifyObservers(entry: LogEntry): void {
 
 // ── Meta-event emission (always under track='log') ──────────────────────────
 //
-// Meta-events (rotation-complete, invalid-event-name, write-degraded, etc.)
-// share a process-wide trace and only flow through notifyObservers — they are
-// NOT written to disk in this Phase-2 implementation. Disk persistence for
-// meta events can be added later by lazily constructing a real TrackLogger
-// for track='log' (deferred).
+// Meta events flow through a lazy per-logRoot meta-logger (track='log'). The
+// meta-logger writes to disk at `<logRoot>/log/<YYYY-MM-DD>/<trace>.jsonl`
+// AND notifies observers (per surface B-4-6 "always written under track='log'").
+// `_isMeta: true` breaks recursion: the meta-logger's own rotation does NOT
+// emit further meta events.
 
-const META_TRACE = generateUlid();
+const metaLoggersByRoot = new Map<string, TrackLogger>();
+
+function getMetaLogger(logRoot: string): TrackLogger {
+  let l = metaLoggersByRoot.get(logRoot);
+  if (!l) {
+    l = createTrackLogger('log', { logRoot, _isMeta: true });
+    metaLoggersByRoot.set(logRoot, l);
+  }
+  return l;
+}
 
 function emitMetaEvent(
+  logRoot: string,
   level: LogLevel,
   event: string,
   data: Record<string, unknown> = {},
 ): void {
-  const entry: LogEntry = {
-    ts: Date.now(),
-    level,
-    track: 'log',
-    trace: META_TRACE,
-    event,
-    ...data,
-  };
-  notifyObservers(entry);
+  // The meta-logger's .log() path notifies observers AND writes to disk under
+  // track='log'. No need for a parallel notifyObservers call.
+  getMetaLogger(logRoot).log(level, event, data);
+}
+
+// Test-only: reset the meta-logger cache so tests with fresh tmpdirs see a
+// fresh meta-logger.
+export function __resetMetaLoggersForTests(): void {
+  metaLoggersByRoot.clear();
 }
 
 // ── Safe JSON stringify (deep cycle → '[Circular]') — LOG-E-5 ───────────────
@@ -332,7 +367,9 @@ class TrackLoggerImpl implements TrackLogger {
   log(level: LogLevel, event: string, data: Record<string, unknown> = {}): void {
     // Empty event name → drop + emit meta-event (LOG-E-4 / B-5-1).
     if (event === '') {
-      emitMetaEvent('warn', 'log.invalid-event-name', { caller: bestEffortCaller() });
+      emitMetaEvent(this.core.logRoot, 'warn', 'log.invalid-event-name', {
+        caller: bestEffortCaller(),
+      });
       return;
     }
 
@@ -342,11 +379,13 @@ class TrackLoggerImpl implements TrackLogger {
     const entry: LogEntry = {
       ts: Date.now(),
       level,
+      ...data,
+      // Structural fields always win over caller-supplied data spread (prevents
+      // accidental collision with `track`/`trace`/`event`/`level`/`ts`/`scope`).
       track: this.track,
       trace: this.trace,
       ...(this.scope !== undefined ? { scope: this.scope } : {}),
       event,
-      ...data,
     };
 
     // Observers see every entry past the level filter, even under silent mode
@@ -386,7 +425,8 @@ export function createTrackLogger(
   const logRoot = o.logRoot ?? path.join(process.cwd(), '.zerou', 'logs');
   const silent = isSilentMode(o);
   // Silent loggers skip rotation entirely (touch no filesystem) — B-3-2.
-  if (!silent) rotateOldDateDirs(logRoot, track);
+  // Meta loggers skip meta-event emission to break getMetaLogger recursion.
+  if (!silent) rotateOldDateDirs(logRoot, track, o._isMeta === true);
   const core: LoggerCore = {
     track,
     trace: o.parentTrace ?? o.trace ?? generateUlid(),

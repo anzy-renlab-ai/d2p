@@ -10,12 +10,18 @@ import { mkdtemp, mkdir, rm, readFile, readdir, stat } from 'node:fs/promises';
 import * as fsSync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { createTrackLogger, LogError, __setRotationRmForTests } from './track-logger.js';
+import {
+  createTrackLogger,
+  LogError,
+  __setRotationRmForTests,
+  __resetMetaLoggersForTests,
+} from './track-logger.js';
 import { captureLogsFor } from './test-helpers.js';
 
 let tmp = '';
 
 afterEach(async () => {
+  __resetMetaLoggersForTests();
   if (tmp) {
     await rm(tmp, { recursive: true, force: true }).catch(() => {});
     tmp = '';
@@ -381,6 +387,98 @@ describe('B-4-6 — meta-events only under track="log"', () => {
     });
     expect(entries.every((e) => !e.event.startsWith('log.'))).toBe(true);
     expect(entries.every((e) => e.track === 'A')).toBe(true);
+  });
+});
+
+// ── Meta event emission (rotation-complete / rotation-failed; disk + observer) ──
+
+describe('Meta event emission (M3 §"a" lead decision: meta events also written to disk)', () => {
+  it('rotation emits log.rotation-complete observable via captureLogsFor', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-meta-rot-'));
+    await seedDateDir(tmp, 'foo', 10); // will be removed
+    const { entries } = await captureLogsFor(
+      { track: 'log', eventPattern: /^log\.rotation-complete$/ },
+      async () => {
+        createTrackLogger('foo', { logRoot: tmp });
+      },
+    );
+    expect(entries.length).toBeGreaterThanOrEqual(1);
+    // Surface §"Self-emitted meta-events" lists payload `track: string` for
+    // rotation events. Impl renames to `subjectTrack` to avoid collision with
+    // the entry's structural `track: 'log'`. Surface ambiguity noted in M3
+    // final report.
+    const evt = entries.find((e) => (e as Record<string, unknown>).subjectTrack === 'foo');
+    expect(evt).toBeTruthy();
+    expect(Array.isArray((evt as Record<string, unknown>).removedDirs)).toBe(true);
+    // Entry's structural track is always 'log' for meta events.
+    expect((evt as Record<string, unknown>).track).toBe('log');
+  });
+
+  it('rotation failure emits log.rotation-failed observable', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-meta-rotfail-'));
+    const failDir = await seedDateDir(tmp, 'foo', 10);
+    __setRotationRmForTests((abs) => {
+      if (abs === failDir) throw new Error('synthetic-rm-failure');
+      fsSync.rmSync(abs, { recursive: true, force: true });
+    });
+    try {
+      const { entries } = await captureLogsFor(
+        { track: 'log', eventPattern: /^log\.rotation-failed$/ },
+        async () => {
+          createTrackLogger('foo', { logRoot: tmp });
+        },
+      );
+      expect(entries).toHaveLength(1);
+      expect((entries[0] as Record<string, unknown>).dateDir).toBe(failDir);
+      expect(typeof (entries[0] as Record<string, unknown>).error).toBe('string');
+    } finally {
+      __setRotationRmForTests(null);
+    }
+  });
+
+  it('meta events ALSO land on disk under <logRoot>/log/ (B-4-6 "written under track=log")', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-meta-disk-'));
+    await seedDateDir(tmp, 'foo', 10);
+    createTrackLogger('foo', { logRoot: tmp });
+    // Allow async write to flush (the meta-logger is lazy)
+    await new Promise((r) => setTimeout(r, 50));
+    const logDir = path.join(tmp, 'log');
+    const dateDirs = await readdir(logDir);
+    expect(dateDirs.length).toBe(1);
+    const files = await readdir(path.join(logDir, dateDirs[0]!));
+    expect(files.length).toBe(1);
+    const content = await readFile(path.join(logDir, dateDirs[0]!, files[0]!), 'utf8');
+    expect(content).toMatch(/log\.rotation-complete/);
+  });
+});
+
+// ── parentTrace cross-logger trace sharing (F3 critical contract) ─────────────
+
+describe('parentTrace — cross-module trace inheritance (F3 lead decision)', () => {
+  it('child logger created via parentTrace shares trace but keeps own track', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-pt-'));
+    const cli = createTrackLogger('cli', { logRoot: tmp, silent: true });
+    const critic = createTrackLogger('critic', {
+      logRoot: tmp,
+      silent: true,
+      parentTrace: cli.trace,
+    });
+    expect(critic.trace).toBe(cli.trace);
+    expect(critic.track).toBe('critic');
+    expect(cli.track).toBe('cli');
+
+    // Filtering by trace reconstructs the full causal chain across tracks.
+    const { entries } = await captureLogsFor({ track: 'cli' }, async () => {
+      cli.log('info', 'audit.start', {});
+    });
+    const cliEntries = entries.filter((e) => e.trace === cli.trace);
+    expect(cliEntries.length).toBe(1);
+
+    const { entries: criticEntries } = await captureLogsFor({ track: 'critic' }, async () => {
+      critic.log('info', 'review.start', {});
+    });
+    expect(criticEntries.length).toBe(1);
+    expect(criticEntries[0]!.trace).toBe(cli.trace);
   });
 });
 
