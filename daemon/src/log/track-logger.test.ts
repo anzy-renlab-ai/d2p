@@ -384,6 +384,63 @@ describe('B-4-6 — meta-events only under track="log"', () => {
   });
 });
 
+// ── B-5 — defensive serialization ────────────────────────────────────────────
+
+describe('B-5-1 — empty event name rejected with log.invalid-event-name warn', () => {
+  it('T-5-1-1: log("info", "", {}) writes no entry; emits log.invalid-event-name', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b51-'));
+    const logger = createTrackLogger('foo', { logRoot: tmp });
+    const { entries: metaEntries } = await captureLogsFor(
+      { track: 'log', eventPattern: /^log\.invalid-event-name$/ },
+      async () => {
+        logger.log('info', '', {});
+        await logger.flush();
+      },
+    );
+    expect(metaEntries).toHaveLength(1);
+    expect(metaEntries[0]!.level).toBe('warn');
+    expect(typeof metaEntries[0]!.caller).toBe('string');
+
+    // Application-track file should be empty (entry was dropped).
+    const trackDir = path.join(tmp, 'foo');
+    // The dir may or may not exist (depending on whether ensureStream ran for
+    // anything else); if it does, the file should have 0 lines.
+    const dateDirs = await readdir(trackDir).catch(() => [] as string[]);
+    if (dateDirs.length === 0) return;
+    const file = path.join(trackDir, dateDirs[0]!, `${logger.trace}.jsonl`);
+    const content = await readFile(file, 'utf8').catch(() => '');
+    const lines = content.split('\n').filter((l) => l.length > 0);
+    expect(lines).toHaveLength(0);
+  });
+});
+
+describe('B-5-2 — circular references in data replaced with "[Circular]"', () => {
+  it('T-5-2-1: shallow cycle in data', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b52-'));
+    const logger = createTrackLogger('foo', { logRoot: tmp });
+    const data: Record<string, unknown> = { other: 1 };
+    data.circ = data;
+    expect(() => logger.log('info', 'x', data)).not.toThrow();
+    await logger.flush();
+    const [entry] = await readOnlyEntry(logger, { logRoot: tmp, track: 'foo' });
+    expect(entry.other).toBe(1);
+    expect(entry.circ).toBe('[Circular]');
+  });
+
+  it('T-5-2-2: deep / nested cycle in data', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b52b-'));
+    const logger = createTrackLogger('foo', { logRoot: tmp });
+    const inner: Record<string, unknown> = { a: 1 };
+    inner.self = inner;
+    const data = { wrapper: inner };
+    expect(() => logger.log('info', 'x', data)).not.toThrow();
+    await logger.flush();
+    const [entry] = await readOnlyEntry(logger, { logRoot: tmp, track: 'foo' });
+    expect(entry.wrapper.a).toBe(1);
+    expect(entry.wrapper.self).toBe('[Circular]');
+  });
+});
+
 describe('B-2-2 — rotation failure on one dir does not stop sibling removal', () => {
   it('T-2-2-1: one rm failure logged; rotation continues with remaining', async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b22-'));
