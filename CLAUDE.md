@@ -255,3 +255,17 @@ PR-PLAN 闭环条件（reviewer 返 NEEDS_FIX 时的 fix plan，文件 `docs/pla
 - **OS**：Windows 11
 - **Shell**：PowerShell（默认）+ bash via Bash 工具
 - **路径风格**：bash 用 `/`，Windows 工具吃 `\`，Read/Write 用绝对 Windows 路径
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `Upp-Ljl/d2p` via `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+5 canonical state labels (defaults) + project-specific priority (`p1`/`p2`/`p3`) and type (`bug`/`feat`/`chore`) axes. Every open issue carries one of each. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` at root, ADRs under `docs/adr/`, per-module SPEC-SPLIT artifacts under `docs/details/`. See `docs/agents/domain.md`.
