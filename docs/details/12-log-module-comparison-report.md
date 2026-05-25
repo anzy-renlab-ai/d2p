@@ -181,3 +181,7 @@ Spec §7 (Behaviors) and surface §"Behavior contract" enumerate the same B-1-1 
 - B13 is accepted as documented intentional looseness.
 
 **Fixes are applied in the same commit as this report** — spec, surface, and (where the test author's wording is now wrong) test doc all updated. The updated test doc will reflect the now-decided answers (e.g. T-1-3-2 will be rewritten to assert that `child('')` throws, not "either-or").
+
+---
+
+**Status**: Resolutions inlined to surface @ `5eee600` on 2026-05-25. Surface file is now the standalone authoritative contract; this report is historical record only.

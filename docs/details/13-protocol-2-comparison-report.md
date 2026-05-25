@@ -247,3 +247,7 @@ All 12 spec Behavior IDs (B-1-1 through B-6-2) have test coverage. Adding B-7-1 
 **Fix policy**: all gaps closed in spec + surface before Phase 1 commit. Test doc updated where it currently accepts "either-or" wording (T-4-1-2, T-4-3-1, T-6-1-2, T-6-2-1, T-1-2-2) to lock in the now-decided answer.
 
 Fixes are applied in the same commit as this report.
+
+---
+
+**Status**: Resolutions inlined to surface @ `5eee600` on 2026-05-25. Surface file is now the standalone authoritative contract; this report is historical record only.

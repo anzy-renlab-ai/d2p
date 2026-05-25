@@ -207,3 +207,7 @@ All Behavior IDs (B-1-1 through B-5-1) have test coverage with ≥2 tests each. 
 **Fix policy**: all closed in spec + surface before Phase 1 commit. Test doc updated where it currently says "audit item §5.X" to remove the audit notation now that surface answers the question.
 
 Fixes are applied in the same commit as this report.
+
+---
+
+**Status**: Resolutions inlined to surface @ `5eee600` on 2026-05-25. Surface file is now the standalone authoritative contract; this report is historical record only.

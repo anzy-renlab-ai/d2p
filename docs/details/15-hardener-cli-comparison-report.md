@@ -184,3 +184,7 @@ Add to surface §"Stdout report" → "Summary section". Tests assert against the
 - Remove the audit-flagging notation now that gaps are closed
 
 Fixes are applied in the same commit as this report.
+
+---
+
+**Status**: Resolutions inlined to surface @ `5eee600` on 2026-05-25. Surface file is now the standalone authoritative contract; this report is historical record only.
