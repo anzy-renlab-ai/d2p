@@ -131,3 +131,29 @@ describe('B-1-3 — child(scope) writes scope field', () => {
     }
   });
 });
+
+// ── B-1-4 — nested child(scope) dot-joins ────────────────────────────────────
+
+describe('B-1-4 — nested child joins scopes with "."', () => {
+  it('T-1-4-1: root.child("a").child("b") writes scope:"a.b"', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b14-'));
+    const root = createTrackLogger('preset', { logRoot: tmp });
+    const ab = root.child('a').child('b');
+    expect(ab.track).toBe('preset');
+    expect(ab.trace).toBe(root.trace);
+    ab.log('info', 'step', {});
+    await ab.flush();
+    const [entry] = await readOnlyEntry(root, { logRoot: tmp, track: 'preset' });
+    expect(entry.scope).toBe('a.b');
+  });
+
+  it('T-1-4-2: three-level nesting joins all with "."', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b14b-'));
+    const root = createTrackLogger('preset', { logRoot: tmp });
+    const deep = root.child('a').child('b').child('c');
+    deep.log('info', 'x', {});
+    await deep.flush();
+    const [entry] = await readOnlyEntry(root, { logRoot: tmp, track: 'preset' });
+    expect(entry.scope).toBe('a.b.c');
+  });
+});
