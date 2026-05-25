@@ -334,6 +334,56 @@ describe('B-4-3 — captureLogsFor cleans up on throw', () => {
   });
 });
 
+describe('B-4-4 — nested captureLogsFor non-consuming', () => {
+  it('T-4-4-1: nested captures on same track both see matching entries', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b44-'));
+    const a = createTrackLogger('A', { logRoot: tmp, silent: true });
+    const { result: innerEntries, entries: outerEntries } = await captureLogsFor(
+      { track: 'A' },
+      async () => {
+        a.log('info', 'pre', {});
+        const { entries: inner } = await captureLogsFor({ track: 'A' }, async () => {
+          a.log('info', 'mid', {});
+        });
+        a.log('info', 'post', {});
+        return inner;
+      },
+    );
+    expect(outerEntries.map((e) => e.event)).toEqual(['pre', 'mid', 'post']);
+    expect(innerEntries.map((e) => e.event)).toEqual(['mid']);
+  });
+});
+
+describe('B-4-5 — captureLogsFor entries are chronological (FIFO)', () => {
+  it('T-4-5-1: entries appear in .log() call order', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b45-'));
+    const a = createTrackLogger('A', { logRoot: tmp, silent: true });
+    const { entries } = await captureLogsFor({ track: 'A' }, async () => {
+      for (let i = 0; i < 50; i++) {
+        a.log('info', 'tick', { i });
+      }
+    });
+    expect(entries).toHaveLength(50);
+    for (let i = 0; i < 50; i++) {
+      expect(entries[i]!.i).toBe(i);
+    }
+  });
+});
+
+describe('B-4-6 — meta-events only under track="log"', () => {
+  it('T-4-6-1: capture for application track sees zero log.* events (no leak)', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b46-'));
+    // Constructing this logger may emit meta-events under track='log'
+    // (rotation-complete, etc.). A capture for track='A' must not see them.
+    const a = createTrackLogger('A', { logRoot: tmp, silent: true });
+    const { entries } = await captureLogsFor({ track: 'A' }, async () => {
+      a.log('info', 'real-app-event', {});
+    });
+    expect(entries.every((e) => !e.event.startsWith('log.'))).toBe(true);
+    expect(entries.every((e) => e.track === 'A')).toBe(true);
+  });
+});
+
 describe('B-2-2 — rotation failure on one dir does not stop sibling removal', () => {
   it('T-2-2-1: one rm failure logged; rotation continues with remaining', async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b22-'));
