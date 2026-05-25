@@ -716,6 +716,94 @@ const { entries } = await captureLogsFor({ track: 'B' }, async () => { a.log('in
 
 ---
 
+### T-7-1-1 (covers B-7-1)
+
+**Name**: `LOG-E-1: first .log() throws LogError code=LOG-E-1 when logRoot is not writable (EACCES)`
+
+**Setup**:
+- `tmp = tmpdir()`.
+- `readonlyDir = path.join(tmp, 'readonly')`; `mkdirSync(readonlyDir)`; `chmodSync(readonlyDir, 0o500)` (POSIX only — `test.skipIf(process.platform === 'win32')`).
+- `logger = createTrackLogger('foo', { logRoot: readonlyDir })` — does NOT throw (errors deferred to first I/O).
+
+**Action**:
+- `() => logger.log('info', 'x', {})`.
+
+**Assertion (return value or thrown error)**:
+- Throws synchronously.
+- Thrown value `instanceof LogError`.
+- `error.code === 'LOG-E-1'`.
+- `error.message.startsWith('LOG-E-1')`.
+
+**Assertion (log)**:
+- (none — error path before any successful disk write; rotation may have run silently)
+
+---
+
+### T-7-1-2 (covers B-7-1)
+
+**Name**: `LOG-E-1: subsequent .log() calls also throw LOG-E-1 (no degraded mode)`
+
+**Setup**:
+- Same as T-7-1-1; trigger the first throw via `expect(() => logger.log('info', 'x', {})).toThrow(LogError)`.
+
+**Action**:
+- `() => logger.log('info', 'y', {})` (second attempt).
+
+**Assertion (return value or thrown error)**:
+- Throws `LogError` with `code: 'LOG-E-1'` again (not silently degraded, unlike LOG-E-2).
+
+**Assertion (log)**:
+- (none)
+
+---
+
+### T-8-1-1 (covers B-8-1)
+
+**Name**: `LOG-E-2: ENOSPC on first write drops entry + emits one stderr warning + log.write-degraded meta-event`
+
+**Setup**:
+- `tmp = tmpdir()`.
+- `logger = createTrackLogger('foo', { logRoot: tmp })`.
+- Stub `fs.WriteStream.prototype.write` (or the equivalent surface) to throw `Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' })` on the next `.write()` call. Use `vi.spyOn(...)` + restore in `afterEach`.
+- Capture `process.stderr.write` via `vi.spyOn(process.stderr, 'write')`.
+
+**Action**:
+- `logger.log('info', 'x', {})`; `await logger.flush()` (flush sees same ENOSPC, also fails).
+
+**Assertion (return value or thrown error)**:
+- `.log` does NOT throw.
+- File `<tmp>/foo/<today>/<logger.trace>.jsonl` either does not exist OR exists with 0 lines (entry dropped).
+- `process.stderr.write` was called exactly once with a string containing `LOG-E-2` (per-logger stderr warning).
+
+**Assertion (log)**:
+- `captureLogsFor({ track: 'log', eventPattern: /^log\.write-degraded$/ }, async () => { logger.log('info', 'x', {}); await logger.flush(); })` observes exactly 1 entry with `level: 'error'`, `track: 'foo'` (payload field).
+
+---
+
+### T-8-1-2 (covers B-8-1)
+
+**Name**: `LOG-E-2: subsequent writes are dropped until flush() succeeds, then normal behavior resumes`
+
+**Setup**:
+- Same as T-8-1-1: ENOSPC triggered on first write.
+- After first ENOSPC + stderr warning, remove the `fs.WriteStream.prototype.write` stub (`vi.restoreAllMocks()`) so subsequent writes succeed normally.
+
+**Action**:
+- `logger.log('info', 'a', {})` (during degraded mode — dropped, no stderr re-warn).
+- `await logger.flush()` (now succeeds since stub is removed).
+- `logger.log('info', 'b', {})` (post-recovery — should write normally).
+- `await logger.flush()`.
+
+**Assertion (return value or thrown error)**:
+- File `<tmp>/foo/<today>/<logger.trace>.jsonl` exists with exactly 1 line.
+- Parsed line: `event === 'b'` (the `'a'` entry was dropped during degraded mode).
+- `process.stderr.write` was called exactly once total (no re-warn during degraded mode).
+
+**Assertion (log)**:
+- Capturing the whole sequence under `captureLogsFor({ track: 'log' }, …)`: exactly 1 `log.write-degraded` entry (no duplicate), and no `log.write-degraded` for the post-recovery `'b'` write.
+
+---
+
 ## Section 4 — Coverage map (reverse lookup)
 
 | Behavior | Tests |
@@ -735,8 +823,10 @@ const { entries } = await captureLogsFor({ track: 'B' }, async () => { a.log('in
 | B-5-2 | T-5-2-1, T-5-2-2 |
 | B-6-1 | T-6-1-1, T-6-1-2 |
 | B-6-2 | T-6-2-1, T-6-2-2 |
+| B-7-1 | T-7-1-1, T-7-1-2 |
+| B-8-1 | T-8-1-1, T-8-1-2 |
 
-Total: 30 test cases across 15 behavior IDs. (Surface lists B-1-1..B-1-4, B-2-1..B-2-2, B-3-1..B-3-2, B-4-1..B-4-3, B-5-1..B-5-2, B-6-1..B-6-2 = 15 behaviors.)
+Total: 34 test cases across 17 behavior IDs. (Surface post-Phase-1.5 lists B-1-1..B-1-4, B-2-1..B-2-2, B-3-1..B-3-2, B-4-1..B-4-6, B-5-1..B-5-2, B-6-1..B-6-2, B-7-1, B-8-1 = 17 behaviors. B-4-4/B-4-5/B-4-6 are not enumerated here as separate test cases because they are accommodated within T-4-2-2 / T-6-1-1 / existing T-4-x cases through additional assertions added during Phase 2 implementation.)
 
 ### Log-assertion coverage
 
@@ -749,6 +839,8 @@ That is **18 of 30** cases (60%) carry an `Assertion (log)` block — above the 
 ---
 
 ## Section 5 — Surface-claim audit
+
+> **Status**: All 15 audit gaps below were RESOLVED in surface @ commit `5eee600` (Phase 1.5 patch pass). This section is historical record — the surface is now the standalone authoritative contract. Reading this section is informational only; do not derive new test assertions from it.
 
 The following claims appear in the surface but lack enough detail for a test author working only from the surface to write a deterministic assertion. These are the most valuable gaps — each one is a real contract hole.
 
