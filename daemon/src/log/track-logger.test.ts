@@ -10,7 +10,7 @@ import { mkdtemp, mkdir, rm, readFile, readdir, stat } from 'node:fs/promises';
 import * as fsSync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { createTrackLogger, LogError } from './track-logger.js';
+import { createTrackLogger, LogError, __setRotationRmForTests } from './track-logger.js';
 
 let tmp = '';
 
@@ -201,21 +201,19 @@ describe('B-2-2 — rotation failure on one dir does not stop sibling removal', 
     const failDir = await seedDateDir(tmp, 'foo', 10);
     const okDir = await seedDateDir(tmp, 'foo', 11);
 
-    // Spy on fs.rmSync; throw on failDir, delegate everything else to real impl.
-    const realRmSync = fsSync.rmSync;
-    const spy = vi.spyOn(fsSync, 'rmSync').mockImplementation((target, opts) => {
-      if (typeof target === 'string' && target === failDir) {
-        throw new Error('synthetic-rm-failure');
-      }
-      return realRmSync(target, opts);
+    // Inject rotation rm: throw on failDir, delegate to real fs.rmSync elsewhere.
+    __setRotationRmForTests((abs) => {
+      if (abs === failDir) throw new Error('synthetic-rm-failure');
+      fsSync.rmSync(abs, { recursive: true, force: true });
     });
 
-    expect(() => createTrackLogger('foo', { logRoot: tmp })).not.toThrow();
-
-    // failDir still present (rm threw); okDir removed.
-    await expect(stat(failDir)).resolves.toBeTruthy();
-    await expect(stat(okDir)).rejects.toThrow();
-
-    spy.mockRestore();
+    try {
+      expect(() => createTrackLogger('foo', { logRoot: tmp })).not.toThrow();
+      // failDir still present (rm threw); okDir removed.
+      await expect(stat(failDir)).resolves.toBeTruthy();
+      await expect(stat(okDir)).rejects.toThrow();
+    } finally {
+      __setRotationRmForTests(null);
+    }
   });
 });

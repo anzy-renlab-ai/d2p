@@ -8,9 +8,11 @@
  * This file grows incrementally via TDD red-green per behavior B-1-1 → B-8-1.
  */
 
-import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
+import * as fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
+
+type WriteStream = fs.WriteStream;
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -102,6 +104,72 @@ function localISODate(d: Date = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
+// ── Rotation: remove date dirs strictly more than 7 days before today ───────
+//
+// Per surface §"Rotation guarantee": cutoff is strict (>7 days removed; ≤7 kept),
+// per (Node process, track) idempotent via module-level Set, skipped when
+// silent / ZEROU_LOG_NULL=1.
+
+const DATE_DIR_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const rotatedPerProcess = new Set<string>();
+
+interface RotationResult {
+  removed: string[];          // absolute paths
+  failed: Array<{ dateDir: string; error: string }>;
+}
+
+function rotateOldDateDirs(logRoot: string, track: string): RotationResult {
+  const key = `${process.pid}|${track}|${logRoot}`;
+  if (rotatedPerProcess.has(key)) return { removed: [], failed: [] };
+  rotatedPerProcess.add(key);
+
+  const trackDir = path.join(logRoot, track);
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(trackDir);
+  } catch {
+    // track dir doesn't exist yet — nothing to rotate.
+    return { removed: [], failed: [] };
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const cutoff = new Date(today);
+  cutoff.setDate(cutoff.getDate() - 7);
+
+  const result: RotationResult = { removed: [], failed: [] };
+  for (const name of entries) {
+    const match = DATE_DIR_RE.exec(name);
+    if (!match) continue;
+    const dirDate = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    if (dirDate >= cutoff) continue; // strictly older than 7 days → remove
+    const abs = path.join(trackDir, name);
+    try {
+      _rmDateDirForRotation(abs);
+      result.removed.push(abs);
+    } catch (err) {
+      result.failed.push({ dateDir: abs, error: (err as Error).message });
+    }
+  }
+  return result;
+}
+
+// Test-only escape hatch: clear the rotation-once-per-process gate so tests
+// that share a Node process can each exercise rotation independently.
+export function __resetRotationGateForTests(): void {
+  rotatedPerProcess.clear();
+}
+
+// Test-only seam: vi.spyOn cannot redefine ESM namespace properties, so the
+// rotation's rm operation goes through an injectable function. Tests use
+// __setRotationRmForTests(fn) to substitute synthetic failures; default is
+// fs.rmSync.
+let _rmDateDirForRotation: (abs: string) => void = (abs) =>
+  fs.rmSync(abs, { recursive: true, force: true });
+export function __setRotationRmForTests(fn: ((abs: string) => void) | null): void {
+  _rmDateDirForRotation = fn ?? ((abs) => fs.rmSync(abs, { recursive: true, force: true }));
+}
+
 // ── TrackLoggerImpl ──────────────────────────────────────────────────────────
 
 // ── Core: shared write infrastructure for a root + its descendants ──────────
@@ -121,9 +189,9 @@ interface LoggerCore {
 function ensureStream(core: LoggerCore): WriteStream {
   if (!core.stream) {
     const dir = path.join(core.logRoot, core.track, localISODate());
-    mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `${core.trace}.jsonl`);
-    core.stream = createWriteStream(file, { flags: 'a' });
+    core.stream = fs.createWriteStream(file, { flags: 'a' });
   }
   return core.stream;
 }
@@ -176,10 +244,12 @@ export function createTrackLogger(
   track: string,
   opts?: CreateTrackLoggerOptions,
 ): TrackLogger {
+  const logRoot = opts?.logRoot ?? path.join(process.cwd(), '.zerou', 'logs');
+  rotateOldDateDirs(logRoot, track);
   const core: LoggerCore = {
     track,
     trace: generateUlid(),
-    logRoot: opts?.logRoot ?? path.join(process.cwd(), '.zerou', 'logs'),
+    logRoot,
     stream: null,
     writePromises: [],
   };
