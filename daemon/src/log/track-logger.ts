@@ -185,6 +185,46 @@ export function __resetRotationGateForTests(): void {
   rotatedPerProcess.clear();
 }
 
+// ── Observer registry (used by captureLogsFor) ───────────────────────────────
+//
+// Observers receive every entry written by any logger in this process after
+// level filtering, regardless of silent mode (surface B-3-2 promises silent
+// loggers still observed). Multiple observers can match the same entry; they
+// do not consume (surface B-4-4). Filters: track (exact match) + optional
+// eventPattern (regex).
+
+export interface LogObserver {
+  readonly id: string;
+  readonly track: string;
+  readonly eventPattern?: RegExp;
+  readonly entries: LogEntry[];
+}
+
+const observers = new Map<string, LogObserver>();
+
+export function __addLogObserver(opts: { track: string; eventPattern?: RegExp }): LogObserver {
+  const obs: LogObserver = {
+    id: generateUlid(),
+    track: opts.track,
+    eventPattern: opts.eventPattern,
+    entries: [],
+  };
+  observers.set(obs.id, obs);
+  return obs;
+}
+
+export function __removeLogObserver(id: string): void {
+  observers.delete(id);
+}
+
+function notifyObservers(entry: LogEntry): void {
+  for (const obs of observers.values()) {
+    if (entry.track !== obs.track) continue;
+    if (obs.eventPattern && !obs.eventPattern.test(entry.event)) continue;
+    obs.entries.push(entry);
+  }
+}
+
 // Test-only seam: vi.spyOn cannot redefine ESM namespace properties, so the
 // rotation's rm operation goes through an injectable function. Tests use
 // __setRotationRmForTests(fn) to substitute synthetic failures; default is
@@ -239,10 +279,7 @@ class TrackLoggerImpl implements TrackLogger {
   log(level: LogLevel, event: string, data: Record<string, unknown> = {}): void {
     // Level filter (B-3-1)
     if (LEVEL_ORDER[level] < LEVEL_ORDER[this.core.minLevel]) return;
-    // Silent mode (B-3-2): no disk write
-    if (this.core.silent) return;
 
-    const stream = ensureStream(this.core);
     const entry: LogEntry = {
       ts: Date.now(),
       level,
@@ -252,6 +289,16 @@ class TrackLoggerImpl implements TrackLogger {
       event,
       ...data,
     };
+
+    // Observers see every entry past the level filter, even under silent mode
+    // (B-3-2 promises silent loggers still observed). Multiple observers are
+    // non-consuming (B-4-4).
+    notifyObservers(entry);
+
+    // Silent mode (B-3-2): no disk write past this point
+    if (this.core.silent) return;
+
+    const stream = ensureStream(this.core);
     const line = JSON.stringify(entry) + '\n';
     const p = new Promise<void>((resolve, reject) => {
       stream.write(line, (err) => (err ? reject(err) : resolve()));
