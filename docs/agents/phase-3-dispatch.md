@@ -7,3 +7,13 @@ Constraints surfaced during Phase 1.5 worker self-report. Lead applies these whe
 2. **Worker's FIRST action: extend tests doc.** Authors of new Behavior IDs introduced in Phase 1.5 (`B-7-1/2/3` in P2; `B-10-1..6` in A) MUST add corresponding `T-x-y-z` cases to `docs/details/13-protocol-2-tests.md` / `15-hardener-cli-tests.md` BEFORE writing source. Tests-first; no exceptions.
 
 3. **Lead verifies worktree path** in each issue body's `## Worktree` section (`.worktrees/track-p2-preset/` / `.worktrees/track-p1-reviewer/` / `.worktrees/track-a-hardener/`) before `git worktree add`. If rename needed, amend issue body via `gh issue edit <n> --body-file` simultaneously.
+
+4. **`captureLogsFor` must be wrapped in try/finally.** The observer registry is module-global (`daemon/src/log/track-logger.ts`); an exception inside the captured fn that escapes without try/finally leaks the observer permanently. `captureLogsFor` already does this internally — Phase 3 reviewer rejects any code that calls `__addLogObserver` / `__removeLogObserver` directly without try/finally cleanup.
+
+5. **T-doc vs surface impl-hint precedence**: when a `docs/details/<NN>-<slug>-tests.md` test case contradicts the surface doc's implementation hint, the surface's hint wins. Modify the test, not the impl. Example: log-module B-5-2 — the tests-doc subagent expected outer-cycle `'[Circular]'` marking but surface's "WeakSet + custom JSON replacer" hint produces inner-cycle marking. Phase 2 worker updated the test in `daemon/src/log/track-logger.test.ts`; the test-doc Section 5 audit retains the original ambiguity as historical record.
+
+6. **Vitest command discipline**: when running vitest from the repo root, always pass `--config daemon/vitest.config.ts` (or `cd daemon && npx vitest run --config vitest.config.ts ...`). Bare `npx vitest run` walks up and picks up `ui/tests-e2e/*` producing 90+ false failures. Reviewer-runnable verify commands in plan / issue bodies MUST include the `--config` flag.
+
+7. **Use `os.tmpdir()` in tests + scripts, never hardcode `/tmp/`**. Windows git-bash maps `/tmp/` to a different path than Windows-native binaries (the Phase 1.5 `D:\tmp\issue-p2.md` incident cost 4 retry cycles). All `mkdtemp` calls use `path.join(os.tmpdir(), '<prefix>-')`.
+
+8. **Meta event payload key `subjectTrack` (not `track`)**: surface §"Self-emitted meta-events" tables list payload `track: string` for rotation events. Impl renames to `subjectTrack` to avoid collision with the entry's structural `track: 'log'` field (spread order: structural always wins). When Phase 3 Track P1/P2/A code emits meta events about a subject track, use `subjectTrack` in the payload.
