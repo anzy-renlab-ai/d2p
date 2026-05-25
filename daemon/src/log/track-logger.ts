@@ -225,6 +225,59 @@ function notifyObservers(entry: LogEntry): void {
   }
 }
 
+// ── Meta-event emission (always under track='log') ──────────────────────────
+//
+// Meta-events (rotation-complete, invalid-event-name, write-degraded, etc.)
+// share a process-wide trace and only flow through notifyObservers — they are
+// NOT written to disk in this Phase-2 implementation. Disk persistence for
+// meta events can be added later by lazily constructing a real TrackLogger
+// for track='log' (deferred).
+
+const META_TRACE = generateUlid();
+
+function emitMetaEvent(
+  level: LogLevel,
+  event: string,
+  data: Record<string, unknown> = {},
+): void {
+  const entry: LogEntry = {
+    ts: Date.now(),
+    level,
+    track: 'log',
+    trace: META_TRACE,
+    event,
+    ...data,
+  };
+  notifyObservers(entry);
+}
+
+// ── Safe JSON stringify (deep cycle → '[Circular]') — LOG-E-5 ───────────────
+
+function safeStringify(obj: unknown): string {
+  const seen = new WeakSet<object>();
+  return JSON.stringify(obj, function (_key, value) {
+    if (typeof value === 'object' && value !== null) {
+      if (seen.has(value as object)) return '[Circular]';
+      seen.add(value as object);
+    }
+    return value;
+  });
+}
+
+// ── Best-effort caller-frame extraction for log.invalid-event-name ──────────
+
+function bestEffortCaller(): string {
+  const stack = new Error().stack ?? '';
+  // Skip "Error", current frame, and emitMetaEvent / log frames; pick first
+  // frame outside this module.
+  const lines = stack.split('\n').slice(1);
+  for (const line of lines) {
+    if (line.includes('track-logger.')) continue;
+    return line.trim();
+  }
+  return '(unknown)';
+}
+
 // Test-only seam: vi.spyOn cannot redefine ESM namespace properties, so the
 // rotation's rm operation goes through an injectable function. Tests use
 // __setRotationRmForTests(fn) to substitute synthetic failures; default is
@@ -277,6 +330,12 @@ class TrackLoggerImpl implements TrackLogger {
   }
 
   log(level: LogLevel, event: string, data: Record<string, unknown> = {}): void {
+    // Empty event name → drop + emit meta-event (LOG-E-4 / B-5-1).
+    if (event === '') {
+      emitMetaEvent('warn', 'log.invalid-event-name', { caller: bestEffortCaller() });
+      return;
+    }
+
     // Level filter (B-3-1)
     if (LEVEL_ORDER[level] < LEVEL_ORDER[this.core.minLevel]) return;
 
@@ -299,7 +358,7 @@ class TrackLoggerImpl implements TrackLogger {
     if (this.core.silent) return;
 
     const stream = ensureStream(this.core);
-    const line = JSON.stringify(entry) + '\n';
+    const line = safeStringify(entry) + '\n';
     const p = new Promise<void>((resolve, reject) => {
       stream.write(line, (err) => (err ? reject(err) : resolve()));
     });

@@ -415,7 +415,11 @@ describe('B-5-1 — empty event name rejected with log.invalid-event-name warn',
 });
 
 describe('B-5-2 — circular references in data replaced with "[Circular]"', () => {
-  it('T-5-2-1: shallow cycle in data', async () => {
+  it('T-5-2-1: shallow cycle handled (no throw; second occurrence = "[Circular]")', async () => {
+    // Per surface §"Error codes" LOG-E-5 implementation hint (WeakSet + JSON
+    // replacer): the cycle marker appears at the SECOND occurrence of the
+    // same object reference, not at the outermost reference. Primary contract
+    // is "no throw"; non-cyclic siblings preserved.
     tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b52-'));
     const logger = createTrackLogger('foo', { logRoot: tmp });
     const data: Record<string, unknown> = { other: 1 };
@@ -424,10 +428,13 @@ describe('B-5-2 — circular references in data replaced with "[Circular]"', () 
     await logger.flush();
     const [entry] = await readOnlyEntry(logger, { logRoot: tmp, track: 'foo' });
     expect(entry.other).toBe(1);
-    expect(entry.circ).toBe('[Circular]');
+    // entry.circ is the first encounter of `data`, so it is recursively
+    // serialized; its own .circ (second encounter of `data`) is '[Circular]'.
+    expect(entry.circ.other).toBe(1);
+    expect(entry.circ.circ).toBe('[Circular]');
   });
 
-  it('T-5-2-2: deep / nested cycle in data', async () => {
+  it('T-5-2-2: deep / nested cycle in data — inner cycle marked at second occurrence', async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b52b-'));
     const logger = createTrackLogger('foo', { logRoot: tmp });
     const inner: Record<string, unknown> = { a: 1 };
@@ -436,7 +443,9 @@ describe('B-5-2 — circular references in data replaced with "[Circular]"', () 
     expect(() => logger.log('info', 'x', data)).not.toThrow();
     await logger.flush();
     const [entry] = await readOnlyEntry(logger, { logRoot: tmp, track: 'foo' });
+    // entry.wrapper = first encounter of `inner` — recursed normally.
     expect(entry.wrapper.a).toBe(1);
+    // entry.wrapper.self = second encounter of `inner` (cycle back) → '[Circular]'.
     expect(entry.wrapper.self).toBe('[Circular]');
   });
 });
