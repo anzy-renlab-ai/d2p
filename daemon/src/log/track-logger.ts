@@ -9,6 +9,7 @@
  */
 
 import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -37,9 +38,9 @@ export interface CreateTrackLoggerOptions {
 // ── ULID (Crockford base32, 26 chars) ────────────────────────────────────────
 //
 // Inlined to keep this module's runtime deps at Node stdlib only (per spec §4.7).
-// Time component (10 chars) encodes Unix ms; random component (16 chars) is
-// generated from Math.random() — sufficient for ZeroU's audit trace IDs which
-// are not cryptographic. Phase 3 may swap to crypto.randomBytes if needed.
+// 10-char timestamp + 16-char random. Random component uses `crypto.randomBytes`
+// (lead Phase-2 milestone-1 decision: avoid Math.random birthday-collision risk
+// for Phase 3's parallel-track audit trail identifiers).
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 
@@ -51,9 +52,18 @@ function generateUlid(): string {
     timePart = CROCKFORD[t % 32]! + timePart;
     t = Math.floor(t / 32);
   }
+  // 16 chars of Crockford base32 = 80 random bits. randomBytes(10) gives 80 bits.
+  const buf = randomBytes(10);
   let randPart = '';
-  for (let i = 0; i < 16; i++) {
-    randPart += CROCKFORD[Math.floor(Math.random() * 32)]!;
+  let acc = 0;
+  let bits = 0;
+  for (let i = 0; i < 10 && randPart.length < 16; i++) {
+    acc = (acc << 8) | buf[i]!;
+    bits += 8;
+    while (bits >= 5 && randPart.length < 16) {
+      bits -= 5;
+      randPart += CROCKFORD[(acc >>> bits) & 0x1f]!;
+    }
   }
   return timePart + randPart;
 }
