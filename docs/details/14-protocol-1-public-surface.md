@@ -46,7 +46,35 @@ export interface CriticPolicy {
   crossFamily: boolean;
   reason:      'cross-family-active' | 'no-critic-configured' | 'same-family-as-worker';
 }
+```
 
+### Critic engine call contract
+
+Protocol-1 narrows its dependency on `LLMEngine` to the minimal subset it actually invokes. Engines may implement more; P1 only needs:
+
+```typescript
+// What P1 invokes on the critic engine.
+export interface MinimalCriticEngineSurface {
+  // Returns the raw model response as a string. P1 parses to JSON internally.
+  call(prompt: string, opts?: {
+    schema?: ZodSchema;   // optional structured-output hint; engine may ignore
+    timeoutMs?: number;
+  }): Promise<string>;
+
+  // Per-call cost reporting (used by reviewBatch cost-cap accounting).
+  // Engines that cannot report cost return null.
+  lastCallCostUsd(): number | null;
+
+  // Static metadata accessor; mirrors the EngineConfig fields.
+  getMeta(): { engineKind: string; modelId: string; releaseDate: string };
+}
+```
+
+Test-author note: mocks only need to implement these three members to satisfy P1's call sites.
+
+**`CriticInfo` provenance**: `CriticInfo.engineKind`, `modelId`, and `releaseDate` come from `engine.getMeta()` (the contract above). The fields mirror the `EngineConfig` passed at engine construction time; engines do NOT query their backend for these strings.
+
+```typescript
 export interface FixProposal {
   findingId:     string;
   proposalKind:  'llm-only';
@@ -83,6 +111,20 @@ export interface ReviewOptions {
   /** Override "critic-unavailable on same-family" short-circuit (default: false). */
   allowDegraded?: boolean;
 }
+```
+
+**Logger track resolution (`track='critic'`)**: When `opts.logger` is supplied, Protocol-1 creates an internal child logger via `opts.logger.child('critic')` to scope its events. This means:
+
+- `entry.track === opts.logger.track` (P1 inherits the caller's track; it does NOT override).
+- `entry.scope` equals `<parent-scope>.critic` if the parent logger has a scope, else just `'critic'`.
+
+When `opts.logger` is omitted, Protocol-1 creates `createTrackLogger('critic')` itself and entries land under `track: 'critic'`, `scope: 'critic'`.
+
+Test-author note: tests using `captureLogsFor({ track: 'critic' }, ...)` MUST construct the injected test logger with `track: 'critic'` (e.g. `createTrackLogger('critic')`) so events match the filter.
+
+**`allowDegraded` semantics**: `allowDegraded: true` invokes the configured `policy.criticEngine` regardless of `policy.reason`. When `reason: 'no-critic-configured'`, `criticEngine` is built from the worker config — so `allowDegraded: true` effectively asks the worker engine to critic its own findings. This defeats cross-engine decorrelation; use only when no other engine is available.
+
+```typescript
 
 export function reviewFinding(
   finding:  Finding,
@@ -136,6 +178,12 @@ export function proposeFix(
 
 Two engines share a family iff `engineFamily` returns the same string for both. The cross-family check in `pickCriticEngine` is pure string equality.
 
+### `pickCriticEngine` semantics
+
+- **Empty / undefined pool fall-through**: Empty-array pool (`[]`) and undefined pool are treated identically to `null`. In all three cases `pickCriticEngine` returns `{crossFamily: false, reason: 'no-critic-configured', critic: worker, criticEngine: <built-from-worker-config>}`.
+- **Deterministic selection when multiple qualify**: When multiple pool members are cross-family with the worker, `pickCriticEngine` selects the FIRST cross-family member in array order. Callers control critic preference by ordering their pool config; output is stable for EvidenceBundle reproducibility.
+- **Engine instance pooling**: Each `pickCriticEngine` call returns a `CriticPolicy` whose `criticEngine` is a FRESH engine instance constructed from the chosen `EngineConfig`. Engine instances are NOT pooled across `pickCriticEngine` calls. Rate-limit and cost state are per-instance; callers wanting shared rate-limit accounting MUST reuse a single `CriticPolicy` across multiple `reviewBatch`/`reviewFinding` calls.
+
 ## Verdict response schema (critic LLM contract)
 
 The critic engine is asked to return a JSON object that strictly conforms to:
@@ -173,14 +221,30 @@ The critic engine is asked to return a JSON object that strictly conforms to:
 
 | Code | Trigger |
 |---|---|
-| `P1-E-1` | `reviewFinding` called with `policy === null/undefined`. Synchronous throw. |
-| `P1-E-2` | Critic invocation transport error (HTTP non-2xx that isn't rate-limit-with-retry, CLI subprocess non-zero exit, network timeout). NOT thrown; returns `verdict: 'critic-unavailable'`. |
+| `P1-E-1` | `reviewFinding` called with `policy === null/undefined`. Synchronous throw. No log entry is emitted (the throw happens before any logging); caller logs the misuse if desired. |
+| `P1-E-2` | Critic invocation transport error (HTTP non-2xx that isn't rate-limit-with-retry, CLI subprocess non-zero exit, network timeout). NOT thrown; returns `verdict: 'critic-unavailable'`. Protocol-1 does NOT retry internally — one transport error produces exactly one `'critic-unavailable'` verdict and exactly one `critic.invocation-failure` log entry. HTTP-level retries (e.g. on 429) are the engine adapter's responsibility, below P1's interface. |
 | `P1-E-3` | Critic response fails schema parse. NOT thrown; returns `verdict: 'critic-unavailable'`. |
-| `P1-E-4` | Critic returns `verdict: 'needs-context'` with empty/missing `requiredContext`. Coerced to `'false-positive'`; logged. |
-| `P1-E-5` | `reviewBatch` exhausted cost cap before completing. Returns partial results; uncompleted findings carry `verdict: 'critic-unavailable'`, `reasoning: 'cost-cap-exhausted'`. |
+| `P1-E-4` | Critic returns `verdict: 'needs-context'` with empty/missing `requiredContext`. Coerced to `'false-positive'`; logged. Coerced result has `requiredContext: null` (preserving the invariant `requiredContext: non-empty iff verdict === 'needs-context'`). |
+| `P1-E-5` | `reviewBatch` exhausted cost cap before completing. Returns a complete-length array; uncompleted findings carry `verdict: 'critic-unavailable'`, `reasoning: 'cost-cap-exhausted'`. Unlike Protocol-2's `PRESET-E-7`, Protocol-1's `reviewBatch` does NOT throw on cost-cap exhaustion and no thrown error carries a `partialFindings` field. |
 | `P1-E-6` | `proposeFix` response missing `patch` or `verifyStep`. Returns `null`. |
-| `P1-E-7` | `proposeFix` patch application failed. Returns proposal with `verified: false`. |
+| `P1-E-7` | `proposeFix` patch application failed. Returns proposal with `verified: false`. `verifyStep` is NEVER executed when patch apply fails — the failure short-circuits before verify. Patch error captured in `reasoning`. |
 | `P1-E-8` | `proposeFix` verify step timed out. Returns proposal with `verified: false`. |
+
+### Cost-cap evaluation semantics (`reviewBatch`)
+
+- Cost is evaluated AFTER each critic call completes (post-call accounting).
+- The throttle fires (concurrency drops to 1) when `costSoFar >= costCap` (inclusive `>=` comparison).
+- With `costCap: 0`, the first call still completes (cost evaluated post-call); subsequent calls become serial immediately.
+- Cap exhaustion is also evaluated AFTER each call: if `costSoFar >= costCap` AND the queue is non-empty, remaining findings are marked `'critic-unavailable'` with `reasoning: 'cost-cap-exhausted'`.
+- When no `costCap` is supplied (or `Infinity`), the `critic.batch.start` event's `costCap` field is `null` (JSON-serialized `Infinity` would become `null` anyway; this contract makes the value explicit).
+
+### Empty-input batch contract
+
+`reviewBatch([], ctx, policy, opts)` is a no-op that resolves to `[]`. It emits `critic.batch.start { total: 0 }` and `critic.batch.success { total: 0, confirmed: 0, falsePositive: 0, needsContext: 0, criticUnavailable: 0 }`. The critic engine is not invoked.
+
+### `proposeFix` verify ordering
+
+`proposeFix` runs `verifyStep` ONLY AFTER a successful patch apply. If patch application fails, `verifyStep` is never executed; the returned proposal has `verified: false` with the patch error captured in `reasoning` (per `P1-E-7`).
 
 ## Behavior contract
 
@@ -194,7 +258,7 @@ The critic engine is asked to return a JSON object that strictly conforms to:
 
 - **B-2-1** A finding reviewed under a `crossFamily: false` policy with default `opts` returns `verdict: 'critic-unavailable'`, `critic: null`. No critic engine call is made (test asserts the critic mock was never invoked).
 - **B-2-2** A finding reviewed under a `crossFamily: true` policy where the critic mock returns `{verdict:'confirmed', reasoning:'x'}` returns `verdict: 'confirmed'`, `reasoning: 'x'`, `critic.engineKind === <mock kind>`, `critic.modelId` and `critic.releaseDate` populated.
-- **B-2-3** Critic returns `{verdict:'needs-context', requiredContext: []}` → result has `verdict: 'false-positive'`, AND a `critic.coerced-empty-context-to-fp` log entry is recorded.
+- **B-2-3** Critic returns `{verdict:'needs-context', requiredContext: []}` → result has `verdict: 'false-positive'` AND `requiredContext: null` (NOT `[]` — preserving the invariant `requiredContext: non-empty iff verdict === 'needs-context'`), AND a `critic.coerced-empty-context-to-fp` log entry is recorded.
 - **B-2-4** Critic mock throws a non-rate-limit transport error → result has `verdict: 'critic-unavailable'`, `critic: null`, AND a `critic.invocation-failure` log entry with `errorCode: 'P1-E-2'`.
 - **B-2-5** Critic mock returns a string that is not valid JSON → result has `verdict: 'critic-unavailable'`, AND a `critic.response-parse-failure` log entry with `errorCode: 'P1-E-3'` AND a `raw` field of ≤500 chars.
 
@@ -244,3 +308,5 @@ Child scopes used: `prompt-render`, `engine-call`, `fix-verify`.
 - It does not promise patch-text format beyond "parseable unified diff". Caller normalizes line endings if needed.
 - It does not promise the temp clone strategy for `proposeFix` is filesystem-efficient (it copies the relevant subset; full repo clone is not required but may happen).
 - It does not promise `engineFamily` is stable across SDK versions for hostnames hosting multiple providers (DeepSeek hosting Anthropic-trained models, etc.). Family is structural, not semantic.
+- It does not throw any error carrying a `partialFindings` field. Partial results from `reviewBatch` (e.g. cost-cap exhaustion) are ALWAYS returned as a complete-length `VerdictedFinding[]` with explicit `'critic-unavailable'` entries for uncompleted findings.
+- It does not retry failed critic calls internally. One transport error → one `'critic-unavailable'` verdict + one `critic.invocation-failure` log entry. Retries are the engine adapter's responsibility.

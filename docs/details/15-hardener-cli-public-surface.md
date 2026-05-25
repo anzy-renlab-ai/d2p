@@ -35,9 +35,11 @@ zerou audit <path> [options]
 | `--cost-cap <usd>` | number | `Infinity` | Override critic cost cap. |
 | `--log-level <debug\|info\|warn\|error>` | enum | `info` (or `ZEROU_LOG_LEVEL`) | Override log level. |
 | `--no-color` | boolean | `false` | Disable ANSI color in stdout. |
-| `--insecure-config` | boolean | `false` | Skip the unsafe-perms check on `~/.zerou/config.json` (Unix only). |
+| `--insecure-config` | boolean | `false` | Skip the unsafe-perms check on `~/.zerou/config.json` (Unix only). See footnote.<sup>1</sup> |
 | `--help` | boolean | `false` | Print help and exit 0. |
 | `--version` | boolean | `false` | Print package version and exit 0. |
+
+<sup>1</sup> **Gap B3 resolution**: `--insecure-config` on Windows is silently accepted; no warning is emitted. The unsafe-perms check it bypasses is itself a no-op on Windows (see "Permissions" below), so the flag is effectively a no-op on that platform.
 
 ## Exit codes
 
@@ -49,6 +51,18 @@ zerou audit <path> [options]
 | `3` | Configuration error (A-E-1, A-E-2, A-E-3, A-E-4, A-E-5, A-E-6). |
 
 Only `verdict: 'confirmed'` findings count toward the `--fail-on` threshold; `'critic-unavailable'`, `'needs-context'`, and `'false-positive'` do not.
+
+### Exit-code interaction with `--apply` (Gap B7)
+
+The `--fail-on` threshold is computed BEFORE `--apply` is considered. Whether `--apply` actually wrote any files — and whether all proposals were skipped — does NOT affect the exit code.
+
+**Worked example**: `zerou audit <path> --fail-on p1 --apply` on a repo that produces one confirmed P1 finding whose preset has `fix.kind = 'llm-only'` and whose `proposeFix` returns `{ verified: false, ... }` (so the proposal is skipped):
+
+- Threshold check: one confirmed P1 → threshold crossed → exit 2.
+- Apply phase: proposal skipped (`cli.apply.skip-unverified`, `bundle.apply.llmUnverifiedSkipped++`).
+- **Final exit code: 2** (NOT 0, even though no fix was applied).
+
+See `B-10-6` for the corresponding behavior contract.
 
 ## Environment variables consumed
 
@@ -147,7 +161,7 @@ interface EvidenceBundle {
     };
   };
   findings:     VerdictedFinding[]; // shape per Protocol-1 surface
-  inputFiles:   Array<{ path: string; sha256: string }>; // every file actually read
+  inputFiles:   Array<{ path: string; sha256: string }>; // every file actually read; `path` is repo-relative POSIX (forward slashes), matching `Finding.file`. Absolute paths are NOT used. (Gap B8)
   summary: {
     counts: {
       confirmed:          number;
@@ -169,6 +183,7 @@ interface EvidenceBundle {
     templateApplied:      number;
     llmVerifiedApplied:   number;
     llmUnverifiedSkipped: number;
+    skipNoProposal:       number;   // Gap A3: count of confirmed findings whose proposeFix returned null
   };
   version: '1.0';
 }
@@ -189,24 +204,58 @@ Of <total> findings: <confirmed> confirmed / <falsePositive> false-positive / <n
 When `criticUnavailable > 0`, an extra line follows:
 
 ```
-configure a second engine (different family from <workerKind>) to verdict the remaining <criticUnavailable>.
+configure a second engine (different family from <workerFamily>) to verdict the remaining <criticUnavailable>.
 ```
+
+**Gap B1 resolution** — the `<workerFamily>` placeholder is the **family** (the return value of `engineFamily(workerConfig)`, e.g. `anthropic`, `openai`, `google`, or a hostname for `openai-compat`), NOT the raw `EngineConfig.kind` string (e.g. `anthropic-api`). The nudge instructs the user to configure an engine of a *different family*; the family name is what they must compare against.
+
+**Gap B9 — pinned regexes**. Tests assert against these exact patterns:
+
+- Summary line:
+
+  ```
+  /^Of (\d+) findings: (\d+) confirmed \/ (\d+) false-positive \/ (\d+) needs-context \/ (\d+) critic-unavailable$/
+  ```
+
+- Nudge line (only present when `criticUnavailable > 0`):
+
+  ```
+  /^configure a second engine \(different family from ([a-z0-9.:-]+)\) to verdict the remaining (\d+)\.$/m
+  ```
+
+  Capture group 1 is the worker family string; the character class `[a-z0-9.:-]` covers canonical family names (`anthropic`, `openai`, `google`) and `openai-compat` hostnames (e.g. `api.deepseek.com`).
+
+### `summary.byPreset` semantics (Gap A4 / B-10-5)
+
+`bundle.summary.byPreset` is keyed by `presetId`. It contains exactly one entry per preset that produced **any** finding during the run (presets that produced zero findings do NOT appear). For each present preset, the four counts (`confirmed`, `falsePositive`, `needsContext`, `criticUnavailable`) sum across all keys to the corresponding top-level `summary.counts` value.
 
 ## Error codes
 
 | Code | Trigger | Exit |
 |---|---|---|
-| `A-E-1` | `<path>` does not exist | 3 |
+| `A-E-1` | `<path>` does not exist OR exists but is not a directory (Gap B4) | 3 |
 | `A-E-2` | `--preset <id>` not in 3-layer lookup | 3 |
 | `A-E-3` | Config file invalid (zod validation failure) | 3 |
 | `A-E-4` | Config file unsafe perms (Unix) and no `--insecure-config` | 3 |
 | `A-E-5` | `--apply` + dirty working tree without `--allow-dirty` | 3 |
 | `A-E-6` | Worker engine cannot be built (no key, invalid kind) | 3 |
-| `A-E-7` | A preset's `runPreset` raised `PRESET-E-7` | 1 |
-| `A-E-8` | Uncaught exception escaping main | 1 |
+| `A-E-7` | A preset's `runPreset` raised `PRESET-E-7` — **defensive only** (Gap B6) | 1 |
+| `A-E-8` | Uncaught exception escaping main — **defensive catch-all** (Gap B5) | 1 |
 | `A-E-9` | `--out <file>` cannot be written | 1 |
 
+**Gap B4 (A-E-1 clarification)**: `<path>` MUST be a directory. A path that exists but is a regular file is treated as A-E-1 (`cli.path.missing`). No distinct event is emitted for "is a file".
+
+**Gap B6 (A-E-7 defensive-only)**: The CLI always builds and passes a `criticPolicy` to `runPreset` (the `cli.policy` log event is emitted unconditionally). A-E-7 therefore CANNOT fire under normal flow. If it does, treat it as an internal invariant violation; the CLI rethrows as `cli.fatal` (A-E-8) and exits 1. Tests SHOULD NOT attempt to construct a fixture that fires A-E-7 through the public CLI surface.
+
+**Gap B5 (A-E-8 untestable)**: `A-E-8` / `cli.fatal` is a defensive catch-all for uncaught exceptions. By definition it covers situations the public surface does not promise will happen, so it is **not testable from the public surface**. Tests SHOULD NOT assert on `cli.fatal`. Implementations MAY expose internal hooks for exercising this path; those hooks are NOT part of the public surface.
+
 ## Behavior contract
+
+### Testing convention (Gap B2)
+
+Tests that drive the CLI via `runCli` (or equivalent harness) SHOULD use **real** `EngineConfig.kind` values — `claude-cli`, `codex-cli`, `gemini-cli`, `anthropic-api`, `openai-compat` — and mock at the `core/engines/factory.createEngine` layer (e.g. with a vitest module mock). This ensures the family classification (`engineFamily()`) returns production values during tests and that cross-family critic selection behaves identically to production.
+
+Tests SHOULD NOT invent placeholder kinds like `mock-anthropic`, `mock-openai`, or any other `mock-*` string. Such kinds are not in the Protocol-1 family taxonomy and will be classified as unknown / unrecognized families, producing test behavior that diverges from production. The "mock" lives at the factory layer, not at the engine-kind layer.
 
 ### B-1 — Repo prep (Q12)
 
@@ -254,6 +303,15 @@ configure a second engine (different family from <workerKind>) to verdict the re
 ### B-9 — Secret leak prevention (Q8 micro)
 
 - **B-9-1** Searching all log files produced by a `zerou audit --key openai=sk-secret-test ...` run yields ZERO occurrences of the literal substring `sk-secret-test`.
+
+### B-10 — Config resolution, counters, and threshold edge cases (Gaps A1–A4, B7)
+
+- **B-10-1** (Gap A1) Legacy `~/.d2p/` fallback: when `~/.zerou/config.json` does NOT exist AND `~/.d2p/config.json` DOES exist, the CLI reads from `~/.d2p/config.json` and emits `cli.config.legacy-d2p-path-used { fallbackPath: '<absolute path to ~/.d2p/config.json>' }` at `info` level. The run proceeds normally using the legacy file.
+- **B-10-2** (Gap A1) `~/.zerou/` precedence: when BOTH `~/.zerou/config.json` AND `~/.d2p/config.json` exist, the CLI reads ONLY `~/.zerou/config.json`. NO `cli.config.legacy-d2p-path-used` event is emitted.
+- **B-10-3** (Gap A2) Invalid config: when the resolved config file fails zod validation, the CLI emits `cli.config.invalid { errorCode: 'A-E-3', issues: '<stringified zod issues>' }` at `error` level and exits with code 3 (A-E-3).
+- **B-10-4** (Gap A3) Skip-no-proposal counter: when `--apply` is set and a confirmed finding's `proposeFix` returns `null` (no proposal at all — distinct from `{verified: false}`), the CLI emits `cli.apply.skip-no-proposal { findingId }` at `warn` level AND `bundle.apply.skipNoProposal` is incremented by 1. Working tree is unchanged for that finding.
+- **B-10-5** (Gap A4) Per-preset breakdown: `bundle.summary.byPreset` has exactly one key per preset that produced any finding (presets with zero findings are absent). For every preset key, summing the four counts across all keys equals the corresponding `bundle.summary.counts.*` top-level value (per-preset counts sum to top-level counts exactly).
+- **B-10-6** (Gap B7) Threshold computed before apply: with `--fail-on p1 --apply` against a fixture that yields ≥1 confirmed P1 finding whose only fix is `llm-only` with `verified: false` (so every proposal is skipped), the CLI exits with code 2. The exit code is determined by the confirmed-P1 count BEFORE the apply phase runs; the fact that all proposals were skipped does NOT downgrade the exit to 0.
 
 ## Self-emitted log events
 
