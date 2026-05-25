@@ -36,6 +36,31 @@ export interface TrackLogger {
 
 export interface CreateTrackLoggerOptions {
   logRoot?: string;
+  trace?: string;
+  minLevel?: LogLevel;
+  silent?: boolean;
+  parentTrace?: string;
+}
+
+const LEVEL_ORDER: Record<LogLevel, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+};
+
+function resolveMinLevel(opts: CreateTrackLoggerOptions): LogLevel {
+  const fromOpts = opts.minLevel;
+  if (fromOpts) return fromOpts;
+  const fromEnv = process.env.ZEROU_LOG_LEVEL as LogLevel | undefined;
+  if (fromEnv && fromEnv in LEVEL_ORDER) return fromEnv;
+  return 'info';
+}
+
+function isSilentMode(opts: CreateTrackLoggerOptions): boolean {
+  if (opts.silent === true) return true;
+  if (process.env.ZEROU_LOG_NULL === '1') return true;
+  return false;
 }
 
 // ── LogError — surface-defined Error subclass with code field ────────────────
@@ -184,6 +209,8 @@ interface LoggerCore {
   logRoot: string;
   stream: WriteStream | null;
   writePromises: Array<Promise<void>>;
+  minLevel: LogLevel;
+  silent: boolean;
 }
 
 function ensureStream(core: LoggerCore): WriteStream {
@@ -210,6 +237,11 @@ class TrackLoggerImpl implements TrackLogger {
   }
 
   log(level: LogLevel, event: string, data: Record<string, unknown> = {}): void {
+    // Level filter (B-3-1)
+    if (LEVEL_ORDER[level] < LEVEL_ORDER[this.core.minLevel]) return;
+    // Silent mode (B-3-2): no disk write
+    if (this.core.silent) return;
+
     const stream = ensureStream(this.core);
     const entry: LogEntry = {
       ts: Date.now(),
@@ -244,14 +276,19 @@ export function createTrackLogger(
   track: string,
   opts?: CreateTrackLoggerOptions,
 ): TrackLogger {
-  const logRoot = opts?.logRoot ?? path.join(process.cwd(), '.zerou', 'logs');
-  rotateOldDateDirs(logRoot, track);
+  const o = opts ?? {};
+  const logRoot = o.logRoot ?? path.join(process.cwd(), '.zerou', 'logs');
+  const silent = isSilentMode(o);
+  // Silent loggers skip rotation entirely (touch no filesystem) — B-3-2.
+  if (!silent) rotateOldDateDirs(logRoot, track);
   const core: LoggerCore = {
     track,
-    trace: generateUlid(),
+    trace: o.parentTrace ?? o.trace ?? generateUlid(),
     logRoot,
     stream: null,
     writePromises: [],
+    minLevel: resolveMinLevel(o),
+    silent,
   };
   return new TrackLoggerImpl(core, undefined);
 }
