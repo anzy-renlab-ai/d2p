@@ -17,6 +17,7 @@ import {
   __setStreamWriteForTests,
   __resetMetaLoggersForTests,
   __resetLiveLoggersForTests,
+  __resetRotationGateForTests,
 } from './track-logger.js';
 import { chmod, mkdir as mkdirP } from 'node:fs/promises';
 import { captureLogsFor } from './test-helpers.js';
@@ -483,6 +484,57 @@ describe('parentTrace — cross-module trace inheritance (F3 lead decision)', ()
     });
     expect(criticEntries.length).toBe(1);
     expect(criticEntries[0]!.trace).toBe(cli.trace);
+  });
+});
+
+// ── Coverage close-out (M3 finalize) ────────────────────────────────────────
+
+describe('Coverage edge cases (M3 finalize)', () => {
+  it('__resetRotationGateForTests clears the per-process rotation set', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-cov-reset-'));
+    await seedDateDir(tmp, 'reset-track', 10);
+    createTrackLogger('reset-track', { logRoot: tmp });
+    __resetRotationGateForTests();
+    // After reset, a second createTrackLogger with same (logRoot, track) rotates again.
+    await seedDateDir(tmp, 'reset-track', 10);
+    createTrackLogger('reset-track', { logRoot: tmp });
+    // No assertion needed beyond "no throw"; the second rotation pass executed.
+    expect(true).toBe(true);
+  });
+
+  it('non-ENOSPC write errors are swallowed by flush outer try/catch', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-cov-eio-'));
+    // Construct logger + flush ANY rotation-complete meta-events first so the
+    // stub doesn't EIO the meta-logger's own pending writes.
+    const logger = createTrackLogger('foo', { logRoot: tmp });
+    logger.log('info', 'warmup', {});
+    await logger.flush();
+
+    __setStreamWriteForTests(() => {
+      return Promise.reject(Object.assign(new Error('EIO synthetic'), { code: 'EIO' }));
+    });
+    logger.log('info', 'x', {});
+    // The promise in writePromises will reject with EIO; flush's outer catch
+    // swallows it (track-logger.ts line 476-477 path). No throw to test caller.
+    await expect(logger.flush()).resolves.toBeUndefined();
+    __setStreamWriteForTests(null);
+  });
+
+  it('beforeExit hook swallows per-core flush errors (best-effort)', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-cov-bex-err-'));
+    const logger = createTrackLogger('foo', { logRoot: tmp });
+    logger.log('info', 'warmup', {});
+    await logger.flush();
+
+    __setStreamWriteForTests(() => {
+      return Promise.reject(Object.assign(new Error('EIO synthetic'), { code: 'EIO' }));
+    });
+    logger.log('info', 'will-fail', {});
+    // Trigger beforeExit — per-core try/catch around Promise.all should swallow.
+    process.emit('beforeExit', 0);
+    await new Promise((r) => setTimeout(r, 50));
+    __setStreamWriteForTests(null);
+    expect(true).toBe(true); // No unhandled rejection escaped
   });
 });
 

@@ -195,13 +195,15 @@ These side effects are observable via `captureLogsFor({ track: 'log' }, ...)` (t
 
 Even when no caller logs anything, this module may emit the following events under `track: 'log'`. These meta-events **never** leak into application-track captures (see B-4-6).
 
+> **Naming note**: payload key `subjectTrack` is used wherever an event refers to the application track that triggered the meta event. The structural entry field `track` is ALWAYS `'log'` for meta events (spread order: structural fields win over data payload). `subjectTrack` avoids collision with the entry's outer `track='log'` field.
+
 | Event | Level | When | Required payload |
 |---|---|---|---|
-| `log.rotation-complete` | `info` | After rotation pass at construction | `track: string`, `removedDirs: string[] (absolute paths)` |
-| `log.rotation-failed` | `warn` | A date dir removal failed | `track: string`, `dateDir: string (absolute path)`, `error: string` |
-| `log.write-degraded` | `error` | First ENOSPC encountered on a logger | `track: string` |
+| `log.rotation-complete` | `info` | After rotation pass at construction | `subjectTrack: string`, `removedDirs: string[] (absolute paths)` |
+| `log.rotation-failed` | `warn` | A date dir removal failed | `subjectTrack: string`, `dateDir: string (absolute path)`, `error: string` |
+| `log.write-degraded` | `error` | First ENOSPC encountered on a logger | `subjectTrack: string` |
 | `log.invalid-event-name` | `warn` | A caller passed empty `event` | `caller: string` (best-effort — see "What this surface does NOT promise") |
-| `log.capture-observer-installed` | `debug` | `captureLogsFor` enters | `observerId: string`, `track: string`, `eventPattern: string \| null` |
+| `log.capture-observer-installed` | `debug` | `captureLogsFor` enters | `observerId: string`, `track: string` (filter target), `eventPattern: string \| null` |
 | `log.capture-observer-removed` | `debug` | `captureLogsFor` exits | `observerId: string` |
 | `log.beforeexit-flushed` | `info` | `process.beforeExit` flush completed | `flushedCount: number`, `durationMs: number` |
 

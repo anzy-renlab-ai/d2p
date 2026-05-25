@@ -133,6 +133,8 @@ After `node scripts/smoke-log-module.mjs` runs:
 
 ## How To Verify
 
+**Setup**: Verify commands use `npx tsx`, NOT `node`. Phase 2 does NOT build the daemon — all `.ts` scripts and imports run directly via tsx (`tsx` is in `daemon/devDependencies`). `smoke-log-module.mjs` and `probe-real-gate3.mjs` both `import` from `daemon/src/log/track-logger.ts` directly; running them under bare `node` fails because Node can't resolve `.ts` extensions. Always use `npx tsx scripts/...`.
+
 A reviewer with a clean clone runs:
 
 ```bash

@@ -838,9 +838,14 @@ That is **18 of 30** cases (60%) carry an `Assertion (log)` block — above the 
 
 ---
 
-## Section 5 — Surface-claim audit
+## Section 5 — Surface-claim audit (HISTORICAL — DO NOT ACT)
 
-> **Status**: All 15 audit gaps below were RESOLVED in surface @ commit `5eee600` (Phase 1.5 patch pass). This section is historical record — the surface is now the standalone authoritative contract. Reading this section is informational only; do not derive new test assertions from it.
+> **STATUS: RESOLVED @ commit `5eee600` (Phase 1.5 surface patch pass).**
+>
+> All 15 audit gaps catalogued in this section have been inlined into the public-surface file. **Do NOT derive new test assertions from this section.** It is retained only as the historical record of what gaps the SPEC-SPLIT cross-author audit caught. The surface is now the standalone authoritative contract.
+
+<details>
+<summary>Click to expand the original 15 audit items (historical only)</summary>
 
 The following claims appear in the surface but lack enough detail for a test author working only from the surface to write a deterministic assertion. These are the most valuable gaps — each one is a real contract hole.
 
@@ -888,6 +893,8 @@ The following claims appear in the surface but lack enough detail for a test aut
 
 - **Surface promise**: rotation's "more than 7 days before today" cutoff.
   **Gap**: is the cutoff inclusive or exclusive? A directory dated exactly 7 days ago — kept or removed? T-2-1-1 sidesteps with `daysAgo: 8` and `daysAgo: 3`; a boundary test (`daysAgo: 7`) is impossible without clarification.
+
+</details>
 
 ---
 
