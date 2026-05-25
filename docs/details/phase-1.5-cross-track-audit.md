@@ -357,3 +357,7 @@ Highest-leverage findings to fix first:
 3. **Finding 2** (`kind` vs `engineKind` in same bundle) — locks in a permanent papercut in the EvidenceBundle JSON shape; cheap to fix now, expensive after first external consumer ships.
 
 Files I read: D:\lll\d2p\docs\details\12-log-module-public-surface.md, D:\lll\d2p\docs\details\13-protocol-2-public-surface.md, D:\lll\d2p\docs\details\14-protocol-1-public-surface.md, D:\lll\d2p\docs\details\15-hardener-cli-public-surface.md, D:\lll\d2p\CONTEXT.md
+
+---
+
+**Status**: Findings F1-F10 resolved @ `4abc026` on 2026-05-25. Lead decisions applied verbatim for F3 (track module-fixed, trace inherits via `parentTrace`), F6 (secret-redaction invariant in P1/P2 logging contracts), F10 (`lastCallCostUsd` post-call read; `CriticInfo.costUsd` added). 4 surface files independently readable; this audit is historical record only.
