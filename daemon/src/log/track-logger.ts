@@ -28,11 +28,33 @@ export interface TrackLogger {
   readonly track: string;
   readonly trace: string;
   log(level: LogLevel, event: string, data?: Record<string, unknown>): void;
+  child(scope: string): TrackLogger;
   flush(): Promise<void>;
 }
 
 export interface CreateTrackLoggerOptions {
   logRoot?: string;
+}
+
+// ── LogError — surface-defined Error subclass with code field ────────────────
+
+export type LogErrorCode = 'LOG-E-1' | 'LOG-E-2' | 'LOG-E-3' | 'LOG-E-4' | 'LOG-E-5';
+
+export class LogError extends Error {
+  readonly code: LogErrorCode;
+  constructor(code: LogErrorCode, message: string) {
+    super(`${code}: ${message}`);
+    this.name = 'LogError';
+    this.code = code;
+  }
+}
+
+// ── Track / scope name validation (LOG-E-3) ──────────────────────────────────
+
+function validateScopeName(scope: string): void {
+  if (scope === '' || scope.includes('/') || scope.includes('\\') || scope.startsWith('.')) {
+    throw new LogError('LOG-E-3', `invalid scope name "${scope}"`);
+  }
 }
 
 // ── ULID (Crockford base32, 26 chars) ────────────────────────────────────────
@@ -82,44 +104,70 @@ function localISODate(d: Date = new Date()): string {
 
 // ── TrackLoggerImpl ──────────────────────────────────────────────────────────
 
+// ── Core: shared write infrastructure for a root + its descendants ──────────
+//
+// A LoggerCore is the per-(track, trace, logRoot) tuple. Multiple TrackLoggerImpl
+// instances may share a LoggerCore (one root + N children); they all write to
+// the same file with the same trace, differing only in `scope`.
+
+interface LoggerCore {
+  track: string;
+  trace: string;
+  logRoot: string;
+  stream: WriteStream | null;
+  writePromises: Array<Promise<void>>;
+}
+
+function ensureStream(core: LoggerCore): WriteStream {
+  if (!core.stream) {
+    const dir = path.join(core.logRoot, core.track, localISODate());
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${core.trace}.jsonl`);
+    core.stream = createWriteStream(file, { flags: 'a' });
+  }
+  return core.stream;
+}
+
 class TrackLoggerImpl implements TrackLogger {
   readonly track: string;
   readonly trace: string;
-  private stream: WriteStream | null = null;
-  private writePromises: Array<Promise<void>> = [];
-  private readonly logRoot: string;
+  private readonly core: LoggerCore;
+  private readonly scope: string | undefined;
 
-  constructor(track: string, opts: CreateTrackLoggerOptions = {}) {
-    this.track = track;
-    this.trace = generateUlid();
-    this.logRoot = opts.logRoot ?? path.join(process.cwd(), '.zerou', 'logs');
+  constructor(core: LoggerCore, scope: string | undefined) {
+    this.core = core;
+    this.track = core.track;
+    this.trace = core.trace;
+    this.scope = scope;
   }
 
   log(level: LogLevel, event: string, data: Record<string, unknown> = {}): void {
-    if (!this.stream) {
-      const dir = path.join(this.logRoot, this.track, localISODate());
-      mkdirSync(dir, { recursive: true });
-      const file = path.join(dir, `${this.trace}.jsonl`);
-      this.stream = createWriteStream(file, { flags: 'a' });
-    }
+    const stream = ensureStream(this.core);
     const entry: LogEntry = {
       ts: Date.now(),
       level,
       track: this.track,
       trace: this.trace,
+      ...(this.scope !== undefined ? { scope: this.scope } : {}),
       event,
       ...data,
     };
     const line = JSON.stringify(entry) + '\n';
     const p = new Promise<void>((resolve, reject) => {
-      this.stream!.write(line, (err) => (err ? reject(err) : resolve()));
+      stream.write(line, (err) => (err ? reject(err) : resolve()));
     });
-    this.writePromises.push(p);
+    this.core.writePromises.push(p);
+  }
+
+  child(scope: string): TrackLogger {
+    validateScopeName(scope);
+    const newScope = this.scope ? `${this.scope}.${scope}` : scope;
+    return new TrackLoggerImpl(this.core, newScope);
   }
 
   async flush(): Promise<void> {
-    const pending = this.writePromises.slice();
-    this.writePromises = [];
+    const pending = this.core.writePromises.slice();
+    this.core.writePromises = [];
     await Promise.all(pending);
   }
 }
@@ -128,5 +176,12 @@ export function createTrackLogger(
   track: string,
   opts?: CreateTrackLoggerOptions,
 ): TrackLogger {
-  return new TrackLoggerImpl(track, opts);
+  const core: LoggerCore = {
+    track,
+    trace: generateUlid(),
+    logRoot: opts?.logRoot ?? path.join(process.cwd(), '.zerou', 'logs'),
+    stream: null,
+    writePromises: [],
+  };
+  return new TrackLoggerImpl(core, undefined);
 }
