@@ -32,6 +32,22 @@ afterEach(async () => {
 // test is tz-agnostic (surface promises local-time YYYY-MM-DD; UTC date in the
 // test would skew at midnight crossings).
 
+// ── helpers shared by all tests ──────────────────────────────────────────────
+
+async function readOnlyEntry(logger: { trace: string }, opts: { logRoot: string; track: string }) {
+  const trackDir = path.join(opts.logRoot, opts.track);
+  const dateDirs = await readdir(trackDir);
+  expect(dateDirs).toHaveLength(1);
+  expect(dateDirs[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  const file = path.join(trackDir, dateDirs[0]!, `${logger.trace}.jsonl`);
+  const content = await readFile(file, 'utf8');
+  return content.trim().split('\n').map((l) => JSON.parse(l));
+}
+
+const CROCKFORD_ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+
+// ── B-1-1 (tracer bullet) ────────────────────────────────────────────────────
+
 describe('B-1-1 — construction & write path (tracer bullet)', () => {
   it('writes one JSONL line containing event + payload after .log + flush', async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-tracer-'));
@@ -40,17 +56,7 @@ describe('B-1-1 — construction & write path (tracer bullet)', () => {
     logger.log('info', 'x', { a: 1 });
     await logger.flush();
 
-    const fooDir = path.join(tmp, 'foo');
-    const dateDirs = await readdir(fooDir);
-    expect(dateDirs).toHaveLength(1);
-    expect(dateDirs[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-
-    const file = path.join(fooDir, dateDirs[0]!, `${logger.trace}.jsonl`);
-    const content = await readFile(file, 'utf8');
-    const lines = content.trim().split('\n');
-    expect(lines).toHaveLength(1);
-
-    const entry = JSON.parse(lines[0]!);
+    const [entry] = await readOnlyEntry(logger, { logRoot: tmp, track: 'foo' });
     expect(entry.level).toBe('info');
     expect(entry.track).toBe('foo');
     expect(entry.event).toBe('x');
@@ -58,5 +64,39 @@ describe('B-1-1 — construction & write path (tracer bullet)', () => {
     expect(typeof entry.trace).toBe('string');
     expect(entry.trace).toHaveLength(26);
     expect(typeof entry.ts).toBe('number');
+  });
+});
+
+// ── B-1-2 — entry shape & root-logger scope absence ─────────────────────────
+
+describe('B-1-2 — entry shape', () => {
+  it('T-1-2-1: entry has ts:int, level, track, trace (Crockford ULID), event, plus caller keys', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b12-'));
+    const logger = createTrackLogger('hardener', { logRoot: tmp });
+    const before = Date.now();
+    logger.log('info', 'audit.start', { repo: '/tmp/r', cwd: process.cwd() });
+    await logger.flush();
+    const after = Date.now();
+
+    const [entry] = await readOnlyEntry(logger, { logRoot: tmp, track: 'hardener' });
+    expect(Number.isInteger(entry.ts)).toBe(true);
+    expect(entry.ts).toBeGreaterThanOrEqual(before);
+    expect(entry.ts).toBeLessThanOrEqual(after);
+    expect(entry.level).toBe('info');
+    expect(entry.track).toBe('hardener');
+    expect(typeof entry.trace).toBe('string');
+    expect(entry.trace).toMatch(CROCKFORD_ULID_RE);
+    expect(entry.event).toBe('audit.start');
+    expect(entry.repo).toBe('/tmp/r');
+    expect(entry.cwd).toBe(process.cwd());
+  });
+
+  it('T-1-2-2: entry from root logger does NOT carry a scope field', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b12b-'));
+    const logger = createTrackLogger('hardener', { logRoot: tmp });
+    logger.log('info', 'x', {});
+    await logger.flush();
+    const [entry] = await readOnlyEntry(logger, { logRoot: tmp, track: 'hardener' });
+    expect('scope' in entry).toBe(false);
   });
 });
