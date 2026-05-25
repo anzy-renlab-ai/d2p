@@ -5,8 +5,9 @@
  * Surface authority: `docs/details/12-log-module-public-surface.md` @ commit 5eee600.
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { mkdtemp, mkdir, rm, readFile, readdir, stat } from 'node:fs/promises';
+import * as fsSync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createTrackLogger, LogError } from './track-logger.js';
@@ -155,5 +156,66 @@ describe('B-1-4 — nested child joins scopes with "."', () => {
     await deep.flush();
     const [entry] = await readOnlyEntry(root, { logRoot: tmp, track: 'preset' });
     expect(entry.scope).toBe('a.b.c');
+  });
+});
+
+// ── B-2 — rotation ───────────────────────────────────────────────────────────
+//
+// Helper: seed a `<logRoot>/<track>/<YYYY-MM-DD>/` directory dated `daysAgo`
+// days before today (local-time, matching the rotation cutoff).
+async function seedDateDir(logRoot: string, track: string, daysAgo: number): Promise<string> {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const iso = `${y}-${m}-${day}`;
+  const dir = path.join(logRoot, track, iso);
+  await mkdir(dir, { recursive: true });
+  return dir;
+}
+
+describe('B-2-1 — rotation removes strictly >7-day-old date dirs', () => {
+  it('T-2-1-1: dirs older than 7 days are removed; ≤7 days kept', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b21-'));
+    const oldDir = await seedDateDir(tmp, 'foo', 8);     // >7 → removed
+    const newDir = await seedDateDir(tmp, 'foo', 3);     // ≤7 → kept
+    const boundaryKept = await seedDateDir(tmp, 'foo', 7); // exactly 7 → kept (inclusive)
+
+    createTrackLogger('foo', { logRoot: tmp });
+
+    await expect(stat(oldDir)).rejects.toThrow();
+    await expect(stat(newDir)).resolves.toBeTruthy();
+    await expect(stat(boundaryKept)).resolves.toBeTruthy();
+  });
+
+  it('T-2-1-2: rotation no-op when track dir does not exist', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b21b-'));
+    expect(() => createTrackLogger('foo', { logRoot: tmp })).not.toThrow();
+  });
+});
+
+describe('B-2-2 — rotation failure on one dir does not stop sibling removal', () => {
+  it('T-2-2-1: one rm failure logged; rotation continues with remaining', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b22-'));
+    const failDir = await seedDateDir(tmp, 'foo', 10);
+    const okDir = await seedDateDir(tmp, 'foo', 11);
+
+    // Spy on fs.rmSync; throw on failDir, delegate everything else to real impl.
+    const realRmSync = fsSync.rmSync;
+    const spy = vi.spyOn(fsSync, 'rmSync').mockImplementation((target, opts) => {
+      if (typeof target === 'string' && target === failDir) {
+        throw new Error('synthetic-rm-failure');
+      }
+      return realRmSync(target, opts);
+    });
+
+    expect(() => createTrackLogger('foo', { logRoot: tmp })).not.toThrow();
+
+    // failDir still present (rm threw); okDir removed.
+    await expect(stat(failDir)).resolves.toBeTruthy();
+    await expect(stat(okDir)).rejects.toThrow();
+
+    spy.mockRestore();
   });
 });
