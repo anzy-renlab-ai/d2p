@@ -333,3 +333,7 @@ Default `track: 'critic'`.
 - **`core/cost/pricing.ts`** (Phase 3 target; currently `daemon/src/cost/pricing.ts`) — `estimateCost` for batch cap accounting.
 
 External: zod (already in `package.json`). No new deps.
+
+---
+
+**Status**: superseded by [`docs/details/14-protocol-1-public-surface.md`](./14-protocol-1-public-surface.md) @ commit `5eee600` (Phase 1.5). This spec is design history only — read public-surface for the authoritative contract.

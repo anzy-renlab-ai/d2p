@@ -275,3 +275,7 @@ Default `track: 'preset'`. Callers MAY pass an alternate logger (e.g. `track: 'c
 - **Protocol-1 (cross-engine reviewer)** — runtime dependency for `llm-judgment` mechanism only. P2 imports `CriticPolicy` type from P1's surface; the actual LLM dispatch is delegated. Compile-time circular dependency is avoided because `Finding` (P2-owned) is referenced by P1 but P1's `CriticPolicy` is only referenced through a function-call boundary (P2 calls P1, never the reverse).
 
 External: `yaml`, `gray-matter`, `zod` (all already in `package.json`). No new deps.
+
+---
+
+**Status**: superseded by [`docs/details/13-protocol-2-public-surface.md`](./13-protocol-2-public-surface.md) @ commit `5eee600` (Phase 1.5). This spec is design history only — read public-surface for the authoritative contract.

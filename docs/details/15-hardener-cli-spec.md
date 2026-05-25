@@ -482,3 +482,7 @@ The CLI also creates a separate top-level logger `track: 'audit'` whose only eve
 The CLI is the *only* Phase-1 dev-doc track that wires all four foundational protocols together. P2/P1/L are reusable in isolation; the CLI is the wedge.
 
 Phase 3 will add: the 3 first-vibe-coded presets (`secrets-leak`, `supabase-rls`, `authz-bola`) as plugin npm packages under `node_modules/@zerou-preset-*`. They land via P2's lookup chain; the CLI requires no changes.
+
+---
+
+**Status**: superseded by [`docs/details/15-hardener-cli-public-surface.md`](./15-hardener-cli-public-surface.md) @ commit `5eee600` (Phase 1.5). This spec is design history only — read public-surface for the authoritative contract.

@@ -220,3 +220,7 @@ Other tracks depend on it via:
 - P2 (Preset Framework) — every preset loader / runner call accepts an optional `logger: TrackLogger` parameter; if omitted, the module creates one under `track='preset'`.
 - P1 (Cross-Engine Reviewer) — same pattern, default `track='critic'`.
 - A (Hardener CLI) — top-level `zerou audit` creates one logger under `track='cli'` and child-scopes for major phases (`cli.scan`, `cli.verdict`, `cli.bundle`, `cli.apply`).
+
+---
+
+**Status**: superseded by [`docs/details/12-log-module-public-surface.md`](./12-log-module-public-surface.md) @ commit `5eee600` (Phase 1.5). This spec is design history only — read public-surface for the authoritative contract.
