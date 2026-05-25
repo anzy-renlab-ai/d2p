@@ -328,7 +328,7 @@ Tests SHOULD NOT invent placeholder kinds like `mock-anthropic`, `mock-openai`, 
 
 ## Logging Contract
 
-Hardener CLI creates one root logger `createTrackLogger('cli')` at startup; its `trace` (a fresh ULID) becomes the audit's `trace_id` and is shared across every event the CLI emits under `track='cli'` and `track='audit'`. The bundle's `audit.startedAt` ULID equals the CLI logger's `trace`.
+Hardener CLI creates one root logger `createTrackLogger('cli')` at startup; its `trace` (a fresh ULID) becomes the audit's `trace_id` and is shared across every event the CLI emits under `track='cli'` and `track='audit'`. The bundle's `trace_id` (carried separately on the bundle; field name pinned in P3 spec) equals the CLI logger's `trace`. (Note: `audit.startedAt` is an ISO 8601 timestamp string, NOT a ULID — the trace_id lives on its own bundle field.)
 
 When CLI invokes Protocol-1's `reviewBatch` / `reviewFinding` / `proposeFix`, it passes its CLI logger via `opts.logger`. Protocol-1 internally creates its own `track='critic'` logger via `createTrackLogger('critic', { parentTrace: cliLogger.trace })` — so all `critic.*` events land under `track='critic'` while sharing the CLI's `trace`. Filtering log entries by `track` separates concerns; filtering by `trace` reconstructs the full causal chain of one audit run.
 

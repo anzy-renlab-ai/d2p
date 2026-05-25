@@ -128,7 +128,7 @@ The canonical audit artifact. Output by hardener CLI under `--out <path>.json`. 
     endedAt:          string,
     cwd:              string,           // absolute path on the author's machine
     repoSha:          string | null,    // git HEAD sha after auto-init
-    presets:          { id: string, version: number, manifestSha256: string }[],
+    presets:          { id: string, version: number, manifestSha256: string, shadowedBy: ('plugin' | 'project' | 'builtin')[] }[],
     engineConfig:     { workerKind, workerModelId, workerReleaseDate, criticKind?, criticModelId?, criticReleaseDate? },
   },
   findings:           VerdictedFinding[],
