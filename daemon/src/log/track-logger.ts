@@ -340,6 +340,10 @@ interface LoggerCore {
   minLevel: LogLevel;
   silent: boolean;
   isMeta: boolean;
+  // ENOSPC degraded-mode state (B-8-1):
+  degraded: boolean;
+  degradedWarned: boolean;
+  enospcSinceLastFlush: boolean;
 }
 
 const liveLoggers = new Set<LoggerCore>();
@@ -353,11 +357,37 @@ function fsyncFd(fd: number): Promise<void> {
 function ensureStream(core: LoggerCore): WriteStream {
   if (!core.stream) {
     const dir = path.join(core.logRoot, core.track, localISODate());
-    fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, `${core.trace}.jsonl`);
-    core.stream = fs.createWriteStream(file, { flags: 'a' });
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, `${core.trace}.jsonl`);
+      core.stream = fs.createWriteStream(file, { flags: 'a' });
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'EACCES' || code === 'EPERM') {
+        throw new LogError('LOG-E-1', `log root ${core.logRoot} not writable`);
+      }
+      throw err;
+    }
   }
   return core.stream;
+}
+
+// ── Stream write seam (B-8-1 ENOSPC simulation in tests) ────────────────────
+//
+// vi.spyOn cannot redefine fs.WriteStream.prototype.write under ESM, so the
+// test-only seam injects a replacement write function. Default delegates to
+// the real stream.write.
+
+type StreamWriteFn = (stream: WriteStream, line: string) => Promise<void>;
+
+const defaultStreamWrite: StreamWriteFn = (stream, line) =>
+  new Promise((resolve, reject) => {
+    stream.write(line, (err) => (err ? reject(err) : resolve()));
+  });
+
+let _streamWriteForTests: StreamWriteFn | null = null;
+export function __setStreamWriteForTests(fn: StreamWriteFn | null): void {
+  _streamWriteForTests = fn;
 }
 
 class TrackLoggerImpl implements TrackLogger {
@@ -405,10 +435,28 @@ class TrackLoggerImpl implements TrackLogger {
     // Silent mode (B-3-2): no disk write past this point
     if (this.core.silent) return;
 
+    // Degraded mode (B-8-1): drop entry without I/O attempt until flush() succeeds.
+    if (this.core.degraded) return;
+
+    // ensureStream may throw LogError code=LOG-E-1 on EACCES first-write (B-7-1).
+    // This propagates synchronously to the caller per surface contract.
     const stream = ensureStream(this.core);
     const line = safeStringify(entry) + '\n';
-    const p = new Promise<void>((resolve, reject) => {
-      stream.write(line, (err) => (err ? reject(err) : resolve()));
+    const writeFn = _streamWriteForTests ?? defaultStreamWrite;
+    const core = this.core;
+    const p = writeFn(stream, line).catch((err) => {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOSPC') {
+        core.degraded = true;
+        core.enospcSinceLastFlush = true;
+        if (!core.degradedWarned) {
+          core.degradedWarned = true;
+          process.stderr.write(`[zerou-log LOG-E-2] ENOSPC on track=${core.track}; dropping entries until flush() succeeds\n`);
+          emitMetaEvent(core.logRoot, 'error', 'log.write-degraded', { subjectTrack: core.track });
+        }
+        return;
+      }
+      throw err;
     });
     this.core.writePromises.push(p);
   }
@@ -422,16 +470,28 @@ class TrackLoggerImpl implements TrackLogger {
   async flush(): Promise<void> {
     const pending = this.core.writePromises.slice();
     this.core.writePromises = [];
-    await Promise.all(pending);
+    try {
+      await Promise.all(pending);
+    } catch {
+      // ENOSPC was already handled inside writeFn .catch; other errors swallowed.
+    }
     // B-6-1: fsync after all in-flight writes so reads after this point see all
     // entries durably (not just in page cache).
     if (this.core.stream && this.core.stream.fd !== null) {
       try {
         await fsyncFd(this.core.stream.fd);
       } catch {
-        // EBADF can happen if stream was already closed concurrently; swallow.
+        // EBADF / ENOSPC during fsync; swallow.
       }
     }
+    // B-8-1 recovery: only clear degraded if no NEW ENOSPC happened during this
+    // flush cycle. enospcSinceLastFlush is set by writeFn's .catch when an
+    // in-flight write fails ENOSPC.
+    if (this.core.degraded && !this.core.enospcSinceLastFlush) {
+      this.core.degraded = false;
+      this.core.degradedWarned = false;
+    }
+    this.core.enospcSinceLastFlush = false;
   }
 }
 
@@ -454,6 +514,9 @@ export function createTrackLogger(
     minLevel: resolveMinLevel(o),
     silent,
     isMeta: o._isMeta === true,
+    degraded: false,
+    degradedWarned: false,
+    enospcSinceLastFlush: false,
   };
   liveLoggers.add(core);
   installBeforeExitHook();

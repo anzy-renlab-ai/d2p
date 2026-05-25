@@ -14,9 +14,11 @@ import {
   createTrackLogger,
   LogError,
   __setRotationRmForTests,
+  __setStreamWriteForTests,
   __resetMetaLoggersForTests,
   __resetLiveLoggersForTests,
 } from './track-logger.js';
+import { chmod, mkdir as mkdirP } from 'node:fs/promises';
 import { captureLogsFor } from './test-helpers.js';
 
 let tmp = '';
@@ -481,6 +483,117 @@ describe('parentTrace — cross-module trace inheritance (F3 lead decision)', ()
     });
     expect(criticEntries.length).toBe(1);
     expect(criticEntries[0]!.trace).toBe(cli.trace);
+  });
+});
+
+// ── B-7-1 — EACCES first-write throws LogError code=LOG-E-1 ─────────────────
+
+describe('B-7-1 — LOG-E-1 thrown on first write when logRoot is EACCES', () => {
+  it.skipIf(process.platform === 'win32')(
+    'T-7-1-1: first .log() throws LogError code=LOG-E-1 when logRoot is read-only',
+    async () => {
+      tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b71-'));
+      const readonly = path.join(tmp, 'readonly');
+      await mkdirP(readonly);
+      await chmod(readonly, 0o500); // r-x — can't create subdirs
+      const logger = createTrackLogger('foo', { logRoot: readonly });
+      let caught: unknown;
+      try {
+        logger.log('info', 'x', {});
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(LogError);
+      expect((caught as LogError).code).toBe('LOG-E-1');
+      expect((caught as Error).message).toMatch(/^LOG-E-1/);
+      // Restore for cleanup
+      await chmod(readonly, 0o700);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'T-7-1-2: subsequent .log() calls also throw LOG-E-1 (no degraded mode for EACCES)',
+    async () => {
+      tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b71b-'));
+      const readonly = path.join(tmp, 'readonly');
+      await mkdirP(readonly);
+      await chmod(readonly, 0o500);
+      const logger = createTrackLogger('foo', { logRoot: readonly });
+      expect(() => logger.log('info', 'x', {})).toThrow(LogError);
+      expect(() => logger.log('info', 'y', {})).toThrow(LogError);
+      await chmod(readonly, 0o700);
+    },
+  );
+});
+
+// ── B-8-1 — ENOSPC degraded mode ────────────────────────────────────────────
+
+describe('B-8-1 — LOG-E-2 ENOSPC degraded mode', () => {
+  it('T-8-1-1: ENOSPC drops entry + stderr warning + log.write-degraded event', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b81-'));
+    // Spy on stderr.write (not affected by ESM namespace freezing).
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    // Inject ENOSPC on next write.
+    __setStreamWriteForTests(() => {
+      return Promise.reject(Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' }));
+    });
+
+    const logger = createTrackLogger('foo', { logRoot: tmp });
+    const { entries: metaEntries } = await captureLogsFor(
+      { track: 'log', eventPattern: /^log\.write-degraded$/ },
+      async () => {
+        logger.log('info', 'x', {});
+        await logger.flush();
+      },
+    );
+    expect(metaEntries.length).toBeGreaterThanOrEqual(1);
+    // Find foo's degraded event specifically. The meta-logger's own pending
+    // rotation-complete write also rejects ENOSPC under the stub (real-disk-full
+    // behavior), so its own subjectTrack='log' entry may also appear.
+    const fooEvent = metaEntries.find(
+      (e) => (e as Record<string, unknown>).subjectTrack === 'foo',
+    );
+    expect(fooEvent).toBeTruthy();
+    // stderr warning emitted at least once
+    const stderrCalls = stderrSpy.mock.calls.map((c) => String(c[0]));
+    expect(stderrCalls.some((c) => c.includes('LOG-E-2'))).toBe(true);
+
+    __setStreamWriteForTests(null);
+    stderrSpy.mockRestore();
+  });
+
+  it('T-8-1-2: subsequent writes dropped during degraded; resume after flush succeeds', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b81b-'));
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    // First call: ENOSPC.
+    __setStreamWriteForTests(() => {
+      return Promise.reject(Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' }));
+    });
+    const logger = createTrackLogger('foo', { logRoot: tmp });
+    logger.log('info', 'a', {});
+    await logger.flush(); // flush sees ENOSPC; degraded stays true
+
+    // During degraded: subsequent logs dropped without I/O attempt.
+    logger.log('info', 'dropped', {});
+
+    // Recovery: remove stub so next write succeeds; flush should clear degraded.
+    __setStreamWriteForTests(null);
+    await logger.flush();
+    logger.log('info', 'after-recovery', {});
+    await logger.flush();
+
+    const entries = await readOnlyEntry(logger, { logRoot: tmp, track: 'foo' });
+    // 'a' and 'dropped' both lost during degraded; only 'after-recovery' present.
+    expect(entries.map((e) => e.event)).toEqual(['after-recovery']);
+    // "one stderr warning per logger instance" — but the lazy meta-logger may
+    // also have ENOSPC'd during cascade, contributing its own warning. So we
+    // assert ≥1 (foo's warning) without locking to exact total.
+    const stderrCalls = stderrSpy.mock.calls.map((c) => String(c[0]));
+    const fooWarning = stderrCalls.filter((c) => c.includes('LOG-E-2') && c.includes('track=foo'));
+    expect(fooWarning).toHaveLength(1);
+
+    stderrSpy.mockRestore();
   });
 });
 
