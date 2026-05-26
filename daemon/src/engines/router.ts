@@ -1,19 +1,30 @@
 // F1 — cross-engine critic router.
 //
-// d2p's pitch leans on the 4-layer reviewer pipeline as the substitute for
-// human diff review. That trust hollows out when the actor and the critic
-// share the same model family (OpenHands' Critic Model paper, arXiv 2407.16741,
-// showed measurable bias-decorrelation gains when the critic is a different
-// provider). Pattern: the SAME engine reviewing its own output converges on
-// the same blind spots — Devin's documented "fixates on irrelevant root cause"
-// failures share this signature.
+// Phase 3 (Track P1) MOVED `engineFamily` and `pickCriticEngine` to
+// `daemon/src/protocol/cross-engine-reviewer/router.ts`. This file is now a
+// thin backward-compatibility shim:
 //
-// This module classifies engine "families" and picks a critic engine that's
-// guaranteed-different (or flags the session as cross-family-OFF if no second
-// engine is configured).
+// - `engineFamily` re-exports verbatim from the new location.
+// - `pickCriticEngine` here keeps the LEGACY single-engine-pool signature
+//   `(worker, criticPool?: EngineConfig | null)` so daemon/src/engines/
+//   registry.ts and old tests keep working. Internally it adapts to the new
+//   `EngineConfig[]` array signature.
+//
+// New code under `daemon/src/protocol/cross-engine-reviewer/` MUST import
+// from the new path. Engine-family classification semantics are unchanged.
+//
+// The reviewer pipeline rationale (OpenHands' Critic Model paper, Devin's
+// blind-spot patterns) lives in the new module's header comment.
 
 import type { EngineConfig } from '../config/types.js';
 import type { ClaudeRole } from '../types.js';
+import {
+  engineFamily as _engineFamily,
+  pickCriticEngine as _pickCriticEngineArray,
+} from '../protocol/cross-engine-reviewer/router.js';
+import type { CriticPolicy as ProtocolCriticPolicy } from '../protocol/cross-engine-reviewer/types.js';
+
+export { _engineFamily as engineFamily };
 
 /** Roles where d2p wants the critic engine, not the worker. */
 export const CRITIC_ROLES: ReadonlySet<ClaudeRole> = new Set<ClaudeRole>([
@@ -23,48 +34,32 @@ export const CRITIC_ROLES: ReadonlySet<ClaudeRole> = new Set<ClaudeRole>([
   'done-check',
 ]);
 
-/** Classify an engine config into a "family" — used for decorrelation checks.
- *  claude-cli and anthropic-api both call Anthropic-trained models so they
- *  count as one family ("anthropic"). openai-compat's family is the host name
- *  of its baseUrl, so api.minimaxi.chat and api.deepseek.com are distinct. */
-export function engineFamily(cfg: EngineConfig): string {
-  if (cfg.kind === 'claude-cli' || cfg.kind === 'anthropic-api') return 'anthropic';
-  if (cfg.kind === 'codex-cli') return 'openai';
-  if (cfg.kind === 'gemini-cli') return 'google';
-  if (cfg.kind === 'openai-compat') {
-    try {
-      return new URL(cfg.baseUrl).hostname.toLowerCase();
-    } catch {
-      return 'openai-compat:unknown';
-    }
-  }
-  // exhaustiveness — should never reach
-  return 'unknown';
-}
-
+/**
+ * Legacy critic policy shape (single-engine pool). The new Protocol-1 shape
+ * lives at `daemon/src/protocol/cross-engine-reviewer/types.ts`.
+ */
 export interface CriticPolicy {
-  /** The engine config the critic should run on. Equal to worker when no
-   *  second engine is configured (degraded mode). */
   critic: EngineConfig;
-  /** True iff critic family differs from worker family. */
   crossFamily: boolean;
-  /** Why crossFamily is false — useful for the UI badge. */
   reason: 'cross-family-active' | 'no-critic-configured' | 'same-family-as-worker';
 }
 
-/** Decide the critic engine. If `criticPool` contains an engine of a different
- *  family from `worker`, pick that. Otherwise degrade to the worker itself and
- *  flag the session. */
-export function pickCriticEngine(worker: EngineConfig, criticPool?: EngineConfig | null): CriticPolicy {
-  if (!criticPool) {
-    return { critic: worker, crossFamily: false, reason: 'no-critic-configured' };
-  }
-  const workerFam = engineFamily(worker);
-  const criticFam = engineFamily(criticPool);
-  if (workerFam !== criticFam) {
-    return { critic: criticPool, crossFamily: true, reason: 'cross-family-active' };
-  }
-  return { critic: criticPool, crossFamily: false, reason: 'same-family-as-worker' };
+/**
+ * Backward-compatible wrapper around the new array-form `pickCriticEngine`.
+ * Returns the legacy single-engine shape so daemon registry.ts and old unit
+ * tests don't need to be rewritten.
+ */
+export function pickCriticEngine(
+  worker: EngineConfig,
+  criticPool?: EngineConfig | null,
+): CriticPolicy {
+  const arrPool = criticPool ? [criticPool] : null;
+  const policy: ProtocolCriticPolicy = _pickCriticEngineArray(worker, arrPool);
+  return {
+    critic: policy.critic,
+    crossFamily: policy.crossFamily,
+    reason: policy.reason,
+  };
 }
 
 /** Compact short-name for engine families — used in UI badges. */
