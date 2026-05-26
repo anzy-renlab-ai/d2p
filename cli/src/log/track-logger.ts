@@ -1,0 +1,592 @@
+/**
+ * ZeroU log module — per-track × per-trace structured JSONL logger.
+ *
+ * Surface authority: `docs/details/12-log-module-public-surface.md` @ commit 5eee600.
+ * Phase 2 implementation lives at `daemon/src/log/`. Phase 3 target path is
+ * `core/log/`.
+ *
+ * This file grows incrementally via TDD red-green per behavior B-1-1 → B-8-1.
+ */
+
+import * as fs from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import path from 'node:path';
+
+type WriteStream = fs.WriteStream & { fd?: number | null };
+
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export interface LogEntry {
+  ts: number;
+  level: LogLevel;
+  track: string;
+  trace: string;
+  scope?: string;
+  event: string;
+  [key: string]: unknown;
+}
+
+export interface TrackLogger {
+  readonly track: string;
+  readonly trace: string;
+  log(level: LogLevel, event: string, data?: Record<string, unknown>): void;
+  child(scope: string): TrackLogger;
+  flush(): Promise<void>;
+}
+
+export interface CreateTrackLoggerOptions {
+  logRoot?: string;
+  trace?: string;
+  minLevel?: LogLevel;
+  silent?: boolean;
+  parentTrace?: string;
+  /** @internal — used to break the meta-logger / rotation recursion cycle. */
+  _isMeta?: boolean;
+}
+
+const LEVEL_ORDER: Record<LogLevel, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+};
+
+function resolveMinLevel(opts: CreateTrackLoggerOptions): LogLevel {
+  const fromOpts = opts.minLevel;
+  if (fromOpts) return fromOpts;
+  const fromEnv = process.env.ZEROU_LOG_LEVEL as LogLevel | undefined;
+  if (fromEnv && fromEnv in LEVEL_ORDER) return fromEnv;
+  return 'info';
+}
+
+function isSilentMode(opts: CreateTrackLoggerOptions): boolean {
+  if (opts.silent === true) return true;
+  if (process.env.ZEROU_LOG_NULL === '1') return true;
+  return false;
+}
+
+// ── LogError — surface-defined Error subclass with code field ────────────────
+
+export type LogErrorCode = 'LOG-E-1' | 'LOG-E-2' | 'LOG-E-3' | 'LOG-E-4' | 'LOG-E-5';
+
+export class LogError extends Error {
+  readonly code: LogErrorCode;
+  constructor(code: LogErrorCode, message: string) {
+    super(`${code}: ${message}`);
+    this.name = 'LogError';
+    this.code = code;
+  }
+}
+
+// ── Track / scope name validation (LOG-E-3) ──────────────────────────────────
+
+function validateScopeName(scope: string): void {
+  if (scope === '' || scope.includes('/') || scope.includes('\\') || scope.startsWith('.')) {
+    throw new LogError('LOG-E-3', `invalid scope name "${scope}"`);
+  }
+}
+
+// ── ULID (Crockford base32, 26 chars) ────────────────────────────────────────
+//
+// Inlined to keep this module's runtime deps at Node stdlib only (per spec §4.7).
+// 10-char timestamp + 16-char random. Random component uses `crypto.randomBytes`
+// (lead Phase-2 milestone-1 decision: avoid Math.random birthday-collision risk
+// for Phase 3's parallel-track audit trail identifiers).
+
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+
+function generateUlid(): string {
+  const ms = Date.now();
+  let timePart = '';
+  let t = ms;
+  for (let i = 0; i < 10; i++) {
+    timePart = CROCKFORD[t % 32]! + timePart;
+    t = Math.floor(t / 32);
+  }
+  // 16 chars of Crockford base32 = 80 random bits. randomBytes(10) gives 80 bits.
+  const buf = randomBytes(10);
+  let randPart = '';
+  let acc = 0;
+  let bits = 0;
+  for (let i = 0; i < 10 && randPart.length < 16; i++) {
+    acc = (acc << 8) | buf[i]!;
+    bits += 8;
+    while (bits >= 5 && randPart.length < 16) {
+      bits -= 5;
+      randPart += CROCKFORD[(acc >>> bits) & 0x1f]!;
+    }
+  }
+  return timePart + randPart;
+}
+
+// ── Local-time YYYY-MM-DD ────────────────────────────────────────────────────
+//
+// Per surface "On-disk format": <YYYY-MM-DD> is local-time ISO calendar date,
+// NOT UTC.
+
+function localISODate(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// ── Rotation: remove date dirs strictly more than 7 days before today ───────
+//
+// Per surface §"Rotation guarantee": cutoff is strict (>7 days removed; ≤7 kept),
+// per (Node process, track) idempotent via module-level Set, skipped when
+// silent / ZEROU_LOG_NULL=1.
+
+const DATE_DIR_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const rotatedPerProcess = new Set<string>();
+
+interface RotationResult {
+  removed: string[];          // absolute paths
+  failed: Array<{ dateDir: string; error: string }>;
+}
+
+function rotateOldDateDirs(
+  logRoot: string,
+  track: string,
+  suppressMetaEmit = false,
+): RotationResult {
+  const key = `${process.pid}|${track}|${logRoot}`;
+  if (rotatedPerProcess.has(key)) return { removed: [], failed: [] };
+  rotatedPerProcess.add(key);
+
+  const trackDir = path.join(logRoot, track);
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(trackDir);
+  } catch {
+    // track dir doesn't exist yet — nothing to rotate.
+    if (!suppressMetaEmit) {
+      emitMetaEvent(logRoot, 'info', 'log.rotation-complete', {
+        subjectTrack: track,
+        removedDirs: [],
+      });
+    }
+    return { removed: [], failed: [] };
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const cutoff = new Date(today);
+  cutoff.setDate(cutoff.getDate() - 7);
+
+  const result: RotationResult = { removed: [], failed: [] };
+  for (const name of entries) {
+    const match = DATE_DIR_RE.exec(name);
+    if (!match) continue;
+    const dirDate = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    if (dirDate >= cutoff) continue; // strictly older than 7 days → remove
+    const abs = path.join(trackDir, name);
+    try {
+      _rmDateDirForRotation(abs);
+      result.removed.push(abs);
+    } catch (err) {
+      result.failed.push({ dateDir: abs, error: (err as Error).message });
+    }
+  }
+  if (!suppressMetaEmit) {
+    emitMetaEvent(logRoot, 'info', 'log.rotation-complete', {
+      subjectTrack: track,
+      removedDirs: result.removed,
+    });
+    for (const f of result.failed) {
+      emitMetaEvent(logRoot, 'warn', 'log.rotation-failed', {
+        subjectTrack: track,
+        dateDir: f.dateDir,
+        error: f.error,
+      });
+    }
+  }
+  return result;
+}
+
+// Test-only escape hatch: clear the rotation-once-per-process gate so tests
+// that share a Node process can each exercise rotation independently.
+export function __resetRotationGateForTests(): void {
+  rotatedPerProcess.clear();
+}
+
+// ── Observer registry (used by captureLogsFor) ───────────────────────────────
+//
+// Observers receive every entry written by any logger in this process after
+// level filtering, regardless of silent mode (surface B-3-2 promises silent
+// loggers still observed). Multiple observers can match the same entry; they
+// do not consume (surface B-4-4). Filters: track (exact match) + optional
+// eventPattern (regex).
+
+export interface LogObserver {
+  readonly id: string;
+  readonly track: string;
+  readonly eventPattern?: RegExp;
+  readonly entries: LogEntry[];
+}
+
+const observers = new Map<string, LogObserver>();
+
+export function __addLogObserver(opts: { track: string; eventPattern?: RegExp }): LogObserver {
+  const obs: LogObserver = {
+    id: generateUlid(),
+    track: opts.track,
+    eventPattern: opts.eventPattern,
+    entries: [],
+  };
+  observers.set(obs.id, obs);
+  return obs;
+}
+
+export function __removeLogObserver(id: string): void {
+  observers.delete(id);
+}
+
+function notifyObservers(entry: LogEntry): void {
+  for (const obs of observers.values()) {
+    if (entry.track !== obs.track) continue;
+    if (obs.eventPattern && !obs.eventPattern.test(entry.event)) continue;
+    obs.entries.push(entry);
+  }
+}
+
+// ── Meta-event emission (always under track='log') ──────────────────────────
+//
+// Meta events flow through a lazy per-logRoot meta-logger (track='log'). The
+// meta-logger writes to disk at `<logRoot>/log/<YYYY-MM-DD>/<trace>.jsonl`
+// AND notifies observers (per surface B-4-6 "always written under track='log'").
+// `_isMeta: true` breaks recursion: the meta-logger's own rotation does NOT
+// emit further meta events.
+
+const metaLoggersByRoot = new Map<string, TrackLogger>();
+
+function getMetaLogger(logRoot: string): TrackLogger {
+  let l = metaLoggersByRoot.get(logRoot);
+  if (!l) {
+    l = createTrackLogger('log', { logRoot, _isMeta: true });
+    metaLoggersByRoot.set(logRoot, l);
+  }
+  return l;
+}
+
+function emitMetaEvent(
+  logRoot: string,
+  level: LogLevel,
+  event: string,
+  data: Record<string, unknown> = {},
+): void {
+  // The meta-logger's .log() path notifies observers AND writes to disk under
+  // track='log'. No need for a parallel notifyObservers call.
+  getMetaLogger(logRoot).log(level, event, data);
+}
+
+// Test-only: reset the meta-logger cache so tests with fresh tmpdirs see a
+// fresh meta-logger.
+export function __resetMetaLoggersForTests(): void {
+  metaLoggersByRoot.clear();
+}
+
+// ── Safe JSON stringify (deep cycle → '[Circular]') — LOG-E-5 ───────────────
+
+function safeStringify(obj: unknown): string {
+  const seen = new WeakSet<object>();
+  return JSON.stringify(obj, function (_key, value) {
+    if (typeof value === 'object' && value !== null) {
+      if (seen.has(value as object)) return '[Circular]';
+      seen.add(value as object);
+    }
+    return value;
+  });
+}
+
+// ── Best-effort caller-frame extraction for log.invalid-event-name ──────────
+
+function bestEffortCaller(): string {
+  const stack = new Error().stack ?? '';
+  // Skip "Error", current frame, and emitMetaEvent / log frames; pick first
+  // frame outside this module.
+  const lines = stack.split('\n').slice(1);
+  for (const line of lines) {
+    if (line.includes('track-logger.')) continue;
+    return line.trim();
+  }
+  return '(unknown)';
+}
+
+// Test-only seam: vi.spyOn cannot redefine ESM namespace properties, so the
+// rotation's rm operation goes through an injectable function. Tests use
+// __setRotationRmForTests(fn) to substitute synthetic failures; default is
+// fs.rmSync.
+let _rmDateDirForRotation: (abs: string) => void = (abs) =>
+  fs.rmSync(abs, { recursive: true, force: true });
+export function __setRotationRmForTests(fn: ((abs: string) => void) | null): void {
+  _rmDateDirForRotation = fn ?? ((abs) => fs.rmSync(abs, { recursive: true, force: true }));
+}
+
+// ── TrackLoggerImpl ──────────────────────────────────────────────────────────
+
+// ── Core: shared write infrastructure for a root + its descendants ──────────
+//
+// A LoggerCore is the per-(track, trace, logRoot) tuple. Multiple TrackLoggerImpl
+// instances may share a LoggerCore (one root + N children); they all write to
+// the same file with the same trace, differing only in `scope`.
+
+interface LoggerCore {
+  track: string;
+  trace: string;
+  logRoot: string;
+  stream: WriteStream | null;
+  writePromises: Array<Promise<void>>;
+  minLevel: LogLevel;
+  silent: boolean;
+  isMeta: boolean;
+  // ENOSPC degraded-mode state (B-8-1):
+  degraded: boolean;
+  degradedWarned: boolean;
+  enospcSinceLastFlush: boolean;
+}
+
+const liveLoggers = new Set<LoggerCore>();
+
+function fsyncFd(fd: number | null | undefined): Promise<void> {
+  if (fd === null || fd === undefined) return Promise.resolve();
+  return new Promise((resolve, reject) =>
+    fs.fsync(fd, (err) => (err ? reject(err) : resolve())),
+  );
+}
+
+function ensureStream(core: LoggerCore): WriteStream {
+  if (!core.stream) {
+    const dir = path.join(core.logRoot, core.track, localISODate());
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, `${core.trace}.jsonl`);
+      core.stream = fs.createWriteStream(file, { flags: 'a' });
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'EACCES' || code === 'EPERM') {
+        throw new LogError('LOG-E-1', `log root ${core.logRoot} not writable`);
+      }
+      throw err;
+    }
+  }
+  return core.stream;
+}
+
+// ── Stream write seam (B-8-1 ENOSPC simulation in tests) ────────────────────
+//
+// vi.spyOn cannot redefine fs.WriteStream.prototype.write under ESM, so the
+// test-only seam injects a replacement write function. Default delegates to
+// the real stream.write.
+
+type StreamWriteFn = (stream: WriteStream, line: string) => Promise<void>;
+
+const defaultStreamWrite: StreamWriteFn = (stream, line) =>
+  new Promise((resolve, reject) => {
+    stream.write(line, (err) => (err ? reject(err) : resolve()));
+  });
+
+let _streamWriteForTests: StreamWriteFn | null = null;
+export function __setStreamWriteForTests(fn: StreamWriteFn | null): void {
+  _streamWriteForTests = fn;
+}
+
+class TrackLoggerImpl implements TrackLogger {
+  readonly track: string;
+  readonly trace: string;
+  private readonly core: LoggerCore;
+  private readonly scope: string | undefined;
+
+  constructor(core: LoggerCore, scope: string | undefined) {
+    this.core = core;
+    this.track = core.track;
+    this.trace = core.trace;
+    this.scope = scope;
+  }
+
+  log(level: LogLevel, event: string, data: Record<string, unknown> = {}): void {
+    // Empty event name → drop + emit meta-event (LOG-E-4 / B-5-1).
+    if (event === '') {
+      emitMetaEvent(this.core.logRoot, 'warn', 'log.invalid-event-name', {
+        caller: bestEffortCaller(),
+      });
+      return;
+    }
+
+    // Level filter (B-3-1)
+    if (LEVEL_ORDER[level] < LEVEL_ORDER[this.core.minLevel]) return;
+
+    const entry: LogEntry = {
+      ts: Date.now(),
+      level,
+      ...data,
+      // Structural fields always win over caller-supplied data spread (prevents
+      // accidental collision with `track`/`trace`/`event`/`level`/`ts`/`scope`).
+      track: this.track,
+      trace: this.trace,
+      ...(this.scope !== undefined ? { scope: this.scope } : {}),
+      event,
+    };
+
+    // Observers see every entry past the level filter, even under silent mode
+    // (B-3-2 promises silent loggers still observed). Multiple observers are
+    // non-consuming (B-4-4).
+    notifyObservers(entry);
+
+    // Silent mode (B-3-2): no disk write past this point
+    if (this.core.silent) return;
+
+    // Degraded mode (B-8-1): drop entry without I/O attempt until flush() succeeds.
+    if (this.core.degraded) return;
+
+    // ensureStream may throw LogError code=LOG-E-1 on EACCES first-write (B-7-1).
+    // This propagates synchronously to the caller per surface contract.
+    const stream = ensureStream(this.core);
+    const line = safeStringify(entry) + '\n';
+    const writeFn = _streamWriteForTests ?? defaultStreamWrite;
+    const core = this.core;
+    const p = writeFn(stream, line).catch((err) => {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOSPC') {
+        core.degraded = true;
+        core.enospcSinceLastFlush = true;
+        if (!core.degradedWarned) {
+          core.degradedWarned = true;
+          process.stderr.write(`[zerou-log LOG-E-2] ENOSPC on track=${core.track}; dropping entries until flush() succeeds\n`);
+          emitMetaEvent(core.logRoot, 'error', 'log.write-degraded', { subjectTrack: core.track });
+        }
+        return;
+      }
+      throw err;
+    });
+    this.core.writePromises.push(p);
+  }
+
+  child(scope: string): TrackLogger {
+    validateScopeName(scope);
+    const newScope = this.scope ? `${this.scope}.${scope}` : scope;
+    return new TrackLoggerImpl(this.core, newScope);
+  }
+
+  async flush(): Promise<void> {
+    const pending = this.core.writePromises.slice();
+    this.core.writePromises = [];
+    try {
+      await Promise.all(pending);
+    } catch {
+      // ENOSPC was already handled inside writeFn .catch; other errors swallowed.
+    }
+    // B-6-1: fsync after all in-flight writes so reads after this point see all
+    // entries durably (not just in page cache).
+    if (this.core.stream && this.core.stream.fd !== null) {
+      try {
+        await fsyncFd(this.core.stream.fd);
+      } catch {
+        // EBADF / ENOSPC during fsync; swallow.
+      }
+    }
+    // B-8-1 recovery: only clear degraded if no NEW ENOSPC happened during this
+    // flush cycle. enospcSinceLastFlush is set by writeFn's .catch when an
+    // in-flight write fails ENOSPC.
+    if (this.core.degraded && !this.core.enospcSinceLastFlush) {
+      this.core.degraded = false;
+      this.core.degradedWarned = false;
+    }
+    this.core.enospcSinceLastFlush = false;
+  }
+}
+
+export function createTrackLogger(
+  track: string,
+  opts?: CreateTrackLoggerOptions,
+): TrackLogger {
+  const o = opts ?? {};
+  const logRoot = o.logRoot ?? path.join(process.cwd(), '.zerou', 'logs');
+  const silent = isSilentMode(o);
+  // Silent loggers skip rotation entirely (touch no filesystem) — B-3-2.
+  // Meta loggers skip meta-event emission to break getMetaLogger recursion.
+  if (!silent) rotateOldDateDirs(logRoot, track, o._isMeta === true);
+  const core: LoggerCore = {
+    track,
+    trace: o.parentTrace ?? o.trace ?? generateUlid(),
+    logRoot,
+    stream: null,
+    writePromises: [],
+    minLevel: resolveMinLevel(o),
+    silent,
+    isMeta: o._isMeta === true,
+    degraded: false,
+    degradedWarned: false,
+    enospcSinceLastFlush: false,
+  };
+  liveLoggers.add(core);
+  installBeforeExitHook();
+  return new TrackLoggerImpl(core, undefined);
+}
+
+// ── beforeExit hook: flush every live logger + emit log.beforeexit-flushed ─
+
+let beforeExitInstalled = false;
+let beforeExitHandled = false;
+
+function installBeforeExitHook(): void {
+  if (beforeExitInstalled) return;
+  beforeExitInstalled = true;
+  process.on('beforeExit', () => {
+    // Run exactly ONCE per process. Node fires `beforeExit` every time the
+    // event loop drains; runBeforeExitFlush queues new pending writes (the
+    // log.beforeexit-flushed meta event), which drain → loop empties →
+    // beforeExit fires again → infinite cascade. The `beforeExitHandled`
+    // latch breaks this. (Phase-2 hotfix after 6 × 6.8 GB tmpdir incident.)
+    if (beforeExitHandled) return;
+    beforeExitHandled = true;
+    void runBeforeExitFlush();
+  });
+}
+
+async function runBeforeExitFlush(): Promise<void> {
+  const start = Date.now();
+  let flushedCount = 0;
+  // Snapshot live loggers; flush non-meta loggers first so meta events emitted
+  // during flush still have a meta logger ready.
+  const snapshot = Array.from(liveLoggers);
+  for (const core of snapshot) {
+    if (core.isMeta) continue;
+    try {
+      const pending = core.writePromises.slice();
+      core.writePromises = [];
+      await Promise.all(pending);
+      if (core.stream && core.stream.fd !== null) {
+        await fsyncFd(core.stream.fd);
+      }
+      flushedCount++;
+    } catch {
+      /* best-effort */
+    }
+  }
+  const durationMs = Date.now() - start;
+  // Emit log.beforeexit-flushed via each meta logger so observers under any
+  // logRoot see it; then flush the meta loggers themselves.
+  for (const [logRoot] of metaLoggersByRoot) {
+    emitMetaEvent(logRoot, 'info', 'log.beforeexit-flushed', { flushedCount, durationMs });
+  }
+  for (const core of snapshot) {
+    if (!core.isMeta) continue;
+    try {
+      const pending = core.writePromises.slice();
+      core.writePromises = [];
+      await Promise.all(pending);
+      if (core.stream && core.stream.fd !== null) {
+        await fsyncFd(core.stream.fd);
+      }
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+// Test-only: clear liveLoggers + reset beforeExit state.
+export function __resetLiveLoggersForTests(): void {
+  liveLoggers.clear();
+  beforeExitHandled = false;
+}

@@ -23,6 +23,9 @@ Thumbs.db
 .d2p/
 .d2p-worktrees/
 
+# zerou audit logs (created under .zerou/logs/ in audited dirs)
+.zerou/
+
 # logs
 *.log
 
