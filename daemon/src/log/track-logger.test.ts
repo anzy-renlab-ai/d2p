@@ -694,6 +694,24 @@ describe('B-6-2 — process.beforeExit flushes live loggers + emits log.beforeex
     expect(bEntries).toHaveLength(1);
   });
 
+  it('T-6-2-3 (hotfix regression): repeated beforeExit fires emit log.beforeexit-flushed AT MOST ONCE per process', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b62c-'));
+    const a = createTrackLogger('A', { logRoot: tmp });
+    a.log('info', 'x', {});
+    const { entries } = await captureLogsFor(
+      { track: 'log', eventPattern: /^log\.beforeexit-flushed$/ },
+      async () => {
+        // Node fires beforeExit every time the event loop drains. Simulate 5
+        // back-to-back fires to ensure the latch prevents cascade.
+        for (let i = 0; i < 5; i++) {
+          process.emit('beforeExit', 0);
+          await new Promise((r) => setTimeout(r, 20));
+        }
+      },
+    );
+    expect(entries.length).toBeLessThanOrEqual(1);
+  });
+
   it('T-6-2-2: silent logger + beforeExit is observable no-op (no error, no file)', async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), 'zerou-log-b62b-'));
     const logger = createTrackLogger('foo', { logRoot: tmp, silent: true });

@@ -66,4 +66,6 @@ async function main() {
   console.log('ALL_BEHAVIORS_VERIFIED');
 }
 
-main().catch((err) => fail(err.stack ?? String(err)));
+// Explicit exit so the beforeExit cascade (if any future regression) never has
+// a chance to enter event-loop-drain mode.
+main().then(() => process.exit(0)).catch((err) => fail(err.stack ?? String(err)));

@@ -60,3 +60,5 @@ console.log('PROBE2:', sortedJSON({
   criticTrace: probe2Out.criticTrace,
   cliTraceEqualsCriticTrace: probe2Out.cliTraceEqualsCriticTrace,
 }));
+// Explicit exit (safety net against beforeExit cascade).
+process.exit(0);

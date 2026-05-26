@@ -526,19 +526,24 @@ export function createTrackLogger(
 // ── beforeExit hook: flush every live logger + emit log.beforeexit-flushed ─
 
 let beforeExitInstalled = false;
-let beforeExitInProgress = false;
+let beforeExitHandled = false;
 
 function installBeforeExitHook(): void {
   if (beforeExitInstalled) return;
   beforeExitInstalled = true;
   process.on('beforeExit', () => {
+    // Run exactly ONCE per process. Node fires `beforeExit` every time the
+    // event loop drains; runBeforeExitFlush queues new pending writes (the
+    // log.beforeexit-flushed meta event), which drain → loop empties →
+    // beforeExit fires again → infinite cascade. The `beforeExitHandled`
+    // latch breaks this. (Phase-2 hotfix after 6 × 6.8 GB tmpdir incident.)
+    if (beforeExitHandled) return;
+    beforeExitHandled = true;
     void runBeforeExitFlush();
   });
 }
 
 async function runBeforeExitFlush(): Promise<void> {
-  if (beforeExitInProgress) return;
-  beforeExitInProgress = true;
   const start = Date.now();
   let flushedCount = 0;
   // Snapshot live loggers; flush non-meta loggers first so meta events emitted
@@ -577,11 +582,10 @@ async function runBeforeExitFlush(): Promise<void> {
       /* best-effort */
     }
   }
-  beforeExitInProgress = false;
 }
 
 // Test-only: clear liveLoggers + reset beforeExit state.
 export function __resetLiveLoggersForTests(): void {
   liveLoggers.clear();
-  beforeExitInProgress = false;
+  beforeExitHandled = false;
 }
