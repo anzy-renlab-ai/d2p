@@ -604,6 +604,7 @@ async function doAudit(
     apply: applyCounters,
     trace: logger.trace,
     zerouVersion: ZEROU_CLI_VERSION,
+    logger,
   });
 
   if (cmdOpts.out) {
