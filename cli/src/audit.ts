@@ -571,6 +571,41 @@ async function doAudit(
         });
         testResults = batchResult.results;
         testSummary = batchResult.summary;
+
+        // Phase 6: opt-in runtime tests (only when project looks runnable).
+        try {
+          const runtimeOut = await runRuntimeTests(specs, repoInfo.cwd, {
+            logger: testLogger,
+            criticConfig: policy.criticConfig,
+            criticApiKey: policy.criticApiKey ?? null,
+          });
+          if (runtimeOut.runtime !== null && runtimeOut.results.length > 0) {
+            // Append runtime results to static results (let user see both).
+            testResults = [...testResults, ...runtimeOut.results];
+            // Recompute summary.
+            const allResults = testResults;
+            testSummary = {
+              total: allResults.length,
+              pass: allResults.filter((r) => r.status === 'pass').length,
+              fail: allResults.filter((r) => r.status === 'fail').length,
+              inconclusive: allResults.filter((r) => r.status === 'inconclusive').length,
+              skipped: allResults.filter((r) => r.status === 'skipped').length,
+              byCategory: testSummary.byCategory,
+            };
+            logBranch(testLogger, 'agent.runtime.summary-decision', {
+              decision: 'runtime-tests-ran',
+              runtimeResultsCount: runtimeOut.results.length,
+            }, { level: 'info' });
+          } else {
+            logBranch(testLogger, 'agent.runtime.summary-decision', {
+              decision: 'runtime-skipped',
+              reasoning: 'no detected runtime or no runnable specs',
+            }, { level: 'info' });
+          }
+        } catch (e) {
+          logCatch(testLogger, 'agent.runtime.error', e);
+          // Non-fatal: runtime tests are advisory.
+        }
       } else {
         logBranch(testLogger, 'agent.test-gen.summary-decision', {
           decision: 'no-specs-generated',
@@ -848,14 +883,21 @@ async function resolvePresets(
     }
     // Default: HARDCODED_KEY_PRESET + all markdown-defined presets (Phase 7).
     // HARDCODED_KEY_PRESET (8 rules) wins over the markdown 'secrets-leak' (3 rules).
-    const repoPresetsDir = path.resolve(
-      path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')),
-      '..',
-      '..',
-      '..',
-      'presets',
-    );
-    const markdownPresets = loadMarkdownPresets({ presetsDir: repoPresetsDir });
+    // Try multiple candidate paths since we may be running from dist/ or src/.
+    const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+    const candidates = [
+      path.resolve(here, '..', '..', 'presets'),       // dist/audit.js -> cli/presets (if vendored)
+      path.resolve(here, '..', '..', '..', 'presets'), // dist/audit.js -> <repo>/presets
+      path.resolve(process.cwd(), 'presets'),
+    ];
+    let markdownPresets: LoadedPreset[] = [];
+    for (const cand of candidates) {
+      const got = loadMarkdownPresets({ presetsDir: cand });
+      if (got.length > 0) {
+        markdownPresets = got;
+        break;
+      }
+    }
     const hardcodedIds = new Set([HARDCODED_KEY_PRESET.manifest.id]);
     const newFromMd = markdownPresets.filter((p) => !hardcodedIds.has(p.manifest.id));
     return [HARDCODED_KEY_PRESET, ...newFromMd];
