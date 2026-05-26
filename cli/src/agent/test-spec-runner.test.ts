@@ -336,17 +336,76 @@ describe('test-spec-runner.runTestCase', () => {
   });
 });
 
+describe('test-spec-runner — Phase 9 Lite adversarial judge', () => {
+  it('judge prompt uses adversarial framing (default = fail)', async () => {
+    const logger = createTrackLogger('agent', { silent: true });
+    let capturedSystem = '';
+    let capturedUser = '';
+    const llm: LlmCaller = async ({ systemPrompt, userPrompt }) => {
+      capturedSystem = systemPrompt;
+      capturedUser = userPrompt;
+      return {
+        rawText: JSON.stringify({ status: 'fail', verdictReason: 'x', evidence: {} }),
+        durationMs: 1,
+      };
+    };
+    await runTestCase({
+      spec: makeSpec(),
+      cwd: '/tmp',
+      logger,
+      criticConfig: fakeConfig,
+      criticApiKey: 'sk-test',
+      callLLM: llm,
+    });
+    expect(capturedSystem.toLowerCase()).toContain('adversarial');
+    expect(capturedSystem.toLowerCase()).toContain('default verdict');
+    expect(capturedUser.toLowerCase()).toContain('default verdict');
+    expect(capturedUser.toLowerCase()).toContain('fail');
+  });
+
+  it('judge prompt does NOT leak generator-side reasoning, id, or category', async () => {
+    const logger = createTrackLogger('agent', { silent: true });
+    let capturedUser = '';
+    const llm: LlmCaller = async ({ userPrompt }) => {
+      capturedUser = userPrompt;
+      return {
+        rawText: JSON.stringify({ status: 'pass', verdictReason: 'y', evidence: {} }),
+        durationMs: 1,
+      };
+    };
+    await runTestCase({
+      spec: makeSpec({
+        id: 'leaky-secret-id-marker',
+        category: 'happy-path',
+        reasoning: 'GENERATOR_INTERNAL_RATIONALE_SHOULD_NEVER_LEAK',
+        given: 'g',
+        when: 'w',
+        then: 't',
+      }),
+      cwd: '/tmp',
+      logger,
+      criticConfig: fakeConfig,
+      criticApiKey: 'sk-test',
+      callLLM: llm,
+    });
+    expect(capturedUser).not.toContain('GENERATOR_INTERNAL_RATIONALE_SHOULD_NEVER_LEAK');
+    expect(capturedUser).not.toContain('leaky-secret-id-marker');
+    expect(capturedUser).not.toMatch(/category:\s*happy-path/i);
+  });
+});
+
 describe('test-spec-runner.runTestCaseBatch', () => {
   it('aggregates results into a correct summary across 5 specs', async () => {
     const logger = createTrackLogger('agent', { silent: true });
     const specs: TestCaseSpec[] = [
-      makeSpec({ id: 's1', category: 'happy-path' }),
-      makeSpec({ id: 's2', category: 'security' }),
-      makeSpec({ id: 's3', category: 'edge-case' }),
-      makeSpec({ id: 's4', category: 'auth' }),
-      makeSpec({ id: 's5', category: 'security' }),
+      makeSpec({ id: 's1', category: 'happy-path', then: 'tag-s1' }),
+      makeSpec({ id: 's2', category: 'security', then: 'tag-s2' }),
+      makeSpec({ id: 's3', category: 'edge-case', then: 'tag-s3' }),
+      makeSpec({ id: 's4', category: 'auth', then: 'tag-s4' }),
+      makeSpec({ id: 's5', category: 'security', then: 'tag-s5' }),
     ];
-    // Round-robin status assignments
+    // Round-robin status assignments. Phase 9 Lite hides spec.id from the
+    // prompt — we route on a unique marker placed in spec.then instead.
     const statusForSpec: Record<string, 'pass' | 'fail' | 'inconclusive'> = {
       s1: 'pass',
       s2: 'fail',
@@ -355,7 +414,7 @@ describe('test-spec-runner.runTestCaseBatch', () => {
       s5: 'fail',
     };
     const llm: LlmCaller = async ({ userPrompt }) => {
-      const match = userPrompt.match(/ID: (s\d)/);
+      const match = userPrompt.match(/tag-(s\d)/);
       const id = match ? match[1] : 's1';
       const st = statusForSpec[id] ?? 'inconclusive';
       return {

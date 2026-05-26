@@ -75,8 +75,19 @@ export type LlmCaller = (args: {
 const DEFAULT_CONTEXT_LINES = 30;
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+// Phase 9 Lite — adversarial judge. We split test-generation from
+// test-evaluation by giving the evaluator an opposing role: "find reasons the
+// code FAILS, default to fail unless you can quote a code line proving pass."
+// We also withhold the generator's internal `reasoning` field and the spec id
+// (which can leak naming intent), so the judge sees only the bare assertion
+// (given/when/then) + the raw code window.
+//
+// Why: even though our LLM API calls are stateless (no session memory shared
+// between generator and judge), same-model blind spots cause both calls to
+// agree on bugs neither catches. Adversarial framing + information isolation
+// is the documented best practice for LLM-as-judge (Zheng et al. 2023).
 const SYSTEM_PROMPT =
-  'You are a static code analyst. Given a test specification and the source code that should satisfy it, decide if the code passes. Output JSON only — no markdown fence, no preamble.';
+  'You are an ADVERSARIAL code reviewer. Your job is to find any reason the code FAILS the given test assertion. Default verdict = fail. Pass only when you can quote the exact code lines that obviously satisfy the assertion. Bias toward skepticism. Output JSON only — no markdown fence, no preamble.';
 
 // ── Single test case ─────────────────────────────────────────────────────────
 
@@ -300,35 +311,41 @@ function readContextWindow(
 }
 
 function buildUserPrompt(spec: TestCaseSpec, ctx: ContextWindow): string {
+  // Phase 9 Lite — information isolation. We deliberately do NOT include:
+  //   - spec.id      (naming intent can leak generator's framing)
+  //   - spec.category (priming the judge to look for a specific class of bug)
+  //   - spec.reasoning (the generator's internal "why this test matters" — the
+  //     judge must reach its own conclusion from the raw assertion + code)
   return [
-    'You are a static code analyst. Given a test specification and the source code that should satisfy it, decide if the code passes.',
+    'TASK: Find reasons the source code FAILS the assertion below.',
+    'DEFAULT VERDICT: fail. Only return pass if you can quote the specific code',
+    'line(s) that obviously satisfy the assertion. Be skeptical.',
     '',
-    'Test Specification:',
-    `- ID: ${spec.id}`,
-    `- Name: ${spec.name}`,
-    `- Category: ${spec.category}`,
-    `- Target: ${spec.scope.type} at ${spec.scope.file}:${spec.scope.line}`,
+    'Assertion:',
     `- Given: ${spec.given}`,
     `- When: ${spec.when}`,
     `- Then: ${spec.then}`,
+    `- Target: ${spec.scope.file}:${spec.scope.line}`,
     '',
     `Source code (lines ${ctx.lineStart}-${ctx.lineEnd}):`,
-    ctx.snippet || '(source file could not be read — reason from spec only)',
+    ctx.snippet || '(source file could not be read)',
     '',
-    "Decide: does this code satisfy the test? Output strict JSON:",
+    'Output strict JSON only:',
     '{',
     '  "status": "pass"|"fail"|"inconclusive",',
-    '  "verdictReason": "...",',
+    '  "verdictReason": "<one sentence; if pass, quote the proving line>",',
     '  "evidence": {',
     `    "file": "${spec.scope.file}",`,
     '    "line": <line number where the relevant behavior happens>,',
-    '    "snippet": "<the specific code line(s)>",',
+    '    "snippet": "<the specific code line(s) you base your verdict on>",',
     '    "expectedBehavior": "<from `then`>",',
     '    "actualBehavior": "<what the code actually does>"',
     '  }',
     '}',
     '',
-    "Use 'inconclusive' if you cannot tell from the visible code (e.g., depends on imports not shown).",
+    "Use 'inconclusive' only when the relevant code is genuinely not visible",
+    '(e.g., the assertion targets a function declared elsewhere that is not in',
+    'the shown window). Do not use inconclusive as a way to avoid judgement.',
   ].join('\n');
 }
 
