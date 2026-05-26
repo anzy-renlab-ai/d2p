@@ -369,30 +369,72 @@ export function selectCriticPolicy(
 import * as nodeFs from 'node:fs';
 import { callOpenAICompatCritic } from './critic-client.js';
 import { createTrackLogger } from './log-types.js';
+import { logBranch, logCatch } from './log/branch.js';
 
 export async function defaultRunPreset(
   manifest: PresetManifest,
   ctx: RunPresetOptions,
 ): Promise<VerdictedFinding[]> {
   const rawFindings: Omit<VerdictedFinding, 'verdict'>[] = [];
+  const presetLogger = ctx.logger;
 
   for (const rule of manifest.rules) {
-    if (rule.mechanism !== 'static-grep') continue;
-    if (!rule.pattern) continue;
+    if (rule.mechanism !== 'static-grep') {
+      logBranch(presetLogger, 'preset.rule.mechanism-decision', {
+        decision: 'skip',
+        reasoning: 'v1 only supports static-grep',
+        ruleId: rule.id,
+        actualMechanism: rule.mechanism ?? 'undefined',
+      });
+      continue;
+    }
+    if (!rule.pattern) {
+      logBranch(presetLogger, 'preset.rule.pattern-decision', {
+        decision: 'skip',
+        reasoning: 'rule has static-grep mechanism but no pattern',
+        ruleId: rule.id,
+      });
+      continue;
+    }
+    logBranch(presetLogger, 'preset.rule.mechanism-decision', {
+      decision: 'scan',
+      ruleId: rule.id,
+      pattern: rule.pattern,
+      filePattern: rule.filePattern ?? '*',
+    });
     const files = collectFilesSync(ctx.cwd, rule.filePattern, ctx.readFiles);
+    logBranch(presetLogger, 'preset.file.collect-decision', {
+      decision: 'collected',
+      ruleId: rule.id,
+      fileCount: files.length,
+      filePattern: rule.filePattern ?? '*',
+    });
     const re = new RegExp(rule.pattern);
     for (const f of files) {
       let content: string;
       try {
         content = nodeFs.readFileSync(f.absolute, 'utf8');
-      } catch {
+      } catch (err) {
+        logCatch(presetLogger, 'preset.file.read-decision', err, {
+          ruleId: rule.id,
+          file: f.relPosix,
+        });
         continue;
       }
       ctx.readFiles?.add(f.relPosix);
       const lines = content.split(/\r?\n/);
+      let matchCount = 0;
       for (let i = 0; i < lines.length; i++) {
         const m = re.exec(lines[i]!);
         if (m) {
+          matchCount++;
+          logBranch(presetLogger, 'preset.regex.match-decision', {
+            decision: 'matched',
+            ruleId: rule.id,
+            file: f.relPosix,
+            line: i + 1,
+            evidenceLen: m[0].length,
+          });
           rawFindings.push({
             id: `${manifest.id}.${rule.id}.${f.relPosix}:${i + 1}`,
             presetId: manifest.id,
@@ -405,6 +447,12 @@ export async function defaultRunPreset(
           });
         }
       }
+      logBranch(presetLogger, 'preset.file.scan-decision', {
+        decision: matchCount > 0 ? 'matches-found' : 'no-matches',
+        ruleId: rule.id,
+        file: f.relPosix,
+        matchCount,
+      });
     }
   }
 
@@ -419,6 +467,19 @@ export async function defaultRunPreset(
     critic.baseUrl.length > 0 &&
     typeof criticKey === 'string' &&
     criticKey.length > 0;
+  logBranch(
+    presetLogger,
+    'preset.critic.dispatch-decision',
+    {
+      decision: canCallCritic ? 'real-call' : 'no-call',
+      crossFamily: ctx.criticPolicy.crossFamily,
+      criticKind: critic?.kind ?? null,
+      criticHasBaseUrl: !!(critic && critic.baseUrl),
+      criticHasKey: !!criticKey,
+      rawFindingsCount: rawFindings.length,
+    },
+    { level: 'info' },
+  );
 
   const criticFamily = critic ? engineFamily(critic) : undefined;
 
@@ -438,6 +499,19 @@ export async function defaultRunPreset(
     //      working until Phase-4 wires them to MinimalCriticEngineSurface.
     //  (b) Otherwise → critic-unavailable.
     const legacyConfirm = ctx.criticPolicy.crossFamily && critic !== null;
+    logBranch(
+      presetLogger,
+      'preset.critic.fallback-decision',
+      {
+        decision: legacyConfirm ? 'legacy-confirm' : 'critic-unavailable',
+        reasoning: legacyConfirm
+          ? 'crossFamily + critic configured but no openai-compat or key — legacy trust'
+          : 'no crossFamily / no critic / no key',
+        crossFamily: ctx.criticPolicy.crossFamily,
+        criticConfigured: !!critic,
+      },
+      { level: 'info' },
+    );
     criticLogger.log('info', 'critic.review.skipped', {
       reason: legacyConfirm
         ? 'no-openai-compat-or-key — using legacy crossFamily=confirmed fallback'
@@ -478,8 +552,20 @@ export async function defaultRunPreset(
         message: rf.message,
         ruleId: rf.ruleId,
       },
+      logger: criticLogger,
     });
     if (result.ok) {
+      logBranch(
+        criticLogger,
+        'critic.review.verdict-decision',
+        {
+          decision: result.verdict,
+          findingId: rf.id,
+          criticFamily: criticFamily ?? null,
+          durationMs: result.durationMs,
+        },
+        { level: 'info' },
+      );
       verdicted.push({
         ...rf,
         verdict: result.verdict,
@@ -493,6 +579,16 @@ export async function defaultRunPreset(
         durationMs: result.durationMs,
       });
     } else {
+      logBranch(
+        criticLogger,
+        'critic.review.verdict-decision',
+        {
+          decision: 'critic-unavailable',
+          reasoning: result.errorCode,
+          findingId: rf.id,
+        },
+        { level: 'info' },
+      );
       verdicted.push({
         ...rf,
         verdict: 'critic-unavailable',
@@ -542,6 +638,9 @@ function walk(root: string, dir: string, extSet: Set<string>, out: FoundFile[]):
   try {
     entries = nodeFs.readdirSync(dir, { withFileTypes: true });
   } catch {
+    // Best-effort: directory unreadable (permission / vanished). Bail silently;
+    // walk() has no logger handle — caller emits aggregate decisions via
+    // preset.file.collect-decision after collection.
     return;
   }
   for (const ent of entries) {

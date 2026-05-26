@@ -13,6 +13,7 @@ import type {
 } from './stubs.js';
 import { engineFamily } from './stubs.js';
 import type { TrackLogger } from './log-types.js';
+import { logBranch, logCatch } from './log/branch.js';
 
 export interface ApplyCounters {
   requested: boolean;
@@ -90,6 +91,8 @@ export interface BuildBundleInput {
   apply: ApplyCounters | null;
   trace: string;
   zerouVersion: string;
+  /** Optional logger for decision-branch tracing. */
+  logger?: TrackLogger | null;
 }
 
 function ulid(): string {
@@ -118,6 +121,7 @@ function ulid(): string {
 }
 
 export function buildBundle(input: BuildBundleInput): EvidenceBundle {
+  const log = input.logger;
   // counts
   const counts = { confirmed: 0, falsePositive: 0, needsContext: 0, criticUnavailable: 0 };
   const byPreset: Record<string, typeof counts> = {};
@@ -126,18 +130,34 @@ export function buildBundle(input: BuildBundleInput): EvidenceBundle {
     byPreset[f.presetId] = slot;
     switch (f.verdict) {
       case 'confirmed':
+        logBranch(log, 'cli.bundle.verdict-bucket-decision', {
+          decision: 'confirmed',
+          findingId: f.id,
+        });
         counts.confirmed++;
         slot.confirmed++;
         break;
       case 'false-positive':
+        logBranch(log, 'cli.bundle.verdict-bucket-decision', {
+          decision: 'false-positive',
+          findingId: f.id,
+        });
         counts.falsePositive++;
         slot.falsePositive++;
         break;
       case 'needs-context':
+        logBranch(log, 'cli.bundle.verdict-bucket-decision', {
+          decision: 'needs-context',
+          findingId: f.id,
+        });
         counts.needsContext++;
         slot.needsContext++;
         break;
       case 'critic-unavailable':
+        logBranch(log, 'cli.bundle.verdict-bucket-decision', {
+          decision: 'critic-unavailable',
+          findingId: f.id,
+        });
         counts.criticUnavailable++;
         slot.criticUnavailable++;
         break;
@@ -148,14 +168,24 @@ export function buildBundle(input: BuildBundleInput): EvidenceBundle {
   const inputFiles: Array<{ path: string; sha256: string }> = [];
   const seen = new Set<string>();
   for (const rel of input.readFiles) {
-    if (seen.has(rel)) continue;
+    if (seen.has(rel)) {
+      logBranch(log, 'cli.bundle.file-dedupe-decision', {
+        decision: 'skip-duplicate',
+        file: rel,
+      });
+      continue;
+    }
     seen.add(rel);
     const abs = path.join(input.cwd, rel);
     let sha = '';
     try {
       const data = fs.readFileSync(abs);
       sha = crypto.createHash('sha256').update(data).digest('hex');
-    } catch {
+    } catch (err) {
+      logCatch(log, 'cli.bundle.file-hash-decision', err, {
+        file: rel,
+        reasoning: 'falling back to empty sha',
+      });
       sha = '';
     }
     inputFiles.push({ path: rel, sha256: sha });
@@ -206,7 +236,17 @@ export function buildBundle(input: BuildBundleInput): EvidenceBundle {
     version: '1.0',
   };
   if (input.apply) {
+    logBranch(log, 'cli.bundle.apply-include-decision', {
+      decision: 'include',
+      requested: input.apply.requested,
+      templateApplied: input.apply.templateApplied,
+    });
     bundle.apply = input.apply;
+  } else {
+    logBranch(log, 'cli.bundle.apply-include-decision', {
+      decision: 'omit',
+      reasoning: '--apply not used',
+    });
   }
   return bundle;
 }
@@ -227,10 +267,24 @@ export function writeBundle(
     fs.mkdirSync(path.dirname(bundlePath), { recursive: true });
     fs.writeFileSync(bundlePath, text);
     const bytes = Buffer.byteLength(text);
+    logBranch(
+      logger,
+      'cli.bundle.persist-decision',
+      {
+        decision: 'success',
+        path: bundlePath,
+        bytes,
+      },
+      { level: 'info' },
+    );
     logger.log('info', 'cli.bundle.write-success', { path: bundlePath, bytes });
     return { ok: true, bytes };
   } catch (e) {
     const msg = (e as Error).message;
+    logCatch(logger, 'cli.bundle.persist-decision', e, {
+      decision: 'fail',
+      path: bundlePath,
+    });
     logger.log('error', 'cli.bundle.write-failed', { path: bundlePath, error: msg });
     return { ok: false, bytes: 0, error: msg };
   }

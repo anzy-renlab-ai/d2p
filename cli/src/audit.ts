@@ -35,6 +35,7 @@ import {
 import { buildBundle, writeBundle, type ApplyCounters } from './evidence-bundle.js';
 import { renderReport } from './report.js';
 import { runApplyPhase } from './apply.js';
+import { logBranch, logCatch } from './log/branch.js';
 
 export const ZEROU_CLI_VERSION = '0.1.0';
 
@@ -194,6 +195,9 @@ async function doAudit(
       }
     })();
   const effectiveLogRoot = pathIsDir ? logRoot : fallbackLogRoot;
+  // logger isn't created yet, but the decision is consequential to where
+  // every later log lands — we record it via the cli logger right after
+  // construction below.
 
   const logger = createTrackLogger('cli', {
     logRoot: effectiveLogRoot,
@@ -217,6 +221,13 @@ async function doAudit(
     apply: applyFlag,
     failOn,
   });
+  logBranch(logger, 'cli.log-root.target-decision', {
+    decision: pathIsDir ? 'audit-cwd' : 'process-cwd-fallback',
+    reasoning: pathIsDir
+      ? 'audit path is a directory; logs go under <path>/.zerou/logs'
+      : 'audit path missing or not a directory; logs go under process.cwd/.zerou/logs',
+    effectiveLogRoot,
+  });
 
   // 1. Prepare repo (A-E-1, B-1-1..1-4)
   let repoInfo;
@@ -227,8 +238,23 @@ async function doAudit(
       allowDirty,
       logger,
     });
+    logBranch(logger, 'cli.repo.prepare-decision', {
+      decision: 'success',
+      head: repoInfo.head,
+      autoInited: repoInfo.autoInited,
+    });
   } catch (e) {
     if (e instanceof RepoError) {
+      logBranch(
+        logger,
+        'cli.repo.prepare-decision',
+        {
+          decision: 'fail-exit-3',
+          errorCode: e.errorCode,
+          reasoning: e.message.slice(0, 200),
+        },
+        { level: 'info' },
+      );
       writeErr(`error: ${e.message}\n`);
       logger.log('info', 'cli.audit.end', {
         findingsCount: 0,
@@ -238,6 +264,9 @@ async function doAudit(
       await logger.flush();
       return 3;
     }
+    logCatch(logger, 'cli.repo.prepare-decision', e, {
+      decision: 'rethrow-unknown',
+    });
     throw e;
   }
 
@@ -253,9 +282,24 @@ async function doAudit(
     });
     cfg = loaded.cfg;
     configLegacyUsed = loaded.legacyUsed;
+    logBranch(logger, 'cli.config.load-decision', {
+      decision: 'loaded',
+      legacyUsed: configLegacyUsed,
+      source: loaded.source,
+    });
   } catch (e) {
     if (e instanceof ConfigError) {
       if (e.errorCode === 'A-E-4') {
+        logBranch(
+          logger,
+          'cli.config.load-decision',
+          {
+            decision: 'fail-unsafe-perms',
+            errorCode: 'A-E-4',
+            mode: e.mode ?? null,
+          },
+          { level: 'info' },
+        );
         writeErr(`error: ${e.message}\n`);
         logger.log('info', 'cli.audit.end', {
           findingsCount: 0,
@@ -266,6 +310,16 @@ async function doAudit(
         return 3;
       }
       // A-E-3
+      logBranch(
+        logger,
+        'cli.config.load-decision',
+        {
+          decision: 'fail-invalid',
+          errorCode: 'A-E-3',
+          issues: e.issues ?? null,
+        },
+        { level: 'info' },
+      );
       logger.log('error', 'cli.config.invalid', {
         errorCode: 'A-E-3',
         issues: e.issues ?? e.message,
@@ -279,6 +333,9 @@ async function doAudit(
       await logger.flush();
       return 3;
     }
+    logCatch(logger, 'cli.config.load-decision', e, {
+      decision: 'rethrow-unknown',
+    });
     throw e;
   }
   // (legacyUsed already logged by loadConfig)
@@ -289,7 +346,21 @@ async function doAudit(
   const workerProvider = providerForKind(cfg.worker.kind);
   const workerKey = resolveKeyForProvider(workerProvider, cliKeys, process.env, cfgKeys);
   const worker: EngineConfig = { ...cfg.worker };
-  if (workerKey) (worker as any).apiKey = workerKey;
+  if (workerKey) {
+    (worker as any).apiKey = workerKey;
+    logBranch(logger, 'cli.worker.key-decision', {
+      decision: 'key-resolved',
+      provider: workerProvider,
+      workerKind: cfg.worker.kind,
+    });
+  } else {
+    logBranch(logger, 'cli.worker.key-decision', {
+      decision: 'no-key',
+      reasoning: 'CLI-subprocess engine may auth differently',
+      provider: workerProvider,
+      workerKind: cfg.worker.kind,
+    });
+  }
   // We do NOT fail at this stage on missing key — the worker may use CLI tools
   // (claude-cli / codex-cli / gemini-cli) that auth differently. If the engine
   // factory fails downstream we emit cli.engine.worker-build-failed (A-E-6).
@@ -301,15 +372,40 @@ async function doAudit(
     return k ? { ...c, apiKey: k } : { ...c };
   });
   const policy = selectCriticPolicy(worker, criticPool);
+  logBranch(
+    logger,
+    'cli.critic.policy-decision',
+    {
+      decision: policy.crossFamily ? 'cross-family' : 'no-cross-family',
+      reasoning: policy.reason ?? 'cross-family critic available',
+      workerFamily: policy.workerFamily,
+      criticPoolSize: criticPool.length,
+    },
+    { level: 'info' },
+  );
   // Resolve API key for the critic engine, per Q8 precedence.
   if (policy.criticConfig) {
     const criticProvider = providerForKind(policy.criticConfig.kind);
     const criticKey = resolveKeyForProvider(criticProvider, cliKeys, process.env, cfgKeys);
     policy.criticApiKey = criticKey;
+    logBranch(logger, 'cli.critic.key-decision', {
+      decision: criticKey ? 'resolved' : 'no-key',
+      criticProvider,
+      criticKind: policy.criticConfig.kind,
+    });
     // Make sure the critic engine config carries the key too (for direct use).
     if (criticKey && !policy.criticConfig.apiKey) {
       policy.criticConfig = { ...policy.criticConfig, apiKey: criticKey };
+      logBranch(logger, 'cli.critic.key-attach-decision', {
+        decision: 'attached',
+        reasoning: 'criticConfig had no apiKey; injecting resolved key',
+      });
     }
+  } else {
+    logBranch(logger, 'cli.critic.key-decision', {
+      decision: 'skip',
+      reasoning: 'no critic config selected by policy',
+    });
   }
   // critic.policy-selected is Track P1's responsibility per surface §"Policy-
   // selection event ownership"; CLI does NOT duplicate. We still need to log
@@ -332,8 +428,23 @@ async function doAudit(
   let presets: LoadedPreset[];
   try {
     presets = await resolvePresets(presetsRequested, deps);
+    logBranch(logger, 'cli.preset.resolve-decision', {
+      decision: 'resolved',
+      requestedCount: presetsRequested.length,
+      resolvedCount: presets.length,
+    });
   } catch (e) {
     if ((e as any).code === 'PRESET-MISSING') {
+      logBranch(
+        logger,
+        'cli.preset.resolve-decision',
+        {
+          decision: 'fail-missing',
+          requestedId: (e as any).requestedId,
+          errorCode: 'PRESET-MISSING',
+        },
+        { level: 'info' },
+      );
       logger.log('error', 'cli.preset.requested-missing', {
         requestedId: (e as any).requestedId,
       });
@@ -346,6 +457,9 @@ async function doAudit(
       await logger.flush();
       return 3;
     }
+    logCatch(logger, 'cli.preset.resolve-decision', e, {
+      decision: 'rethrow-unknown',
+    });
     throw e;
   }
   logger.log('info', 'cli.preset.listed', { count: presets.length });
@@ -358,6 +472,12 @@ async function doAudit(
   }> = [];
   for (const p of presets) {
     if (p.shadowedBy.length > 0) {
+      logBranch(logger, 'cli.preset.shadow-decision', {
+        decision: 'shadowed',
+        presetId: p.manifest.id,
+        winningSource: p.source,
+        shadowedSources: p.shadowedBy,
+      });
       logger.log('warn', 'cli.preset.shadow-warn', {
         presetId: p.manifest.id,
         winningSource: p.source,
@@ -367,6 +487,12 @@ async function doAudit(
         presetId: p.manifest.id,
         winningSource: p.source,
         shadowedSources: p.shadowedBy,
+      });
+    } else {
+      logBranch(logger, 'cli.preset.shadow-decision', {
+        decision: 'no-shadow',
+        presetId: p.manifest.id,
+        source: p.source,
       });
     }
   }
@@ -407,6 +533,11 @@ async function doAudit(
       }
       allFindings.push(...findings);
     } catch (e) {
+      logCatch(logger, 'cli.preset.run-decision', e, {
+        decision: 'fail-skip-preset',
+        presetId: preset.manifest.id,
+        errorCode: (e as any).errorCode ?? 'unknown',
+      });
       logger.log('error', 'cli.preset.run-failed', {
         presetId: preset.manifest.id,
         errorCode: (e as any).errorCode ?? 'unknown',
@@ -416,10 +547,31 @@ async function doAudit(
 
   // 7. Compute fail-on threshold BEFORE apply (B-10-6)
   const exitCode = computeExitCode(allFindings, failOn);
+  logBranch(
+    logger,
+    'cli.fail-on.exit-decision',
+    {
+      decision: exitCode === 0 ? 'pass' : 'threshold-crossed',
+      failOn,
+      exitCode,
+      findingsCount: allFindings.length,
+    },
+    { level: 'info' },
+  );
 
   // 8. Apply phase (if requested)
   let applyCounters: ApplyCounters | null = null;
   if (applyFlag) {
+    logBranch(
+      logger,
+      'cli.apply.mode-decision',
+      {
+        decision: 'enabled',
+        findingsCount: allFindings.length,
+        confirmedCount: allFindings.filter((f) => f.verdict === 'confirmed').length,
+      },
+      { level: 'info' },
+    );
     const changedFiles = new Set<string>();
     applyCounters = await runApplyPhase(allFindings, presets, {
       cwd: repoInfo.cwd,
@@ -427,6 +579,11 @@ async function doAudit(
       worker,
       deps,
       changedFiles,
+    });
+  } else {
+    logBranch(logger, 'cli.apply.mode-decision', {
+      decision: 'disabled',
+      reasoning: '--apply flag not set',
     });
   }
 
@@ -447,12 +604,27 @@ async function doAudit(
     apply: applyCounters,
     trace: logger.trace,
     zerouVersion: ZEROU_CLI_VERSION,
+    logger,
   });
 
   if (cmdOpts.out) {
+    logBranch(logger, 'cli.bundle.emit-decision', {
+      decision: 'write',
+      path: cmdOpts.out,
+    });
     const r = writeBundle(cmdOpts.out, bundle, logger);
     if (!r.ok) {
       // A-E-9 → exit 1
+      logBranch(
+        logger,
+        'cli.bundle.write-decision',
+        {
+          decision: 'fail-exit-1',
+          errorCode: 'A-E-9',
+          error: r.error ?? null,
+        },
+        { level: 'info' },
+      );
       logger.log('info', 'cli.audit.end', {
         findingsCount: allFindings.length,
         exitCode: 1,
@@ -460,6 +632,15 @@ async function doAudit(
       });
       return 1;
     }
+    logBranch(logger, 'cli.bundle.write-decision', {
+      decision: 'success',
+      bytes: r.bytes,
+    });
+  } else {
+    logBranch(logger, 'cli.bundle.emit-decision', {
+      decision: 'skip',
+      reasoning: '--out flag not supplied',
+    });
   }
 
   // 10. Emit audit.summary under track='audit'
@@ -481,6 +662,7 @@ async function doAudit(
     apply: applyCounters,
     exitCode,
     useColor,
+    logger,
   });
   writeOut(report);
 

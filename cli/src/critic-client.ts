@@ -14,6 +14,8 @@
  *
  * Returns a Verdict for one finding, or null if the call/parse failed.
  */
+import type { TrackLogger } from './log-types.js';
+import { logBranch, logCatch } from './log/branch.js';
 
 export type CriticVerdict = 'confirmed' | 'false-positive' | 'needs-context';
 
@@ -29,6 +31,8 @@ export interface CriticCallParams {
     ruleId: string;
   };
   timeoutMs?: number;
+  /** Optional logger for decision-branch tracing. */
+  logger?: TrackLogger | null;
 }
 
 export interface CriticCallResult {
@@ -76,6 +80,7 @@ export async function callOpenAICompatCritic(
   params: CriticCallParams,
 ): Promise<CriticCallResult | CriticCallFailure> {
   const start = Date.now();
+  const log = params.logger;
   const url = params.baseUrl.replace(/\/$/, '') + '/chat/completions';
   const body = {
     model: params.modelId,
@@ -100,6 +105,11 @@ export async function callOpenAICompatCritic(
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (e) {
+    logCatch(log, 'critic.fetch-decision', e, {
+      url,
+      timeoutMs,
+      errorCode: 'P1-E-2',
+    });
     return {
       ok: false,
       errorCode: 'P1-E-2',
@@ -113,6 +123,11 @@ export async function callOpenAICompatCritic(
   const durationMs = Date.now() - start;
 
   if (!res.ok) {
+    logBranch(log, 'critic.http.status-decision', {
+      decision: 'http-error',
+      status: res.status,
+      errorCode: 'P1-E-2',
+    });
     return {
       ok: false,
       errorCode: 'P1-E-2',
@@ -121,12 +136,20 @@ export async function callOpenAICompatCritic(
       durationMs,
     };
   }
+  logBranch(log, 'critic.http.status-decision', {
+    decision: 'http-ok',
+    status: res.status,
+    rawBytes: rawText.length,
+  });
 
   // Parse the response envelope (OpenAI chat shape)
   let envelope: unknown;
   try {
     envelope = JSON.parse(rawText);
-  } catch {
+  } catch (e) {
+    logCatch(log, 'critic.parse.envelope-decision', e, {
+      errorCode: 'P1-E-3',
+    });
     return {
       ok: false,
       errorCode: 'P1-E-3',
@@ -138,6 +161,11 @@ export async function callOpenAICompatCritic(
   const content = (envelope as { choices?: Array<{ message?: { content?: string } }> })
     .choices?.[0]?.message?.content;
   if (typeof content !== 'string' || content.length === 0) {
+    logBranch(log, 'critic.parse.envelope-decision', {
+      decision: 'missing-content',
+      reasoning: 'choices[0].message.content not a non-empty string',
+      errorCode: 'P1-E-3',
+    });
     return {
       ok: false,
       errorCode: 'P1-E-3',
@@ -146,6 +174,10 @@ export async function callOpenAICompatCritic(
       durationMs,
     };
   }
+  logBranch(log, 'critic.parse.envelope-decision', {
+    decision: 'envelope-parsed',
+    contentLen: content.length,
+  });
 
   // Parse the model's inner JSON. Robust to reasoning models that prepend
   // <think>...</think> blocks (MiniMax-M2.7, DeepSeek-R1, etc.) and to
@@ -154,16 +186,45 @@ export async function callOpenAICompatCritic(
   try {
     let cleaned = content;
     // Strip <think>...</think> blocks (greedy across newlines)
+    const hadThink = /<think>[\s\S]*?<\/think>/.test(cleaned);
     cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    if (hadThink) {
+      logBranch(log, 'critic.parse.think-block-decision', {
+        decision: 'stripped',
+        reasoning: 'reasoning-model emitted <think>…</think>',
+      });
+    }
     // Strip markdown code fences
+    const hadFence = /^```/.test(cleaned);
     cleaned = cleaned.replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+    if (hadFence) {
+      logBranch(log, 'critic.parse.markdown-fence-decision', {
+        decision: 'stripped',
+        reasoning: 'model wrapped JSON in markdown fence',
+      });
+    }
     // If still not JSON-shaped, find the outermost {...} block
     if (!cleaned.startsWith('{')) {
       const m = cleaned.match(/\{[\s\S]*\}/);
-      if (m) cleaned = m[0];
+      if (m) {
+        cleaned = m[0];
+        logBranch(log, 'critic.parse.outer-json-decision', {
+          decision: 'extracted',
+          reasoning: 'content not bare JSON; extracted outermost {…}',
+        });
+      } else {
+        logBranch(log, 'critic.parse.outer-json-decision', {
+          decision: 'not-found',
+          reasoning: 'no {…} block discovered; parse will fail',
+        });
+      }
     }
     modelOut = JSON.parse(cleaned);
-  } catch {
+  } catch (e) {
+    logCatch(log, 'critic.parse.inner-json-decision', e, {
+      contentPreview: content.slice(0, 80),
+      errorCode: 'P1-E-3',
+    });
     return {
       ok: false,
       errorCode: 'P1-E-3',
@@ -179,6 +240,12 @@ export async function callOpenAICompatCritic(
     verdict !== 'false-positive' &&
     verdict !== 'needs-context'
   ) {
+    logBranch(log, 'critic.parse.verdict-validation-decision', {
+      decision: 'reject',
+      reasoning: 'verdict not in enum',
+      gotVerdict: String(verdict),
+      errorCode: 'P1-E-3',
+    });
     return {
       ok: false,
       errorCode: 'P1-E-3',
@@ -187,6 +254,10 @@ export async function callOpenAICompatCritic(
       durationMs,
     };
   }
+  logBranch(log, 'critic.parse.verdict-validation-decision', {
+    decision: 'accept',
+    verdict,
+  });
   const reasoning = typeof rec.reasoning === 'string' ? rec.reasoning.slice(0, 500) : '';
   let requiredContext: string[] = [];
   if (verdict === 'needs-context') {
@@ -195,6 +266,15 @@ export async function callOpenAICompatCritic(
       : [];
     // Empty requiredContext for needs-context → coerce to false-positive per P1-E-4
     if (requiredContext.length === 0) {
+      logBranch(
+        log,
+        'critic.parse.coerce-decision',
+        {
+          decision: 'coerce-to-false-positive',
+          reasoning: 'needs-context but requiredContext is empty (P1-E-4)',
+        },
+        { level: 'info' },
+      );
       return {
         ok: true,
         verdict: 'false-positive',
@@ -205,6 +285,10 @@ export async function callOpenAICompatCritic(
         durationMs,
       };
     }
+    logBranch(log, 'critic.parse.coerce-decision', {
+      decision: 'keep-needs-context',
+      requiredContextCount: requiredContext.length,
+    });
   }
 
   return {
