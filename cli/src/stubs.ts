@@ -552,6 +552,7 @@ export async function defaultRunPreset(
         message: rf.message,
         ruleId: rf.ruleId,
       },
+      logger: criticLogger,
     });
     if (result.ok) {
       logBranch(
