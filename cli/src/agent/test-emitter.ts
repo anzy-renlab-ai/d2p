@@ -28,7 +28,7 @@ import type { TrackLogger } from '../log-types.js';
 import { logBranch, logCatch } from '../log/branch.js';
 import type { EngineConfig } from '../stubs.js';
 import type { TestCaseSpec } from './types.js';
-import type { FunctionInfo } from './ast-types-stub.js';
+import type { FunctionInfo } from './ast-analyzer.js';
 
 // ── Public surface ──────────────────────────────────────────────────────────
 

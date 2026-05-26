@@ -22,7 +22,7 @@ import {
   __resetRotationGateForTests,
 } from '../log-types.js';
 import type { TestCaseSpec } from './types.js';
-import type { FunctionInfo } from './ast-types-stub.js';
+import type { FunctionInfo } from './ast-analyzer.js';
 import type { EngineConfig } from '../stubs.js';
 
 beforeEach(() => {

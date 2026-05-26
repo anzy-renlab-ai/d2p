@@ -43,6 +43,11 @@ import { runTestCaseBatch } from './agent/test-spec-runner.js';
 import type { TestCaseSpec, TestCaseResult, TestSummary } from './agent/types.js';
 import { loadMarkdownPresets } from './agent/preset-md-loader.js';
 import { runRuntimeTests } from './agent/runtime/index.js';
+import { analyzeFunctions } from './agent/ast-analyzer.js';
+import { emitVitestTests } from './agent/test-emitter.js';
+import { runVitest } from './agent/runtime/vitest-orchestrator.js';
+import { parseCoverage } from './agent/runtime/coverage-parser.js';
+import { ProgressiveReportWriter } from './agent/progressive-report.js';
 
 export const ZEROU_CLI_VERSION = '0.1.0';
 
@@ -820,6 +825,146 @@ async function doAudit(
     logger,
   });
   writeOut(report);
+
+  // ── Phase 8: Real test execution + progressive report ──────────────────────
+  // Only when agent mode (no --preset) and we have specs to emit.
+  if (presetsRequested.length === 0 && testResults.length > 0) {
+    const reportPath = path.join(repoInfo.cwd, '.zerou', 'audit-report.md');
+    const reportLogger = createTrackLogger('agent', {
+      logRoot: effectiveLogRoot,
+      parentTrace: logger.trace,
+      minLevel,
+    });
+    const report = new ProgressiveReportWriter({
+      reportPath,
+      logger: reportLogger,
+      projectName: path.basename(repoInfo.cwd),
+    });
+    try {
+      // Section 1: project profile (synthetic from policy info)
+      await report.appendSection(
+        'profile',
+        'Project Profile',
+        [
+          `- Working directory: ${repoInfo.cwd}`,
+          `- Worker engine family: ${policy.workerFamily}`,
+          `- Critic configured: ${policy.criticConfig ? engineFamily(policy.criticConfig) : 'none'}`,
+          `- Presets loaded: ${presets.length}`,
+        ].join('\n'),
+      );
+      // Section 3: static findings table
+      const findingsRows = allFindings.map((f) =>
+        `| ${f.id.slice(0, 30)} | ${f.file}:${f.line} | ${f.severity} | ${f.verdict} |`,
+      );
+      await report.appendSection(
+        'static-findings',
+        'Static Hardening Findings',
+        findingsRows.length > 0
+          ? `| Finding | Location | Severity | Verdict |\n|---|---|---|---|\n${findingsRows.join('\n')}`
+          : '_No findings._',
+      );
+      // Section 5: generated test suite (real vitest emit)
+      let functions: Awaited<ReturnType<typeof analyzeFunctions>> = [];
+      let emittedFiles: Awaited<ReturnType<typeof emitVitestTests>> = [];
+      try {
+        functions = await analyzeFunctions({ cwd: repoInfo.cwd, logger: reportLogger, maxFiles: 50 });
+        const specsForEmit = testResults.map((r) => r.spec);
+        emittedFiles = await emitVitestTests({
+          specs: specsForEmit,
+          functions,
+          cwd: repoInfo.cwd,
+          logger: reportLogger,
+          criticConfig: policy.criticConfig,
+          criticApiKey: policy.criticApiKey ?? null,
+        });
+        await report.appendSection(
+          'test-suite',
+          'Generated Test Suite',
+          emittedFiles.length > 0
+            ? emittedFiles
+                .map((f) => `- \`${path.relative(repoInfo.cwd, f.path)}\` (${f.testCount} tests)`)
+                .join('\n')
+            : '_No test files emitted (no testable specs)._',
+        );
+      } catch (e) {
+        logCatch(reportLogger, 'agent.test-emit.error', e);
+      }
+      // Section 6: execution
+      let vitestRunResult: Awaited<ReturnType<typeof runVitest>> | null = null;
+      if (emittedFiles.length > 0) {
+        try {
+          vitestRunResult = await runVitest({
+            cwd: repoInfo.cwd,
+            testDir: path.relative(repoInfo.cwd, path.dirname(emittedFiles[0]!.path)),
+            withCoverage: true,
+            logger: reportLogger,
+            timeoutMs: 60_000,
+          });
+          const lines: string[] = [
+            `**Exit code**: ${vitestRunResult.exitCode}`,
+            `**Pass**: ${vitestRunResult.pass}`,
+            `**Fail**: ${vitestRunResult.fail}`,
+            `**Skipped**: ${vitestRunResult.skipped}`,
+            `**Duration**: ${vitestRunResult.durationMs}ms`,
+          ];
+          if (vitestRunResult.failures.length > 0) {
+            lines.push('', '### Failed Tests');
+            for (const f of vitestRunResult.failures.slice(0, 10)) {
+              lines.push(`- **${f.test}** (${f.file})`);
+              lines.push(`  > ${(f.errorMessage || '').slice(0, 300)}`);
+            }
+          }
+          await report.appendSection('test-execution', 'Test Execution Results', lines.join('\n'));
+        } catch (e) {
+          logCatch(reportLogger, 'agent.vitest.error', e);
+        }
+        // Section 7: coverage
+        try {
+          const cov = await parseCoverage({
+            cwd: repoInfo.cwd,
+            coverageDir: path.join(repoInfo.cwd, '.zerou', 'coverage'),
+            logger: reportLogger,
+          });
+          if (cov) {
+            await report.appendSection(
+              'coverage',
+              'Coverage Report',
+              [
+                `**Lines**: ${cov.lines.covered}/${cov.lines.total} (${cov.lines.pct}%)`,
+                `**Branches**: ${cov.branches.covered}/${cov.branches.total} (${cov.branches.pct}%)`,
+              ].join('\n'),
+            );
+          }
+        } catch (e) {
+          logCatch(reportLogger, 'agent.coverage.error', e);
+        }
+      }
+      // Finalize
+      await report.finalize({
+        status: 'completed',
+        durationMs: Date.now() - startedAt.getTime(),
+        categories: presets.length,
+        findings: {
+          total: allFindings.length,
+          confirmed: allFindings.filter((f) => f.verdict === 'confirmed').length,
+          falsePositive: allFindings.filter((f) => f.verdict === 'false-positive').length,
+          needsContext: allFindings.filter((f) => f.verdict === 'needs-context').length,
+        },
+        tests: testSummary
+          ? {
+              total: testSummary.total + (vitestRunResult?.pass ?? 0) + (vitestRunResult?.fail ?? 0),
+              pass: testSummary.pass + (vitestRunResult?.pass ?? 0),
+              fail: testSummary.fail + (vitestRunResult?.fail ?? 0),
+              skipped: testSummary.skipped + (vitestRunResult?.skipped ?? 0),
+            }
+          : { total: 0, pass: 0, fail: 0, skipped: 0 },
+      });
+      writeOut(`\n📄 Progressive report: ${reportPath}\n`);
+    } catch (e) {
+      logCatch(reportLogger, 'agent.report.error', e);
+    }
+    await reportLogger.flush();
+  }
 
   // Phase 5: append test summary if tests were run
   if (testSummary && testSummary.total > 0) {
