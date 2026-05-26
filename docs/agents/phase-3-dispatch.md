@@ -23,3 +23,11 @@ Constraints surfaced during Phase 1.5 worker self-report. Lead applies these whe
 10. **Bash tool cwd persists across calls but subprocesses may behave differently**: in Claude Code's Bash tool, `cd <path>` in one call persists into the next call's working directory. But `gh`, `node`, `npm` etc. resolve their own paths against the cwd at command launch. Phase 3 worker SHOULD prefix multi-step bash commands with explicit `cd /d/lll/d2p &&` (or `cd /d/lll/d2p/daemon &&` etc.) rather than relying on persisted cwd from a previous turn.
 
 11. **FEATURE-VALIDATION Probes Gate 1+2+3 byte-identical comparison is SHAPE + INVARIANT**, not literal-value: time-based fields (`ts`, `trace`, ULID) are placeholders in Gate 1/2 predictions and concrete in Gate 3. Comparison via `jq -S` byte-identical applies AFTER normalizing such fields (e.g. `ts → fixed integer`, `trace → placeholder ULID`). The contract being verified is "Gates agree on the SHAPE + the load-bearing INVARIANT (e.g. `cliTrace === criticTrace`)", not "every byte of random output matches".
+
+12. **中偏高 verify mandate (vibe-coded preset 必含 verify script)**: 每个 vibe-coded hardening preset 的 `fix` 段必须有可执行的 verify script——deterministic 命令（grep / cat / curl / SQL / npm test 等），跑完命令的 exit code + stdout 能确定性判断 fix 真生效。仅"重跑 preset detection rule" 不够（fix 删了硬编码 key 但 .env 没塞 = 漏洞规则不 trigger 但 app 跑挂）。verify script 写在 preset markdown frontmatter 的 `fix.verifyCommand` 字段。Phase 3 Track A 的 `--apply` 实现必须：(a) apply fix; (b) 跑 preset.fix.verifyCommand; (c) verify exit 0 才认 fix 成功，否则 rollback fix。
+
+13. **全程可追溯 acceptance test (B 域产品追溯)**：每个 Track 完成时 dogfood 一次 `zerou audit ./fixtures/<sample>`，跑出 `.zerou/logs/*/<date>/*.jsonl`，必须能用纯 `jq` 回答下面 3 个问题（不许靠源码 inspect）：
+    - **Q1**: 某个 finding 怎么被发现的？（哪个 preset.rule.matched 事件 + 哪个文件哪行 + LLM confirm 结果如果有）
+    - **Q2**: 某个 fix 为什么 rollback？（哪个 fix.verify.failed 事件 + 哪个 verify step 失败 + 失败 reason）
+    - **Q3**: 哪个 engine 处理了哪个 finding？（critic.review.start 的 findingId + criticFamily）
+    Track 完工报告必须附 3 个 `jq` 命令 + verbatim 答案。答不出 = track 不算 done，回去补 log event 调用。
