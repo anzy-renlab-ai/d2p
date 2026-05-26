@@ -36,6 +36,8 @@ import { buildBundle, writeBundle, type ApplyCounters } from './evidence-bundle.
 import { renderReport } from './report.js';
 import { runApplyPhase } from './apply.js';
 import { logBranch, logCatch } from './log/branch.js';
+import { detectProject } from './agent/project-detector.js';
+import { buildChecklist } from './agent/checklist-builder.js';
 
 export const ZEROU_CLI_VERSION = '0.1.0';
 
@@ -463,6 +465,64 @@ async function doAudit(
     throw e;
   }
   logger.log('info', 'cli.preset.listed', { count: presets.length });
+
+  // ── Phase 4: Agent orchestration (when user did not pin --preset) ──────────
+  // Run detectProject + buildChecklist for the agent track. Findings still flow
+  // through the existing preset loop below — orchestrator's value here is the
+  // decision trail visible under track='agent'.
+  if (presetsRequested.length === 0) {
+    const agentLogger = createTrackLogger('agent', {
+      logRoot: effectiveLogRoot,
+      parentTrace: logger.trace,
+      minLevel,
+    });
+    try {
+      const profile = await detectProject({
+        cwd: repoInfo.cwd,
+        logger: agentLogger,
+        criticConfig: policy.criticConfig,
+        criticApiKey: policy.criticApiKey ?? null,
+      });
+      const checklist = await buildChecklist({
+        profile,
+        availablePresets: presets,
+        logger: agentLogger,
+        criticConfig: policy.criticConfig,
+        criticApiKey: policy.criticApiKey ?? null,
+      });
+      // Filter presets to those the agent's checklist marked as non-skip.
+      const wantedPresetIds = new Set<string>();
+      for (const item of checklist) {
+        if (item.priority !== 'skip') {
+          for (const id of item.presetIds) wantedPresetIds.add(id);
+        }
+      }
+      if (wantedPresetIds.size > 0) {
+        const before = presets.length;
+        presets = presets.filter((p) => wantedPresetIds.has(p.manifest.id));
+        logBranch(agentLogger, 'agent.preset-filter.decision', {
+          decision: 'narrowed',
+          before,
+          after: presets.length,
+          presetIds: [...wantedPresetIds],
+        }, { level: 'info' });
+      } else {
+        logBranch(agentLogger, 'agent.preset-filter.decision', {
+          decision: 'keep-all',
+          reasoning: 'checklist did not mark any preset; running all available',
+        }, { level: 'info' });
+      }
+    } catch (e) {
+      logCatch(agentLogger, 'agent.orchestrator.error', e);
+      // Non-fatal: fall back to running all presets (legacy behavior).
+    }
+    await agentLogger.flush();
+  } else {
+    logBranch(logger, 'cli.agent.mode-decision', {
+      decision: 'skip-agent',
+      reasoning: 'user pinned --preset; legacy mode',
+    });
+  }
 
   // Shadow warnings (B-3-1)
   const shadowedPresets: Array<{
