@@ -147,12 +147,22 @@ export async function callOpenAICompatCritic(
     };
   }
 
-  // Parse the model's inner JSON
+  // Parse the model's inner JSON. Robust to reasoning models that prepend
+  // <think>...</think> blocks (MiniMax-M2.7, DeepSeek-R1, etc.) and to
+  // models that wrap JSON in markdown fences.
   let modelOut: unknown;
   try {
-    // Strip markdown fences if model didn't follow instructions
-    const stripped = content.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
-    modelOut = JSON.parse(stripped);
+    let cleaned = content;
+    // Strip <think>...</think> blocks (greedy across newlines)
+    cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    // Strip markdown code fences
+    cleaned = cleaned.replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+    // If still not JSON-shaped, find the outermost {...} block
+    if (!cleaned.startsWith('{')) {
+      const m = cleaned.match(/\{[\s\S]*\}/);
+      if (m) cleaned = m[0];
+    }
+    modelOut = JSON.parse(cleaned);
   } catch {
     return {
       ok: false,

@@ -132,6 +132,8 @@ export interface RunPresetOptions {
   worker: EngineConfig;
   // file reads tracked here
   readFiles?: Set<string>;
+  /** Log root for spawned track loggers (e.g. critic). Defaults to process.cwd if omitted. */
+  logRoot?: string;
 }
 
 export interface PresetDeps {
@@ -420,9 +422,13 @@ export async function defaultRunPreset(
 
   const criticFamily = critic ? engineFamily(critic) : undefined;
 
-  // Build a fresh critic-track logger inheriting trace from caller's logger.
+  // Build a fresh critic-track logger inheriting trace from caller's logger
+  // AND the audit's logRoot (so events land alongside the rest of the audit).
   const parentTrace = ctx.logger?.trace ?? undefined;
-  const criticLogger = createTrackLogger('critic', { parentTrace });
+  const criticLogger = createTrackLogger('critic', {
+    parentTrace,
+    ...(ctx.logRoot ? { logRoot: ctx.logRoot } : {}),
+  });
 
   if (!canCallCritic) {
     // No real critic call possible. Two paths:

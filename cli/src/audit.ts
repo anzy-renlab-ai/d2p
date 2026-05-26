@@ -389,6 +389,7 @@ async function doAudit(
         criticPolicy: policy,
         worker,
         readFiles,
+        logRoot: effectiveLogRoot,
       });
       presetLogger.log('info', 'preset.run.end', {
         presetId: preset.manifest.id,
