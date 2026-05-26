@@ -642,3 +642,71 @@ describe('generateTestCases — LLM path', () => {
     }
   });
 });
+
+describe('generateTestCases — Phase 9 Lite-2 adversarial generator', () => {
+  it('system prompt uses red-team adversarial framing', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'src/api/x.ts',
+        `export async function POST(req: Request) { return new Response('ok'); }`,
+      );
+      let capturedSystem = '';
+      const llm: TestGenLlmFn = async ({ systemPrompt }) => {
+        capturedSystem = systemPrompt;
+        return { ok: true, raw: '', parsed: [] };
+      };
+      await generateTestCases({
+        cwd,
+        profile: baseProfile,
+        logger: makeLogger(cwd),
+        criticConfig: fakeCriticConfig,
+        criticApiKey: 'sk-test',
+        llmCall: llm,
+      });
+      const lower = capturedSystem.toLowerCase();
+      expect(lower).toContain('red-team');
+      expect(lower).toContain('find them');
+      expect(lower).toMatch(/assume|presumed/);
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('user prompt enumerates concrete attack-surface checklist', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'src/api/login.ts',
+        `export async function POST(req: Request) { return new Response('ok'); }`,
+      );
+      let capturedUser = '';
+      const llm: TestGenLlmFn = async ({ userPrompt }) => {
+        capturedUser = userPrompt;
+        return { ok: true, raw: '', parsed: [] };
+      };
+      await generateTestCases({
+        cwd,
+        profile: baseProfile,
+        logger: makeLogger(cwd),
+        criticConfig: fakeCriticConfig,
+        criticApiKey: 'sk-test',
+        llmCall: llm,
+      });
+      const lower = capturedUser.toLowerCase();
+      // Required attack-surface categories must be enumerated by name.
+      expect(lower).toContain('input boundary');
+      expect(lower).toContain('auth bypass');
+      expect(lower).toContain('data exposure');
+      expect(lower).toContain('error handling');
+      expect(lower).toContain('concurrency');
+      expect(lower).toContain('trust boundary');
+      // Skeptical presumption-of-bug framing must be present.
+      expect(lower).toMatch(/presumed buggy|do not give it the benefit/);
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+});

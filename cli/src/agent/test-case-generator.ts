@@ -472,11 +472,28 @@ export function extractAllTargets(cwd: string, maxFiles = 100): ExtractedTarget[
 
 // ── LLM spec generation ─────────────────────────────────────────────────────
 
+// Phase 9 Lite-2 — adversarial generator (red-team).
+//
+// Goal: prevent the generator from confirming what the code already does (the
+// "self-consistency" failure mode where a helpful generator writes specs that
+// the same model is happy to mark pass).
+//
+// Mindset shift: instead of "write tests that exercise this code", we say
+// "imagine this code is shipping to production and FIND every way it breaks.
+// For each failure mode you find, write a spec that exposes it."
+//
+// We force coverage of named attack-surface categories so the model can't
+// produce 5 happy-path variants and call it done.
 const SPEC_SYSTEM_PROMPT =
-  'You are a senior test engineer generating test specifications for a piece of source code. ' +
+  'You are a RED-TEAM auditor reviewing code that is about to ship to production. ' +
+  'Your job is NOT to confirm the code works — assume it has bugs and find them. ' +
+  'For every failure mode you identify, write one test spec that would expose it. ' +
+  'Bias toward attacks, edge inputs, race conditions, missing validation, and ' +
+  'unhandled errors. Treat the source as written by an inexperienced developer; ' +
+  'do not give it the benefit of the doubt. ' +
   'Output JSON ONLY — no markdown fence, no preamble, no commentary. ' +
   'Return a JSON array of test spec objects matching the schema exactly. ' +
-  'Be specific and concrete. Prefer "User logs in with wrong password" over "Test login fails".';
+  'Be specific and concrete. Prefer "User logs in with SQL-injected email and gains admin access" over "Test login fails".';
 
 const SPEC_SCHEMA_DOC = `[
   {
@@ -491,7 +508,7 @@ const SPEC_SCHEMA_DOC = `[
 
 function buildSpecPrompt(target: ExtractedTarget, maxCases: number): string {
   return [
-    `Source target:`,
+    `Target under attack:`,
     `- File: ${target.file}:${target.line}`,
     `- Type: ${target.type}`,
     `- Target: ${target.name}`,
@@ -502,9 +519,27 @@ function buildSpecPrompt(target: ExtractedTarget, maxCases: number): string {
     target.contextSnippet,
     `\`\`\``,
     ``,
-    `Generate up to ${maxCases} test specs for this code.`,
-    `Required coverage: at minimum 1 happy path + 1 edge case + 1 security concern (if applicable to the target).`,
-    `Also include error-handling for any failure paths visible in the code.`,
+    `Walk through the following attack-surface checklist. For EACH applicable item,`,
+    `write one spec that would fail if the bug is present:`,
+    ``,
+    `  1. Input boundary — empty / oversized / wrong type / unicode / null bytes`,
+    `  2. Validation gaps — malformed email / SQL-meta chars / path traversal / XSS`,
+    `  3. Auth bypass — missing session check / privilege escalation / IDOR`,
+    `  4. Data exposure — secrets in response / PII leak / verbose errors`,
+    `  5. Storage hygiene — plaintext password / unhashed token / unencrypted PII`,
+    `  6. Error handling — unhandled rejection / leaked stack trace / wrong status code`,
+    `  7. Concurrency — double-spend / TOCTOU / race in counter / duplicate writes`,
+    `  8. Resource — unbounded loop / unclosed handle / missing timeout`,
+    `  9. Trust boundary — unvalidated external input flows into sink (db/exec/eval)`,
+    ` 10. Happy path — at least ONE positive test that the intended flow succeeds`,
+    ``,
+    `Skip items that genuinely don't apply (e.g., storage hygiene for a stateless`,
+    `pure function). DO NOT skip an item just because the code "looks fine" — the`,
+    `code is presumed buggy until proven otherwise.`,
+    ``,
+    `Cap at ${maxCases} specs total. Pick the ${maxCases} highest-severity attack`,
+    `surfaces for this target. Each spec MUST describe a concrete, executable`,
+    `scenario — not a generic "validates input correctly".`,
     ``,
     `Return strict JSON array matching this schema:`,
     SPEC_SCHEMA_DOC,
