@@ -15,18 +15,22 @@ export async function main(argv: string[]): Promise<void> {
     let last = false;
     let filter: string | undefined;
     let traceId: string | undefined;
+    let pathArg: string | undefined;
     for (let i = 0; i < rest.length; i++) {
       const a = rest[i];
       if (a === '--last') last = true;
       else if (a === '--filter' && i + 1 < rest.length) {
         filter = rest[i + 1];
         i++;
+      } else if (a === '--path' && i + 1 < rest.length) {
+        pathArg = rest[i + 1];
+        i++;
       } else if (a && !a.startsWith('--')) {
         traceId = a;
       }
     }
     const code = await runTrace({
-      cwd: process.cwd(),
+      cwd: pathArg ?? process.cwd(),
       traceId,
       last,
       filter,
