@@ -17,6 +17,7 @@ import os from 'node:os';
 import { z } from 'zod';
 import type { TrackLogger } from './log-types.js';
 import type { EngineConfig, EngineKind } from './stubs.js';
+import { logBranch, logCatch } from './log/branch.js';
 
 const EngineKindSchema = z.enum([
   'anthropic-api',
@@ -96,18 +97,48 @@ export function loadConfig(opts: LoadConfigOptions): {
   let legacyUsed = false;
   if (explicit) {
     source = path.resolve(explicit);
+    logBranch(opts.logger, 'cli.config.path-decision', {
+      decision: 'explicit',
+      reasoning: '--config <file> override supplied',
+      source,
+    });
   } else {
     const zerouPath = path.join(home, '.zerou', 'config.json');
     const legacyPath = path.join(home, '.d2p', 'config.json');
     if (fs.existsSync(zerouPath)) {
       source = zerouPath;
+      logBranch(opts.logger, 'cli.config.path-decision', {
+        decision: 'zerou-default',
+        source,
+      });
     } else if (fs.existsSync(legacyPath)) {
       source = legacyPath;
       legacyUsed = true;
+      logBranch(
+        opts.logger,
+        'cli.config.legacy-fallback-decision',
+        {
+          decision: 'use-legacy-d2p',
+          reasoning: '~/.zerou/config.json missing, ~/.d2p/config.json present',
+          source,
+        },
+        { level: 'info' },
+      );
     } else {
       // Neither exists: this is NOT a config error — caller may proceed
       // without any config (e.g. when worker is built solely from env).
       // Return empty config sentinel.
+      logBranch(
+        opts.logger,
+        'cli.config.path-decision',
+        {
+          decision: 'fail-missing',
+          reasoning: 'neither ~/.zerou/config.json nor ~/.d2p/config.json exists',
+          zerouPath,
+          legacyPath,
+        },
+        { level: 'info' },
+      );
       throw new ConfigError(
         'A-E-3',
         `no config found at ${zerouPath} or ${legacyPath}`,
@@ -118,16 +149,33 @@ export function loadConfig(opts: LoadConfigOptions): {
 
   // Permission check (Unix only, skipped on win32).
   if (process.platform !== 'win32' && !opts.insecureConfig) {
+    logBranch(opts.logger, 'cli.config.perm-platform-decision', {
+      decision: 'unix-check',
+      platform: process.platform,
+    });
     let mode: number;
     try {
       mode = fs.statSync(source).mode & 0o777;
-    } catch {
+    } catch (err) {
+      logCatch(opts.logger, 'cli.config.perm-stat-decision', err, {
+        source,
+      });
       mode = 0;
     }
     // Allowed: 0600 / 0400. Anything broader is unsafe.
     const allowed = mode === 0o600 || mode === 0o400;
     if (!allowed) {
       const modeStr = mode.toString(8).padStart(4, '0');
+      logBranch(
+        opts.logger,
+        'cli.config.perm-decision',
+        {
+          decision: 'unsafe',
+          mode: modeStr,
+          errorCode: 'A-E-4',
+        },
+        { level: 'info' },
+      );
       opts.logger.log('error', 'cli.config.unsafe-perms', {
         path: source,
         mode: modeStr,
@@ -138,14 +186,31 @@ export function loadConfig(opts: LoadConfigOptions): {
         { mode: modeStr },
       );
     }
+    logBranch(opts.logger, 'cli.config.perm-decision', {
+      decision: 'safe',
+      mode: mode.toString(8).padStart(4, '0'),
+    });
   } else if (process.platform === 'win32' && !opts.insecureConfig) {
+    logBranch(opts.logger, 'cli.config.perm-platform-decision', {
+      decision: 'skip-win32',
+      reasoning: 'POSIX mode bits unreliable on Windows',
+    });
     opts.logger.log('debug', 'cli.config.windows-permission-check-skipped', {});
+  } else {
+    logBranch(opts.logger, 'cli.config.perm-platform-decision', {
+      decision: 'skip-insecure-flag',
+      reasoning: '--insecure-config bypass',
+    });
   }
 
   let raw: string;
   try {
     raw = fs.readFileSync(source, 'utf8');
   } catch (e) {
+    logCatch(opts.logger, 'cli.config.read-decision', e, {
+      source,
+      errorCode: 'A-E-3',
+    });
     throw new ConfigError('A-E-3', `cannot read config: ${(e as Error).message}`, {
       issues: 'read-failed',
     });
@@ -154,16 +219,35 @@ export function loadConfig(opts: LoadConfigOptions): {
   try {
     parsed = JSON.parse(raw);
   } catch (e) {
+    logCatch(opts.logger, 'cli.config.json-parse-decision', e, {
+      source,
+      errorCode: 'A-E-3',
+    });
     throw new ConfigError('A-E-3', `config is not valid JSON: ${(e as Error).message}`, {
       issues: 'json-parse-failed',
     });
   }
   const result = ConfigSchema.safeParse(parsed);
   if (!result.success) {
+    logBranch(
+      opts.logger,
+      'cli.config.validate-decision',
+      {
+        decision: 'fail-schema',
+        errorCode: 'A-E-3',
+        issuesPreview: JSON.stringify(result.error.issues).slice(0, 200),
+      },
+      { level: 'info' },
+    );
     throw new ConfigError('A-E-3', `config validation failed`, {
       issues: JSON.stringify(result.error.issues),
     });
   }
+  logBranch(opts.logger, 'cli.config.validate-decision', {
+    decision: 'pass',
+    workerKind: result.data.worker.kind,
+    criticPoolSize: result.data.criticPool?.length ?? 0,
+  });
   if (legacyUsed) {
     opts.logger.log('info', 'cli.config.legacy-d2p-path-used', {
       fallbackPath: source,
