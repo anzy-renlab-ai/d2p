@@ -7,6 +7,8 @@
  */
 import type { LoadedPreset, VerdictedFinding } from './stubs.js';
 import type { ApplyCounters } from './evidence-bundle.js';
+import type { TrackLogger } from './log-types.js';
+import { logBranch } from './log/branch.js';
 
 interface Colors {
   red: (s: string) => string;
@@ -49,11 +51,17 @@ export interface ReportInput {
   apply: ApplyCounters | null;
   exitCode: number;
   useColor: boolean;
+  /** Optional logger for decision-branch tracing. */
+  logger?: TrackLogger | null;
 }
 
 export function renderReport(input: ReportInput): string {
   const c = makeColors(input.useColor);
   const lines: string[] = [];
+  const log = input.logger;
+  logBranch(log, 'cli.report.color-decision', {
+    decision: input.useColor ? 'with-color' : 'no-color',
+  });
 
   // 1. Header
   lines.push(c.bold(`zerou audit ${input.cwd}`));
@@ -61,12 +69,30 @@ export function renderReport(input: ReportInput): string {
 
   // 2. Preset list
   if (input.presets.length === 0) {
+    logBranch(log, 'cli.report.preset-list-decision', {
+      decision: 'empty',
+    });
     lines.push(c.dim('  (no presets matched)'));
   } else {
+    logBranch(log, 'cli.report.preset-list-decision', {
+      decision: 'list',
+      count: input.presets.length,
+    });
     lines.push(`Presets (${input.presets.length}):`);
     for (const p of input.presets) {
       lines.push(`  - ${p.manifest.id} (${p.source})`);
     }
+  }
+  if (input.shadowedPresets.length > 0) {
+    logBranch(log, 'cli.report.shadow-warning-decision', {
+      decision: 'render',
+      count: input.shadowedPresets.length,
+    });
+  } else {
+    logBranch(log, 'cli.report.shadow-warning-decision', {
+      decision: 'skip',
+      reasoning: 'no shadowed presets',
+    });
   }
   for (const sw of input.shadowedPresets) {
     lines.push(
@@ -80,8 +106,15 @@ export function renderReport(input: ReportInput): string {
   // 3. Findings (grouped by severity then preset)
   const total = input.findings.length;
   if (total === 0) {
+    logBranch(log, 'cli.report.findings-decision', {
+      decision: 'empty',
+    });
     lines.push(c.dim('No findings.'));
   } else {
+    logBranch(log, 'cli.report.findings-decision', {
+      decision: 'render',
+      total,
+    });
     const order: Array<'P1' | 'P2' | 'P3'> = ['P1', 'P2', 'P3'];
     for (const sev of order) {
       const sevFindings = input.findings.filter((f) => f.severity === sev);
@@ -133,17 +166,37 @@ export function renderReport(input: ReportInput): string {
     `Of ${total} findings: ${counts.confirmed} confirmed / ${counts.falsePositive} false-positive / ${counts.needsContext} needs-context / ${counts.criticUnavailable} critic-unavailable`,
   );
   if (counts.criticUnavailable > 0) {
+    logBranch(log, 'cli.report.nudge-decision', {
+      decision: 'show-second-engine-nudge',
+      criticUnavailable: counts.criticUnavailable,
+    });
     lines.push(
       `configure a second engine (different family from ${input.workerFamily}) to verdict the remaining ${counts.criticUnavailable}.`,
     );
+  } else {
+    logBranch(log, 'cli.report.nudge-decision', {
+      decision: 'no-nudge',
+      reasoning: 'no critic-unavailable findings',
+    });
   }
 
   // 5. Apply summary
   if (input.apply) {
+    logBranch(log, 'cli.report.apply-summary-decision', {
+      decision: 'render',
+      templateApplied: input.apply.templateApplied,
+      llmVerified: input.apply.llmVerifiedApplied,
+      skipped: input.apply.llmUnverifiedSkipped + input.apply.skipNoProposal,
+    });
     lines.push('');
     lines.push(
       `Apply: ${input.apply.templateApplied} template, ${input.apply.llmVerifiedApplied} llm-verified, ${input.apply.llmUnverifiedSkipped} skipped-unverified, ${input.apply.skipNoProposal} skipped-no-proposal`,
     );
+  } else {
+    logBranch(log, 'cli.report.apply-summary-decision', {
+      decision: 'skip',
+      reasoning: '--apply not used',
+    });
   }
 
   // 6. Exit line

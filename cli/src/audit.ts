@@ -661,6 +661,7 @@ async function doAudit(
     apply: applyCounters,
     exitCode,
     useColor,
+    logger,
   });
   writeOut(report);
 
