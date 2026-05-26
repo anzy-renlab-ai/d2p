@@ -41,6 +41,8 @@ import { buildChecklist } from './agent/checklist-builder.js';
 import { generateTestCases } from './agent/test-case-generator.js';
 import { runTestCaseBatch } from './agent/test-spec-runner.js';
 import type { TestCaseSpec, TestCaseResult, TestSummary } from './agent/types.js';
+import { loadMarkdownPresets } from './agent/preset-md-loader.js';
+import { runRuntimeTests } from './agent/runtime/index.js';
 
 export const ZEROU_CLI_VERSION = '0.1.0';
 
@@ -844,7 +846,19 @@ async function resolvePresets(
       const list = await deps.listPresets({ cwd: process.cwd() });
       return list;
     }
-    return [HARDCODED_KEY_PRESET];
+    // Default: HARDCODED_KEY_PRESET + all markdown-defined presets (Phase 7).
+    // HARDCODED_KEY_PRESET (8 rules) wins over the markdown 'secrets-leak' (3 rules).
+    const repoPresetsDir = path.resolve(
+      path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')),
+      '..',
+      '..',
+      '..',
+      'presets',
+    );
+    const markdownPresets = loadMarkdownPresets({ presetsDir: repoPresetsDir });
+    const hardcodedIds = new Set([HARDCODED_KEY_PRESET.manifest.id]);
+    const newFromMd = markdownPresets.filter((p) => !hardcodedIds.has(p.manifest.id));
+    return [HARDCODED_KEY_PRESET, ...newFromMd];
   }
   const out: LoadedPreset[] = [];
   for (const id of requested) {
