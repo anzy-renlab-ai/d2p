@@ -10,6 +10,9 @@ node_modules/
 .env
 .env.*
 !.env.example
+.cairn-poc3-keys/
+*.key
+*.pem
 
 # OS / IDE
 .DS_Store
@@ -52,3 +55,4 @@ ui/vite-test.*
 
 # pitchkit ephemeral artifacts
 tmp/
+.gstack/
