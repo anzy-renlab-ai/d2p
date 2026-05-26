@@ -4,15 +4,17 @@
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "d2p": "./bin/d2p.mjs"
+    "d2p": "./bin/d2p.mjs",
+    "zerou": "./bin/zerou.mjs"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
