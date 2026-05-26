@@ -121,6 +121,8 @@ export interface CriticPolicy {
   reason?: string;
   workerFamily: string;
   criticConfig: EngineConfig | null;
+  /** API key for the critic engine; resolved via Q8 precedence by the caller. */
+  criticApiKey?: string | null;
 }
 
 export interface RunPresetOptions {
@@ -345,22 +347,32 @@ export function selectCriticPolicy(
   };
 }
 
-// ── Builtin runPreset: static-grep implementation for dogfood / stub ────────
+// ── Builtin runPreset: static-grep + real cross-engine critic ──────────────
 
 /**
- * Default `runPreset` implementation: scans files matching `filePattern`,
- * runs the rule's regex, emits a Finding per match. No LLM verdict — every
- * finding is marked `critic-unavailable` unless `criticPolicy.crossFamily`,
- * in which case findings are marked `confirmed` (this is a placeholder until
- * Track P1's real critic ships).
+ * Default `runPreset` implementation:
+ *  1. Scans files matching `filePattern` for the rule's regex.
+ *  2. Emits a raw finding per regex match.
+ *  3. If `criticPolicy.crossFamily` + `criticApiKey` + an `openai-compat`
+ *     critic config are all present, actually CALLS the critic engine per
+ *     finding (e.g. MiniMax, DeepSeek, Moonshot, OpenRouter — anything
+ *     speaking OpenAI's /chat/completions wire format) and uses its
+ *     returned verdict.
+ *  4. Falls back to `critic-unavailable` when no critic call could be made
+ *     OR when the critic call failed (per Protocol-1 P1-E-2 / P1-E-3).
+ *
+ * Concurrency is currently 1 (serial). Future: respect criticPolicy
+ * concurrency once Protocol-1's reviewBatch is wired in.
  */
 import * as nodeFs from 'node:fs';
+import { callOpenAICompatCritic } from './critic-client.js';
+import { createTrackLogger } from './log-types.js';
 
 export async function defaultRunPreset(
   manifest: PresetManifest,
   ctx: RunPresetOptions,
 ): Promise<VerdictedFinding[]> {
-  const findings: VerdictedFinding[] = [];
+  const rawFindings: Omit<VerdictedFinding, 'verdict'>[] = [];
 
   for (const rule of manifest.rules) {
     if (rule.mechanism !== 'static-grep') continue;
@@ -379,12 +391,8 @@ export async function defaultRunPreset(
       for (let i = 0; i < lines.length; i++) {
         const m = re.exec(lines[i]!);
         if (m) {
-          const id = `${manifest.id}.${rule.id}.${f.relPosix}:${i + 1}`;
-          const verdict = ctx.criticPolicy.crossFamily
-            ? 'confirmed'
-            : 'critic-unavailable';
-          findings.push({
-            id,
+          rawFindings.push({
+            id: `${manifest.id}.${rule.id}.${f.relPosix}:${i + 1}`,
             presetId: manifest.id,
             ruleId: rule.id,
             severity: rule.severity,
@@ -392,16 +400,109 @@ export async function defaultRunPreset(
             line: i + 1,
             evidence: m[0],
             message: rule.message ?? 'rule matched',
-            verdict,
-            criticFamily: ctx.criticPolicy.criticConfig
-              ? engineFamily(ctx.criticPolicy.criticConfig)
-              : undefined,
           });
         }
       }
     }
   }
-  return findings;
+
+  // Decide critic call path
+  const critic = ctx.criticPolicy.criticConfig;
+  const criticKey = ctx.criticPolicy.criticApiKey ?? null;
+  const canCallCritic =
+    ctx.criticPolicy.crossFamily &&
+    critic !== null &&
+    critic.kind === 'openai-compat' &&
+    typeof critic.baseUrl === 'string' &&
+    critic.baseUrl.length > 0 &&
+    typeof criticKey === 'string' &&
+    criticKey.length > 0;
+
+  const criticFamily = critic ? engineFamily(critic) : undefined;
+
+  // Build a fresh critic-track logger inheriting trace from caller's logger.
+  const parentTrace = ctx.logger?.trace ?? undefined;
+  const criticLogger = createTrackLogger('critic', { parentTrace });
+
+  if (!canCallCritic) {
+    // No real critic call possible. Two paths:
+    //  (a) crossFamily AND a critic is configured (just not openai-compat or key
+    //      missing) → mark confirmed via legacy "trust-the-policy" fallback so
+    //      CLI-subprocess engines (claude-cli/codex-cli/gemini-cli) keep
+    //      working until Phase-4 wires them to MinimalCriticEngineSurface.
+    //  (b) Otherwise → critic-unavailable.
+    const legacyConfirm = ctx.criticPolicy.crossFamily && critic !== null;
+    criticLogger.log('info', 'critic.review.skipped', {
+      reason: legacyConfirm
+        ? 'no-openai-compat-or-key — using legacy crossFamily=confirmed fallback'
+        : ctx.criticPolicy.reason ?? 'no-critic-config',
+      crossFamily: ctx.criticPolicy.crossFamily,
+      criticConfigured: !!critic,
+      criticKind: critic?.kind ?? null,
+      criticHasKey: !!criticKey,
+    });
+    await criticLogger.flush();
+    return rawFindings.map((rf) => ({
+      ...rf,
+      verdict: legacyConfirm ? ('confirmed' as const) : ('critic-unavailable' as const),
+      verdictReason: legacyConfirm
+        ? 'cross-family policy (legacy fallback; no real call)'
+        : 'no critic call (missing crossFamily / config / key)',
+      criticFamily,
+    }));
+  }
+
+  // Real critic calls (serial). Future: respect criticPolicy.concurrency.
+  const verdicted: VerdictedFinding[] = [];
+  for (const rf of rawFindings) {
+    criticLogger.log('info', 'critic.review.start', {
+      findingId: rf.id,
+      presetId: rf.presetId,
+      ruleId: rf.ruleId,
+      crossFamily: true,
+    });
+    const result = await callOpenAICompatCritic({
+      baseUrl: critic!.baseUrl!,
+      apiKey: criticKey!,
+      modelId: critic!.modelId,
+      finding: {
+        file: rf.file,
+        line: rf.line,
+        evidence: rf.evidence,
+        message: rf.message,
+        ruleId: rf.ruleId,
+      },
+    });
+    if (result.ok) {
+      verdicted.push({
+        ...rf,
+        verdict: result.verdict,
+        verdictReason: result.reasoning,
+        criticFamily,
+      });
+      criticLogger.log('info', 'critic.review.success', {
+        findingId: rf.id,
+        verdict: result.verdict,
+        criticFamily: criticFamily ?? null,
+        durationMs: result.durationMs,
+      });
+    } else {
+      verdicted.push({
+        ...rf,
+        verdict: 'critic-unavailable',
+        verdictReason: result.error,
+        criticFamily,
+      });
+      criticLogger.log('error', 'critic.invocation-failure', {
+        findingId: rf.id,
+        errorCode: result.errorCode,
+        error: result.error.slice(0, 200),
+        durationMs: result.durationMs,
+      });
+    }
+  }
+  await criticLogger.flush();
+  return verdicted;
 }
 
 interface FoundFile {

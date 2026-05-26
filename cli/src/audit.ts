@@ -301,6 +301,16 @@ async function doAudit(
     return k ? { ...c, apiKey: k } : { ...c };
   });
   const policy = selectCriticPolicy(worker, criticPool);
+  // Resolve API key for the critic engine, per Q8 precedence.
+  if (policy.criticConfig) {
+    const criticProvider = providerForKind(policy.criticConfig.kind);
+    const criticKey = resolveKeyForProvider(criticProvider, cliKeys, process.env, cfgKeys);
+    policy.criticApiKey = criticKey;
+    // Make sure the critic engine config carries the key too (for direct use).
+    if (criticKey && !policy.criticConfig.apiKey) {
+      policy.criticConfig = { ...policy.criticConfig, apiKey: criticKey };
+    }
+  }
   // critic.policy-selected is Track P1's responsibility per surface §"Policy-
   // selection event ownership"; CLI does NOT duplicate. We still need to log
   // it for traceability when Track P1 isn't integrated. Emit under critic
@@ -315,6 +325,7 @@ async function doAudit(
     reason: policy.reason,
     workerFamily: policy.workerFamily,
     criticFamily: policy.criticConfig ? engineFamily(policy.criticConfig) : null,
+    criticHasKey: !!policy.criticApiKey,
   });
 
   // 5. Resolve presets
