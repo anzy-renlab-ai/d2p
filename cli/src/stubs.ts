@@ -546,7 +546,27 @@ function walk(root: string, dir: string, extSet: Set<string>, out: FoundFile[]):
   }
   for (const ent of entries) {
     const name = ent.name;
-    if (name === '.git' || name === 'node_modules' || name === '.zerou') continue;
+    // Standard exclusion list per surface 13 §"Default fileFilter exclusion list"
+    if (
+      name === '.git' ||
+      name === 'node_modules' ||
+      name === '.zerou' ||
+      name === 'dist' ||
+      name === 'build' ||
+      name === '.next' ||
+      name === '.turbo' ||
+      name === '.nuxt' ||
+      name === 'coverage' ||
+      name === '__pycache__' ||
+      name === '.cache' ||
+      name === '.venv' ||
+      name === 'venv' ||
+      name === '.pytest_cache' ||
+      name === 'target' ||           // Rust
+      name === '.gradle' ||          // Java
+      name === '.idea' ||
+      name === '.vscode'
+    ) continue;
     const abs = path.join(dir, name);
     if (ent.isDirectory()) {
       walk(root, abs, extSet, out);
