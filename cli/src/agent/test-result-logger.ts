@@ -15,7 +15,7 @@
  * contract as `logBranch`.
  */
 import type { TrackLogger } from '../log-types.js';
-import type { TestCaseSpec, TestCaseResult } from './test-types-stub.js';
+import type { TestCaseSpec, TestCaseResult } from './types.js';
 
 /**
  * Emit the start of a test case.

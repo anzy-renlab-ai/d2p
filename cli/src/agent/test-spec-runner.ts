@@ -20,7 +20,7 @@ import type {
   TestCaseResult,
   TestCaseStatus,
   TestSummary,
-} from './test-types-stub.js';
+} from './types.js';
 import {
   logTestCaseStart,
   logTestContextRead,

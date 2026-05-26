@@ -15,7 +15,7 @@ import {
   __resetLiveLoggersForTests,
   __resetRotationGateForTests,
 } from '../log-types.js';
-import type { TestCaseSpec, TestCaseResult } from './test-types-stub.js';
+import type { TestCaseSpec, TestCaseResult } from './types.js';
 
 beforeEach(() => {
   __resetMetaLoggersForTests();

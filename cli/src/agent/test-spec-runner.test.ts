@@ -20,7 +20,7 @@ import {
   __resetLiveLoggersForTests,
   __resetRotationGateForTests,
 } from '../log-types.js';
-import type { TestCaseSpec } from './test-types-stub.js';
+import type { TestCaseSpec } from './types.js';
 import type { EngineConfig } from '../stubs.js';
 
 beforeEach(() => {

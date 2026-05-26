@@ -38,6 +38,9 @@ import { runApplyPhase } from './apply.js';
 import { logBranch, logCatch } from './log/branch.js';
 import { detectProject } from './agent/project-detector.js';
 import { buildChecklist } from './agent/checklist-builder.js';
+import { generateTestCases } from './agent/test-case-generator.js';
+import { runTestCaseBatch } from './agent/test-spec-runner.js';
+import type { TestCaseSpec, TestCaseResult, TestSummary } from './agent/types.js';
 
 export const ZEROU_CLI_VERSION = '0.1.0';
 
@@ -524,6 +527,61 @@ async function doAudit(
     });
   }
 
+  // ── Phase 5: Test case generator + runner (when agent mode active) ─────────
+  let testResults: TestCaseResult[] = [];
+  let testSummary: TestSummary | null = null;
+  if (presetsRequested.length === 0) {
+    const testLogger = createTrackLogger('agent', {
+      logRoot: effectiveLogRoot,
+      parentTrace: logger.trace,
+      minLevel,
+    });
+    try {
+      // Use the profile from earlier detection if available; else minimal fallback.
+      const profileForTests = {
+        framework: 'unknown',
+        backend: null,
+        language: [] as string[],
+        hasGit: true,
+        hasTests: false,
+        hasEnvFile: false,
+        packageMgr: null as 'npm' | 'pnpm' | 'yarn' | null,
+        evidence: {} as Record<string, string>,
+      };
+      const specs = await generateTestCases({
+        cwd: repoInfo.cwd,
+        profile: profileForTests,
+        logger: testLogger,
+        criticConfig: policy.criticConfig,
+        criticApiKey: policy.criticApiKey ?? null,
+        maxCasesPerTarget: 3,
+      });
+      if (specs.length > 0) {
+        logBranch(testLogger, 'agent.test-gen.summary-decision', {
+          decision: 'run-tests',
+          totalSpecs: specs.length,
+        }, { level: 'info' });
+        const batchResult = await runTestCaseBatch(specs, {
+          cwd: repoInfo.cwd,
+          logger: testLogger,
+          criticConfig: policy.criticConfig,
+          criticApiKey: policy.criticApiKey ?? null,
+        });
+        testResults = batchResult.results;
+        testSummary = batchResult.summary;
+      } else {
+        logBranch(testLogger, 'agent.test-gen.summary-decision', {
+          decision: 'no-specs-generated',
+          reasoning: 'no testable targets extracted from source',
+        }, { level: 'info' });
+      }
+    } catch (e) {
+      logCatch(testLogger, 'agent.test-phase.error', e);
+      // Non-fatal: tests are advisory in v1.
+    }
+    await testLogger.flush();
+  }
+
   // Shadow warnings (B-3-1)
   const shadowedPresets: Array<{
     presetId: string;
@@ -725,6 +783,27 @@ async function doAudit(
     logger,
   });
   writeOut(report);
+
+  // Phase 5: append test summary if tests were run
+  if (testSummary && testSummary.total > 0) {
+    const lines: string[] = ['', '## Test Cases'];
+    lines.push(
+      `Tests: ${testSummary.pass} pass / ${testSummary.fail} fail / ${testSummary.inconclusive} inconclusive / ${testSummary.skipped} skipped (total ${testSummary.total})`,
+    );
+    if (testSummary.fail > 0) {
+      lines.push('');
+      lines.push('Failed tests:');
+      for (const r of testResults) {
+        if (r.status === 'fail') {
+          const loc = r.evidence.line ? `:${r.evidence.line}` : '';
+          lines.push(`  ✗ ${r.spec.name}`);
+          lines.push(`      at ${r.evidence.file ?? r.spec.scope.file}${loc}`);
+          lines.push(`      ${r.verdictReason.slice(0, 200)}`);
+        }
+      }
+    }
+    writeOut(lines.join('\n') + '\n');
+  }
 
   logger.log('info', 'cli.audit.end', {
     findingsCount: allFindings.length,
