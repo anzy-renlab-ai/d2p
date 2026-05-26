@@ -14,6 +14,7 @@
  * status='skipped' so downstream callers always get a TestSummary.
  */
 import * as fs from 'node:fs';
+import path from 'node:path';
 import type { TrackLogger } from '../log-types.js';
 import type {
   TestCaseSpec,
@@ -93,7 +94,11 @@ export async function runTestCase(opts: TestRunOptions): Promise<TestCaseResult>
 
   // ── 1. Read source context ────────────────────────────────────────────────
   const ctxLines = opts.contextLines ?? DEFAULT_CONTEXT_LINES;
-  const ctx = readContextWindow(spec.scope.file, spec.scope.line, ctxLines, logger);
+  // Resolve spec.scope.file against the audit cwd (it's stored as a repo-relative POSIX path).
+  const absFile = path.isAbsolute(spec.scope.file)
+    ? spec.scope.file
+    : path.resolve(opts.cwd, spec.scope.file);
+  const ctx = readContextWindow(absFile, spec.scope.line, ctxLines, logger);
   // ctx may be { snippet: '', lineStart: 0, lineEnd: 0 } if the file cannot
   // be read — we still attempt the LLM call (the file path/line may be
   // sufficient to reason about generated code) but log the degradation.
