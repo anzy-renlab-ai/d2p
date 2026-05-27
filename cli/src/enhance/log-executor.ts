@@ -46,38 +46,14 @@ const PINNED_VERSIONS: Record<string, string> = {
   bunyan: '^1.8.15',
 };
 
-const BOOTSTRAP_TEMPLATE = `import pino from 'pino';
-
-export const logger = pino({
-  level: process.env.LOG_LEVEL ?? 'info',
-  transport:
-    process.env.NODE_ENV !== 'production'
-      ? { target: 'pino-pretty' }
-      : undefined,
-});
-
-export function childLogger(bindings: Record<string, unknown>) {
-  return logger.child(bindings);
-}
-`;
-
-const MIDDLEWARE_TEMPLATE = `import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-import { logger } from './src/logger';
-
-export function middleware(req: NextRequest) {
-  const correlationId =
-    req.headers.get('x-correlation-id') ?? crypto.randomUUID();
-  const start = Date.now();
-  const log = logger.child({ correlationId, path: req.nextUrl.pathname });
-  log.info({ method: req.method }, 'request.start');
-
-  const res = NextResponse.next();
-  res.headers.set('x-correlation-id', correlationId);
-  log.info({ durationMs: Date.now() - start }, 'request.end');
-  return res;
-}
-`;
+// Production-grade templates live in their own file so they can be unit-tested
+// for structural correctness (TypeScript parseability, redact paths, ALS export,
+// stdSerializers) without dragging in the executor's regex logic. See
+// `bootstrap-templates.ts` + its `.test.ts` for the contract.
+import {
+  BOOTSTRAP_TEMPLATE,
+  MIDDLEWARE_TEMPLATE_NEXT as MIDDLEWARE_TEMPLATE,
+} from './bootstrap-templates.js';
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -144,23 +120,265 @@ function relativeImportFor(fromRel: string, bootstrapRel: string): string {
   return rel;
 }
 
-function importStatementFor(importSpec: string): string {
-  return `import { logger } from '${importSpec}';\n`;
+function importStatementFor(importSpec: string, localName: string): string {
+  if (localName === 'logger') {
+    return `import { logger } from '${importSpec}';\n`;
+  }
+  return `import { logger as ${localName} } from '${importSpec}';\n`;
 }
 
-function hasLoggerImport(content: string): boolean {
-  return /import\s*\{[^}]*\blogger\b[^}]*\}\s*from\s*['"][^'"]+['"]/.test(content);
+/**
+ * P1-1 fix: only count an import as "ours" if it points at the bootstrap path
+ * we're about to write. Foreign `import { logger } from '@my-org/log'` does
+ * NOT shadow us.
+ *
+ * Returns:
+ *   - { kind: 'ours' }      — our bootstrap is already imported (skip injection)
+ *   - { kind: 'foreign' }   — a different `logger` symbol is bound (use alias)
+ *   - { kind: 'none' }      — no `logger` import (use bare `logger`)
+ */
+function classifyLoggerImport(
+  content: string,
+  bootstrapImportSpec: string,
+): { kind: 'ours' | 'foreign' | 'none' } {
+  const re =
+    /import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g;
+  let m: RegExpExecArray | null;
+  let foreign = false;
+  while ((m = re.exec(content)) !== null) {
+    const inside = m[1] ?? '';
+    const spec = m[2] ?? '';
+    // Look for `logger` or `logger as X` or `X as logger` in the import clause.
+    // We only care about the LOCAL binding being `logger`, since that's what
+    // shadows us at the call site.
+    const bindsLogger = /(^|[\s,])logger(\s*,|\s*$)/.test(inside) ||
+      /\bas\s+logger(\s*,|\s*$)/.test(inside);
+    if (!bindsLogger) continue;
+    if (spec === bootstrapImportSpec) {
+      return { kind: 'ours' };
+    }
+    foreign = true;
+  }
+  return { kind: foreign ? 'foreign' : 'none' };
+}
+
+/**
+ * P1-3 + P1-4 fix: respect shebang and "use strict|client|server" directive
+ * prologues by inserting AFTER them. Multiple consecutive directives all
+ * preserved.
+ */
+function findImportInsertionOffset(content: string): number {
+  let offset = 0;
+  // Shebang on line 1.
+  const shebang = /^#![^\n]*\n/.exec(content);
+  if (shebang && shebang.index === 0) {
+    offset = shebang[0].length;
+  }
+  // Then any number of "use X" directives (with optional semicolon and
+  // surrounding whitespace).
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const tail = content.slice(offset);
+    const dir = /^(['"])use [\w-]+\1\s*;?[ \t]*\n/.exec(tail);
+    if (!dir) break;
+    offset += dir[0].length;
+  }
+  return offset;
 }
 
 function insertImport(content: string, importLine: string): string {
-  // Insert after the last existing top-of-file import; if none, prepend.
-  const importRe = /^(?:import\s[^\n]*\n)+/m;
-  const m = importRe.exec(content);
+  const insertionPoint = findImportInsertionOffset(content);
+  const head = content.slice(0, insertionPoint);
+  const tail = content.slice(insertionPoint);
+  // After the directive/shebang prologue, see if there's a contiguous
+  // top-of-file import block; if so, append after it.
+  const importRe = /^(?:import\s[^\n]*\n)+/;
+  const m = importRe.exec(tail);
   if (m && m.index === 0) {
-    const end = m.index + m[0].length;
-    return content.slice(0, end) + importLine + content.slice(end);
+    const end = m[0].length;
+    return head + tail.slice(0, end) + importLine + tail.slice(end);
   }
-  return importLine + content;
+  return head + importLine + tail;
+}
+
+// ── Masking (P1-2): blank out strings / comments / template literals ────────
+
+/**
+ * Replace all non-code regions (string literals — single/double/backtick —
+ * line comments, block comments, JSX text attribute values) with sentinel
+ * placeholder characters of EQUAL LENGTH so offsets in the masked string
+ * match offsets in the original. We then run regexes against the masked
+ * string but apply rewrites to the original.
+ *
+ * v1 trade-off: this is a single forward-pass tokenizer, not a real parser.
+ * Cases it may misclassify (regex literals containing `/* `, template
+ * literals with deeply nested `${` interpolations, JSX text body
+ * containing `{`) cause the function to set `uncertain = true`, and the
+ * caller should skip the file rather than risk corruption.
+ *
+ * Public contract:
+ *   - `masked.length === source.length` (offset-stable)
+ *   - masked chars in non-code regions are ASCII space ' ' (still passes \s
+ *     in regex, but won't match identifier chars). Newlines preserved.
+ *   - if `uncertain` is true, do NOT rewrite — fall back to the original.
+ */
+function maskNonCodeRegions(source: string): { masked: string; uncertain: boolean } {
+  const out = source.split('');
+  let i = 0;
+  let uncertain = false;
+  // JSX heuristic: any `<Letter` followed by attribute syntax engages a
+  // shallow JSX mode where attribute string values get masked. We don't try
+  // to track tag stacks; we just mask string values inside `<...>` segments.
+  // Since attribute values are *normal* string literals, the regular
+  // string-literal pass already handles them — JSX gives us nothing extra.
+  while (i < source.length) {
+    const ch = source[i]!;
+    const next = source[i + 1];
+    // Line comment.
+    if (ch === '/' && next === '/') {
+      // Mask until newline.
+      while (i < source.length && source[i] !== '\n') {
+        out[i] = ' ';
+        i++;
+      }
+      continue;
+    }
+    // Block comment.
+    if (ch === '/' && next === '*') {
+      out[i] = ' ';
+      out[i + 1] = ' ';
+      i += 2;
+      let closed = false;
+      while (i < source.length - 1) {
+        if (source[i] === '*' && source[i + 1] === '/') {
+          out[i] = ' ';
+          out[i + 1] = ' ';
+          i += 2;
+          closed = true;
+          break;
+        }
+        if (source[i] !== '\n') out[i] = ' ';
+        i++;
+      }
+      if (!closed) {
+        // Unterminated comment — treat rest as masked, mark uncertain.
+        while (i < source.length) {
+          if (source[i] !== '\n') out[i] = ' ';
+          i++;
+        }
+        uncertain = true;
+      }
+      continue;
+    }
+    // String literal (single or double quote).
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      out[i] = ' ';
+      i++;
+      while (i < source.length) {
+        const c = source[i]!;
+        if (c === '\\') {
+          // Escape: mask this and the next char.
+          out[i] = ' ';
+          if (i + 1 < source.length) {
+            if (source[i + 1] !== '\n') out[i + 1] = ' ';
+            i += 2;
+          } else {
+            i += 1;
+          }
+          continue;
+        }
+        if (c === quote) {
+          out[i] = ' ';
+          i++;
+          break;
+        }
+        if (c === '\n') {
+          // Unterminated string literal — bail.
+          uncertain = true;
+          break;
+        }
+        out[i] = ' ';
+        i++;
+      }
+      continue;
+    }
+    // Template literal.
+    if (ch === '`') {
+      out[i] = ' ';
+      i++;
+      while (i < source.length) {
+        const c = source[i]!;
+        if (c === '\\') {
+          out[i] = ' ';
+          if (i + 1 < source.length) {
+            if (source[i + 1] !== '\n') out[i + 1] = ' ';
+            i += 2;
+          } else {
+            i += 1;
+          }
+          continue;
+        }
+        if (c === '$' && source[i + 1] === '{') {
+          // Interpolation start — leave the interpolated expression as-is
+          // (it's code). Track brace depth so we can rejoin the template
+          // body after the matching `}`.
+          // We do NOT mask the interpolation contents; we want the regex
+          // to see them as code. But for v1 simplicity we will skip the
+          // interpolation entirely without masking — we just walk to the
+          // matching `}` keeping the original characters and mask the
+          // backtick-string segments before/after as we already are.
+          // Mask the `${` markers themselves as spaces so they don't fool
+          // identifier-boundary checks.
+          out[i] = ' ';
+          out[i + 1] = ' ';
+          i += 2;
+          let depth = 1;
+          while (i < source.length && depth > 0) {
+            const cc = source[i]!;
+            if (cc === '{') depth++;
+            else if (cc === '}') {
+              depth--;
+              if (depth === 0) {
+                out[i] = ' ';
+                i++;
+                break;
+              }
+            } else if (cc === '"' || cc === "'" || cc === '`') {
+              // Nested string inside interpolation — recurse a tiny
+              // tokenizer. To keep this simple, mark uncertain and bail
+              // gracefully: the file will be skipped.
+              uncertain = true;
+              // But still try to walk past it conservatively by scanning
+              // for the matching quote with no escape awareness.
+              const q = cc;
+              i++;
+              while (i < source.length && source[i] !== q) {
+                if (source[i] === '\\' && i + 1 < source.length) i += 2;
+                else i++;
+              }
+              i++;
+              continue;
+            }
+            i++;
+          }
+          continue;
+        }
+        if (c === '`') {
+          out[i] = ' ';
+          i++;
+          break;
+        }
+        // Preserve newlines so line numbers stay aligned but mask everything
+        // else inside the template string.
+        if (c !== '\n') out[i] = ' ';
+        i++;
+      }
+      continue;
+    }
+    i++;
+  }
+  return { masked: out.join(''), uncertain };
 }
 
 // ── Transformations ─────────────────────────────────────────────────────────
@@ -173,25 +391,79 @@ function insertImport(content: string, importLine: string): string {
  *
  * Already-logging catches (containing `logger.error({ err`) are left alone for
  * idempotency.
+ *
+ * P1-2 fix: regex runs against `masked` text (strings / comments stripped) so
+ * `catch (e) {}` inside a string literal is not rewritten.
+ *
+ * P1-7 fix: strict body alternation — only EMPTY or EXACTLY one return-of-nil
+ * statement; anything else is left alone with a 'catch-body-complex' branch
+ * decision.
  */
-function transformSilentCatches(content: string): { content: string; count: number } {
+function transformSilentCatches(
+  content: string,
+  loggerName: string,
+  masked: string,
+  log: TrackLogger,
+  fileRel: string,
+): { content: string; count: number } {
+  // Strict: catch ( IDENT ) { (whitespace only) OR (return null|undefined|void 0 ;? whitespace) }
   const re =
-    /catch\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*\{\s*(\}|return\s+(?:null|undefined|void\s+0)\s*;?\s*\})/g;
+    /catch\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*\{(\s*|\s*return\s+(?:null|undefined|void\s+0)\s*;?\s*)\}/g;
   let count = 0;
-  const out = content.replace(re, (full, name: string, body: string) => {
-    // Already logged? defensive — the regex requires `{}` or just a return,
-    // so by construction body cannot contain logger.error, but check anyway.
-    if (full.includes('logger.error')) return full;
-    if (body === '}') {
-      count += 1;
-      return `catch (${name}) { logger.error({ err: ${name} }, 'unhandled'); }`;
+  let result = '';
+  let cursor = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(masked)) !== null) {
+    const start = m.index;
+    const end = start + m[0].length;
+    const name = m[1]!;
+    const innerMasked = m[2]!;
+    // Pull the REAL body text (not masked) so we don't lose anything.
+    const inner = content.slice(start + m[0].indexOf('{') + 1, end - 1);
+    const trimmed = inner.trim();
+
+    // Already-logged guard: if the real body somehow already contains a
+    // logger.error call, skip.
+    if (/\blogger\b\s*\.\s*error\s*\(/.test(inner) || new RegExp('\\b' + loggerName + '\\b\\s*\\.\\s*error\\s*\\(').test(inner)) {
+      result += content.slice(cursor, end);
+      cursor = end;
+      continue;
     }
-    count += 1;
-    // Preserve the original return semantics, just add a log line before it.
-    const ret = body.replace(/^\}$/, '').replace(/^\{?\s*/, '').replace(/\s*\}$/, '').trim();
-    return `catch (${name}) { logger.error({ err: ${name} }, 'unhandled'); ${ret} }`;
-  });
-  return { content: out, count };
+
+    // The masked match alternation guarantees innerMasked is either pure
+    // whitespace or a return-of-nil. Build replacement from the trimmed
+    // real-body content.
+    if (trimmed === '') {
+      // Empty catch body.
+      const replacement =
+        'catch (' + name + ') { ' + loggerName + ".error({ err: " + name + " }, 'unhandled'); }";
+      result += content.slice(cursor, start) + replacement;
+      cursor = end;
+      count++;
+      continue;
+    }
+    // Has a return-of-nil — preserve it.
+    if (/^return\s+(?:null|undefined|void\s+0)\s*;?$/.test(trimmed)) {
+      const ret = trimmed.endsWith(';') ? trimmed : trimmed + ';';
+      const replacement =
+        'catch (' + name + ') { ' + loggerName + ".error({ err: " + name + " }, 'unhandled'); " + ret + ' }';
+      result += content.slice(cursor, start) + replacement;
+      cursor = end;
+      count++;
+      continue;
+    }
+    // Defensive: anything else (mismatch between masked alternation and
+    // real-text content — should be unreachable) — skip.
+    logBranch(log, 'enhance.log.executor.file-change-decision', {
+      decision: 'skip',
+      reasoning: 'catch-body-complex',
+      file: fileRel,
+    });
+    result += content.slice(cursor, end);
+    cursor = end;
+  }
+  result += content.slice(cursor);
+  return { content: result, count };
 }
 
 const CONSOLE_MAP: Record<string, string> = {
@@ -202,17 +474,36 @@ const CONSOLE_MAP: Record<string, string> = {
   debug: 'debug',
 };
 
-function transformConsoleCalls(content: string): { content: string; count: number } {
+/**
+ * P1-2 + P1-6 fix: run against `masked` text, and require that `console`
+ * NOT be preceded by `.` or an identifier char — so `this.console.log()` and
+ * `myConsole.log()` are left alone.
+ */
+function transformConsoleCalls(
+  content: string,
+  loggerName: string,
+  masked: string,
+): { content: string; count: number } {
+  // P1-6: negative lookbehind `(?<![.\w$])` prevents matching when `console`
+  // is a property access (e.g., `this.console`, `foo.console`) or part of a
+  // larger identifier (`myConsole`).
+  const re =
+    /(?<![.\w$])console\b\s*\.\s*(log|info|warn|error|debug)\s*\(/g;
   let count = 0;
-  const out = content.replace(
-    /console\s*\.\s*(log|info|warn|error|debug)\s*\(/g,
-    (_full, method: string) => {
-      const mapped = CONSOLE_MAP[method] ?? 'info';
-      count += 1;
-      return `logger.${mapped}(`;
-    },
-  );
-  return { content: out, count };
+  let result = '';
+  let cursor = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(masked)) !== null) {
+    const start = m.index;
+    const end = start + m[0].length;
+    const method = m[1]!;
+    const mapped = CONSOLE_MAP[method] ?? 'info';
+    result += content.slice(cursor, start) + loggerName + '.' + mapped + '(';
+    cursor = end;
+    count++;
+  }
+  result += content.slice(cursor);
+  return { content: result, count };
 }
 
 // ── Bootstrap + middleware ──────────────────────────────────────────────────
@@ -409,22 +700,69 @@ function applyToFile(
     });
     return { status: 'fail', reason: r.reason };
   }
-  let next = r.content;
+
+  // P1-5: strip BOM before processing; remember to re-prepend on write.
+  let raw = r.content;
+  const hadBom = raw.charCodeAt(0) === 0xfeff;
+  if (hadBom) {
+    raw = raw.slice(1);
+  }
+
+  // Resolve our bootstrap import spec relative to this file so we can detect
+  // whether an existing `logger` import is ours (P1-1).
+  const bootstrapSpec = relativeImportFor(rel, bootstrapFileRel);
+
+  // P1-1: classify any existing `logger` import.
+  const existing = classifyLoggerImport(raw, bootstrapSpec);
+  // If there's a foreign `logger` binding, we must NOT shadow our calls onto
+  // it — use a local alias.
+  const loggerLocalName = existing.kind === 'foreign' ? 'zerouLogger' : 'logger';
+
+  // P1-2: build the masked view of the source so regexes don't fire inside
+  // string literals / comments / template literals.
+  const maskResult = maskNonCodeRegions(raw);
+  if (maskResult.uncertain) {
+    logBranch(log, 'enhance.log.executor.file-change-decision', {
+      decision: 'skip',
+      reasoning: 'masking-uncertain',
+      file: rel,
+    });
+    log.log('info', 'enhance.log.executor.file-skip', { file: rel, reason: 'masking-uncertain' });
+    return { status: 'skip' };
+  }
+
+  let next = raw;
+  let masked = maskResult.masked;
   let touched = 0;
   let consoles = 0;
   let catches = 0;
 
   if (kinds.has('silent-catch')) {
-    const t = transformSilentCatches(next);
-    next = t.content;
-    catches = t.count;
-    touched += t.count;
+    const t = transformSilentCatches(next, loggerLocalName, masked, log, rel);
+    if (t.count > 0) {
+      next = t.content;
+      // Re-mask because content length may have changed.
+      const remask = maskNonCodeRegions(next);
+      if (remask.uncertain) {
+        logBranch(log, 'enhance.log.executor.file-change-decision', {
+          decision: 'skip',
+          reasoning: 'masking-uncertain-after-catch-rewrite',
+          file: rel,
+        });
+        return { status: 'skip' };
+      }
+      masked = remask.masked;
+      catches = t.count;
+      touched += t.count;
+    }
   }
   if (kinds.has('console-log')) {
-    const t = transformConsoleCalls(next);
-    next = t.content;
-    consoles = t.count;
-    touched += t.count;
+    const t = transformConsoleCalls(next, loggerLocalName, masked);
+    if (t.count > 0) {
+      next = t.content;
+      consoles = t.count;
+      touched += t.count;
+    }
   }
 
   // Other kinds (http-boundary, db-call, external-fetch) are no-ops in v1.
@@ -449,13 +787,14 @@ function applyToFile(
     return { status: 'skip' };
   }
 
-  // We added at least one `logger.*` call → make sure the import exists.
-  if (!hasLoggerImport(next)) {
-    const spec = relativeImportFor(rel, bootstrapFileRel);
-    next = insertImport(next, importStatementFor(spec));
+  // P1-1: only inject the import if our bootstrap isn't already imported.
+  // If a foreign `logger` exists, we still need to inject — but under the
+  // alias name `zerouLogger`.
+  if (existing.kind !== 'ours') {
+    next = insertImport(next, importStatementFor(bootstrapSpec, loggerLocalName));
   }
 
-  if (next === r.content) {
+  if (next === raw) {
     logBranch(log, 'enhance.log.executor.file-change-decision', {
       decision: 'skip',
       reasoning: 'content unchanged after transformation (idempotent)',
@@ -464,7 +803,9 @@ function applyToFile(
     return { status: 'skip' };
   }
 
-  const w = writeFileSafe(abs, next);
+  // P1-5: re-prepend BOM on write if the original had one.
+  const output = hadBom ? '﻿' + next : next;
+  const w = writeFileSafe(abs, output);
   if (!w.ok) {
     logBranch(log, 'enhance.log.executor.file-change-decision', {
       decision: 'fail',
