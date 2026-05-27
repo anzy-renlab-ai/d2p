@@ -17,6 +17,8 @@
  *    classifyFinding() switch.
  *  - finding.id == spec.id (preserves traceability)
  */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { TestCaseResult, TestCaseCategory } from '../agent/types.js';
 import type { AuditFinding } from './types.js';
 
@@ -97,10 +99,6 @@ export function testFailsToFindings(opts: ConvertOpts): AuditFinding[] {
  * it exists, else return [].
  */
 export function readTestResultsFile(cwd: string): TestCaseResult[] {
-  // Lazy fs imports to keep this file dependency-light for unit tests.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const fs = require('node:fs') as typeof import('node:fs');
-  const path = require('node:path') as typeof import('node:path');
   const p = path.join(cwd, '.zerou', 'test-results.json');
   try {
     if (!fs.existsSync(p)) return [];
