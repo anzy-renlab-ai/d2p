@@ -230,7 +230,7 @@ function PreviewWorkspaceHeader() {
     <header className="border-b border-warmline bg-cream px-6 py-3 flex items-center justify-between flex-shrink-0">
       <div>
         <div className="flex items-baseline gap-3">
-          <h1 className="text-xl tracking-tight">d2p</h1>
+          <h1 className="text-xl tracking-tight">ZeroU</h1>
           <span className="font-mono text-xs text-muted">D:\demos\notes-saas</span>
         </div>
         <div className="text-xs text-muted mt-0.5 flex items-center gap-2">

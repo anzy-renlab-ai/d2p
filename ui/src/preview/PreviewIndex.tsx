@@ -35,7 +35,7 @@ export function PreviewIndex() {
       <div className="max-w-5xl mx-auto py-12 px-8">
         <header className="mb-10 pb-6 border-b border-warmline">
           <div className="text-xs font-mono text-coral uppercase tracking-widest mb-2">preview gallery</div>
-          <h1 className="text-4xl tracking-tight">d2p UI — 3 directions × 5 pages</h1>
+          <h1 className="text-4xl tracking-tight">ZeroU UI — preview gallery</h1>
           <p className="text-muted mt-3 max-w-2xl leading-relaxed">
             All 15 designs rendered against the same rich mock data
             (8 gaps, 32 events, vision finalized, $1.27 cost, preset 12/18). Click any cell to open;
@@ -115,7 +115,7 @@ export function PreviewIndex() {
           <div className="text-xs font-mono text-coral uppercase tracking-widest mb-2">component preview</div>
           <h2 className="text-2xl tracking-tight mb-3">Mockup-first phase</h2>
           <p className="text-muted mb-5 leading-relaxed text-sm max-w-2xl">
-            vision finalize 后、differ 启动前，d2p 先用 HTML/CSS 画"成品预期"给用户看。
+            vision finalize 后、differ 启动前，ZeroU 先用 HTML/CSS 画"成品预期"给用户看。
             用户可 approve / 提建议修改 / 跳过。四个 state 各自独立可点。
           </p>
           <div className="flex flex-wrap gap-3">

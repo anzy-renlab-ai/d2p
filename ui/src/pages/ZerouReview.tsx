@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { ReviewBundle } from '../types-zerou.js';
 import { mockZerouBundle } from '../mock/zerouBundle.js';
-import { ZerouHeroBar } from '../components/ZerouHeroBar.js';
-import { ZerouModuleCards } from '../components/ZerouModuleCards.js';
-import { ZerouFindingsList } from '../components/ZerouFindingsList.js';
-import { ZerouFilesList } from '../components/ZerouFilesList.js';
-import { ZerouBranchTree } from '../components/ZerouBranchTree.js';
-import { ZerouVerifyStrip } from '../components/ZerouVerifyStrip.js';
+import { useReviewStream } from '../hooks/useReviewStream.js';
+import { ZerouStageScan } from '../components/ZerouStageScan.js';
+import { ZerouStageTest } from '../components/ZerouStageTest.js';
+import { ZerouStageFix } from '../components/ZerouStageFix.js';
+import { ZerouStageVerify } from '../components/ZerouStageVerify.js';
+import { ZerouStageTrace } from '../components/ZerouStageTrace.js';
 
 export type ReviewSource =
   | { kind: 'latest' }
@@ -76,6 +76,10 @@ function useReviewBundle(src: ReviewSource): FetchState {
 export function ZerouReview({ source }: { source: ReviewSource }) {
   const { status, bundle, error } = useReviewBundle(source);
 
+  // Worker C's stream hook — disabled in preview mode (no daemon).
+  const isPreview = source.kind === 'preview';
+  const stream = useReviewStream({ enabled: !isPreview });
+
   if (status === 'loading') {
     return (
       <div className="min-h-screen bg-paper text-ink flex items-center justify-center">
@@ -100,46 +104,96 @@ export function ZerouReview({ source }: { source: ReviewSource }) {
   const mergeCmd = `git merge --no-ff ${bundle.project.branch}`;
   const dropCmd = `git worktree remove ${bundle.project.worktreePath} && git branch -D ${bundle.project.branch}`;
 
+  // Pipeline summary — count stages by status. In static mode every stage
+  // collapses to done/fail; in live mode worker C's hook can set 'running'.
+  const allStagesPassed =
+    bundle.modules.length > 0 &&
+    !bundle.modules.some((m) => m.status === 'failed') &&
+    bundle.verify.ok &&
+    (bundle.audit?.testCases.total ?? 0) > 0;
+
   return (
     <div className="min-h-screen bg-paper text-ink" data-testid="zerou-review">
-      {/* Top bar */}
-      <header className="border-b border-warmline bg-cream px-6 py-3 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-3">
-          <a
-            href="/"
-            className="text-xs text-muted hover:text-ink transition-colors"
+      {/* Sticky pipeline header */}
+      <header className="border-b border-warmline bg-cream px-6 py-3 sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3 min-w-0">
+            <a
+              href="/"
+              className="text-xs text-muted hover:text-ink transition-colors flex-shrink-0"
+            >
+              ← ZeroU
+            </a>
+            <span className="w-px h-4 bg-warmline" />
+            <span className="text-sm font-medium text-ink font-serif">
+              ZeroU · <span className="font-mono">{bundle.project.name}</span>
+            </span>
+            <span className="text-muted/40 hidden sm:inline">·</span>
+            <span className="text-xs text-muted font-mono hidden sm:inline">
+              {formatDuration(bundle.durationMs)}
+            </span>
+            <span className="text-muted/40 hidden md:inline">·</span>
+            <span
+              className={`text-xs font-mono hidden md:inline ${allStagesPassed ? 'text-forest' : 'text-coral'}`}
+              data-testid="zerou-review-stage-summary"
+            >
+              {allStagesPassed ? '✅ all 5 stages passed' : '◐ pipeline in progress'}
+            </span>
+            {stream.connected && (
+              <>
+                <span className="text-muted/40 hidden md:inline">·</span>
+                <span
+                  className="text-[11px] font-mono text-forest flex items-center gap-1.5"
+                  data-testid="zerou-review-live-badge"
+                >
+                  <span className="inline-block w-2 h-2 rounded-full bg-forest anim-breathe-dot" aria-hidden="true" />
+                  live
+                </span>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="text-xs text-muted hover:text-coral transition-colors font-sans"
+            data-testid="zerou-refresh"
           >
-            ← d2p
-          </a>
-          <span className="w-px h-4 bg-warmline" />
-          <span className="text-sm font-medium text-ink">
-            ZeroU review · <span className="font-mono">{bundle.project.name}</span>
-          </span>
+            ⟳ refresh
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => window.location.reload()}
-          className="text-xs text-muted hover:text-coral transition-colors font-sans"
-          data-testid="zerou-refresh"
-        >
-          ⟳ refresh
-        </button>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
-        <ZerouHeroBar bundle={bundle} />
-        <ZerouModuleCards modules={bundle.modules} />
+      <main className="max-w-7xl mx-auto px-6 py-6 space-y-4">
+        {/* Project identity strip */}
+        <section className="bg-cream border border-warmline rounded-lg px-5 py-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs font-mono text-muted">
+          <span>
+            <span className="text-[10px] uppercase tracking-widest text-muted/70 mr-2">cwd</span>
+            <span className="text-ink break-all">{bundle.project.cwd}</span>
+          </span>
+          <span>
+            <span className="text-[10px] uppercase tracking-widest text-muted/70 mr-2">branch</span>
+            <span className="text-ink break-all">{bundle.project.branch}</span>
+          </span>
+          <span>
+            <span className="text-[10px] uppercase tracking-widest text-muted/70 mr-2">run</span>
+            <span className="text-ink">{bundle.project.runTs}</span>
+          </span>
+          <span className="ml-auto text-muted/60">{new Date(bundle.generatedAt).toLocaleString()}</span>
+        </section>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <ZerouFilesList files={bundle.files} />
-          <ZerouFindingsList findings={bundle.findings} />
-        </div>
-
-        <ZerouBranchTree report={bundle.branchCoverage} />
-        <ZerouVerifyStrip verify={bundle.verify} />
+        {/* 5-stage pipeline */}
+        <ZerouStageScan bundle={bundle} />
+        <ZerouStageTest bundle={bundle} />
+        <ZerouStageFix bundle={bundle} />
+        <ZerouStageVerify bundle={bundle} />
+        <ZerouStageTrace
+          bundle={bundle}
+          liveEvents={stream.events}
+          liveConnected={stream.connected}
+        />
 
         {/* Footer — merge / drop commands */}
-        <footer className="bg-cream border border-warmline rounded-lg p-4">
+        <footer className="bg-cream border border-warmline rounded-lg p-4 mt-6">
           <div className="text-[10px] uppercase tracking-widest text-muted/70 font-medium mb-2">
             Next step
           </div>
@@ -147,22 +201,19 @@ export function ZerouReview({ source }: { source: ReviewSource }) {
             <CommandRow label="Merge to main" cmd={mergeCmd} testId="zerou-cmd-merge" />
             <CommandRow label="Drop this run" cmd={dropCmd} testId="zerou-cmd-drop" tone="muted" />
           </div>
-          {bundle.audit && (
-            <div className="mt-4 pt-3 border-t border-warmline/60 text-[11px] text-muted font-mono flex flex-wrap gap-4">
-              <span>audit · {bundle.audit.testCases.total} cases</span>
-              <span className="text-forest">{bundle.audit.testCases.pass} pass</span>
-              {bundle.audit.testCases.fail > 0 && (
-                <span className="text-rust">{bundle.audit.testCases.fail} fail</span>
-              )}
-              {bundle.audit.testCases.inconclusive > 0 && (
-                <span className="text-coral">{bundle.audit.testCases.inconclusive} inconclusive</span>
-              )}
-              {bundle.audit.testCases.skipped > 0 && (
-                <span className="text-muted/70">{bundle.audit.testCases.skipped} skipped</span>
-              )}
-              <span className="ml-auto">{(bundle.audit.durationMs / 1000).toFixed(1)}s</span>
-            </div>
-          )}
+          <div className="mt-3 pt-3 border-t border-warmline/60 text-[11px] text-muted font-mono flex flex-wrap gap-4">
+            <a
+              href={`/api/runs/${encodeURIComponent(bundle.project.runTs)}/`}
+              className="text-coral hover:text-coralhover transition-colors"
+              data-testid="zerou-cmd-open-archive"
+            >
+              ↗ open run archive
+            </a>
+            <span className="ml-auto text-muted/60">
+              {bundle.files.length} files · {bundle.findings.length} findings ·{' '}
+              {bundle.branchCoverage?.summary.branchesTotal ?? 0} branches
+            </span>
+          </div>
         </footer>
       </main>
     </div>
@@ -208,4 +259,13 @@ function CommandRow({
       </button>
     </div>
   );
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return `${m}m ${rem.toString().padStart(2, '0')}s`;
 }

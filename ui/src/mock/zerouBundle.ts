@@ -8,7 +8,7 @@
  * skipped step; branch coverage with self-deceiving + judge-only + untested
  * verdicts).
  */
-import type { ReviewBundle, ReviewFinding, ReviewFile, BranchNode } from '../types-zerou.js';
+import type { ReviewBundle, ReviewFinding, ReviewFile, BranchNode, BranchTraceEvent } from '../types-zerou.js';
 
 // ---------------------------------------------------------------------------
 // Findings — 38 total, grouped by severity. Each row keys off an API route.
@@ -367,6 +367,102 @@ const untestedTotal = functions.reduce((s, f) => s + f.untestedCount, 0);
 const branchesCovered = functions.reduce((s, f) => s + f.coveredCount, 0);
 
 // ---------------------------------------------------------------------------
+// Branch-trace.jsonl — one event per branch leaf (covered/judge-only/untested).
+// Mirrors what cli/src/agent/branch-trace.ts produces. Hash chain is fake but
+// shape-faithful: each event has prev_hash + hash + seq. trace_id is constant
+// per run. Timestamps tick in monotonic ~3ms increments so the stream view
+// shows realistic ordering.
+// ---------------------------------------------------------------------------
+
+const TRACE_ID = '8VY9G2PXCKM4F1B7QH3J0NTRS';
+const RUN_START_TS = Date.parse('2026-05-27T16:13:42.117Z');
+
+function fakeHash(seed: string): string {
+  // 64-char hex — not a real sha256, but stable per-seed for visual proof.
+  let h = 5381;
+  const out: string[] = [];
+  for (let i = 0; i < 8; i++) {
+    h = (h * 33) ^ seed.charCodeAt((i * 7) % seed.length || 0) ^ (h >>> 5);
+    out.push(((h >>> 0) % 0xffffffff).toString(16).padStart(8, '0'));
+  }
+  return out.join('').slice(0, 64);
+}
+
+function collectLeavesForEvents(node: BranchNode, out: BranchNode[]): void {
+  // We emit events for ALL non-root branch nodes (leaves) — entry + branches.
+  if (node.children.length === 0) {
+    out.push(node);
+    return;
+  }
+  for (const c of node.children) collectLeavesForEvents(c, out);
+}
+
+function buildMockBranchTraceEvents(): BranchTraceEvent[] {
+  const events: BranchTraceEvent[] = [];
+  let seq = 1;
+  let prevHash = '0'.repeat(64);
+  let tickMs = 0;
+
+  for (const fn of functions) {
+    const leaves: BranchNode[] = [];
+    collectLeavesForEvents(fn.root, leaves);
+    for (const node of leaves) {
+      const ts = new Date(RUN_START_TS + tickMs).toISOString();
+      tickMs += 3 + (seq % 5);
+
+      const hasSpec = node.specMatches.length > 0;
+      const hasJudge = node.judgeEvidence.length > 0;
+      const hasRunData = node.runtimeCoverage.linesTotal > 0;
+      const hasRun: boolean | null = hasRunData
+        ? node.runtimeCoverage.linesCovered > 0 || node.runtimeCoverage.branchHit === true
+        : null;
+
+      const branchId = `${fn.file}:${fn.name}@${fn.line}:${node.kind}-line${node.lineStart}-${
+        node.kind === 'catch' ? 'catch' : node.kind.includes('false') ? 'false' : 'true'
+      }#${seq % 7}`;
+
+      const hash = fakeHash(`${prevHash}${branchId}${seq}`);
+      const event: BranchTraceEvent = {
+        ts,
+        trace_id: TRACE_ID,
+        span_id: fakeHash(`${TRACE_ID}${branchId}`).slice(0, 16).toUpperCase(),
+        event: 'branch.evidence',
+        branch_id: branchId,
+        branch_kind: node.kind,
+        branch_label: node.label,
+        line_start: node.lineStart,
+        line_end: node.lineEnd,
+        'code.function': fn.name,
+        'code.file.path': fn.file,
+        'code.line.number': fn.line,
+        signals: { ast: true, spec: hasSpec, judge: hasJudge, run: hasRun },
+        verdict: node.verdict,
+        evidence: {
+          spec_ids: node.specMatches.map((m) => m.specId).slice(0, 5),
+          ...(hasJudge && {
+            judge_specs: node.judgeEvidence.slice(0, 3).map((j) => ({
+              spec_id: j.specId,
+              status: j.status,
+              snippet_preview: j.snippet.slice(0, 80),
+            })),
+          }),
+          ...(hasRunData && { runtime_hits: node.runtimeCoverage.linesCovered }),
+        },
+        seq,
+        prev_hash: prevHash,
+        hash,
+      };
+      events.push(event);
+      prevHash = hash;
+      seq += 1;
+    }
+  }
+  return events;
+}
+
+const branchTraceEvents = buildMockBranchTraceEvents();
+
+// ---------------------------------------------------------------------------
 // Bundle root
 // ---------------------------------------------------------------------------
 
@@ -417,6 +513,7 @@ export const mockZerouBundle: ReviewBundle = {
   audit: {
     durationMs: 14_300,
     hardeningFindings: 38,
-    testCases: { total: 12, pass: 8, fail: 2, inconclusive: 1, skipped: 1 },
+    testCases: { total: 66, pass: 33, fail: 33, inconclusive: 0, skipped: 0 },
   },
+  branchTraceEvents,
 };

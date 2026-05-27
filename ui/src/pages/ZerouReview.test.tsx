@@ -36,23 +36,29 @@ describe('readReviewParam', () => {
   });
 });
 
-describe('ZerouReview (preview source)', () => {
-  it('renders the full page with hero / modules / findings / files / verify', () => {
+describe('ZerouReview (5-stage pipeline · preview source)', () => {
+  it('renders all 5 pipeline stages from the preview bundle', () => {
     render(<ZerouReview source={{ kind: 'preview' }} />);
     expect(screen.getByTestId('zerou-review')).toBeInTheDocument();
-    expect(screen.getByTestId('zerou-hero-bar')).toBeInTheDocument();
-    expect(screen.getByTestId('zerou-module-cards')).toBeInTheDocument();
-    expect(screen.getByTestId('zerou-findings-list')).toBeInTheDocument();
-    expect(screen.getByTestId('zerou-files-list')).toBeInTheDocument();
-    expect(screen.getByTestId('zerou-branch-tree')).toBeInTheDocument();
-    expect(screen.getByTestId('zerou-verify-strip')).toBeInTheDocument();
+    expect(screen.getByTestId('zerou-stage-scan')).toBeInTheDocument();
+    expect(screen.getByTestId('zerou-stage-test')).toBeInTheDocument();
+    expect(screen.getByTestId('zerou-stage-fix')).toBeInTheDocument();
+    expect(screen.getByTestId('zerou-stage-verify')).toBeInTheDocument();
+    expect(screen.getByTestId('zerou-stage-trace')).toBeInTheDocument();
   });
 
-  it('escapes branch name and cwd in the hero (HTML-safe)', () => {
+  it('shows the centerpiece tree-log inside stage ⑤ (default-open)', () => {
     render(<ZerouReview source={{ kind: 'preview' }} />);
-    // raw branch text shown as-is, no script execution surface
+    // Stage 5 opens by default so its body and tree-log are mounted.
+    expect(screen.getByTestId('zerou-stage-trace-body')).toBeInTheDocument();
+    expect(screen.getByTestId('zerou-branch-tree-log')).toBeInTheDocument();
+  });
+
+  it('shows project identity strip with cwd, branch, runTs', () => {
+    render(<ZerouReview source={{ kind: 'preview' }} />);
     expect(screen.getAllByText(/zerou-enhance-20260527-160917/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/meme-weather-zerou-test/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/20260527-160917/).length).toBeGreaterThan(0);
   });
 
   it('renders merge + drop commands in the footer', () => {
@@ -60,5 +66,10 @@ describe('ZerouReview (preview source)', () => {
     expect(screen.getByTestId('zerou-cmd-merge')).toBeInTheDocument();
     expect(screen.getByTestId('zerou-cmd-drop')).toBeInTheDocument();
     expect(screen.getByText(/git merge --no-ff/)).toBeInTheDocument();
+  });
+
+  it('shows the pipeline status summary in the sticky header', () => {
+    render(<ZerouReview source={{ kind: 'preview' }} />);
+    expect(screen.getByTestId('zerou-review-stage-summary')).toBeInTheDocument();
   });
 });

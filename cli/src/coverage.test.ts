@@ -259,9 +259,11 @@ describe('zerou coverage', () => {
         { branch_id: 'a.ts:f@1:z', verdict: 'untested' },
       ]),
     );
+    // Default mode (Phase 13.2 fix): untested + unknown are NOT counted as
+    // "exercised" — only covered + judge-only + spec-only + run-only.
     const { promise: p1, out: out1 } = runWith(fx.cwd, ['--json']);
     expect(await p1).toBe(0);
-    expect(JSON.parse(out1.value).unique_seen).toBe(3);
+    expect(JSON.parse(out1.value).unique_seen).toBe(2);
 
     const { promise: p2, out: out2 } = runWith(fx.cwd, ['--json', '--strict']);
     expect(await p2).toBe(0);

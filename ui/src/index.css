@@ -166,6 +166,26 @@
   animation: breathe-glow 2.8s ease-in-out infinite;
 }
 
+/* Pulse-green — used on tree nodes when a new branch-trace event arrives
+   whose branch_id matches the node. Subtle background flash; one-shot. */
+@keyframes pulse-green {
+  0%   { background-color: rgba(88, 122, 76, 0); }
+  20%  { background-color: rgba(88, 122, 76, 0.22); }
+  100% { background-color: rgba(88, 122, 76, 0); }
+}
+.anim-pulse-green {
+  animation: pulse-green 1.5s ease-out both;
+}
+
+/* Tick — used on running stage card status glyph. Restrained: opacity only. */
+@keyframes tick-glyph {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+.anim-tick {
+  animation: tick-glyph 1.2s ease-in-out infinite;
+}
+
 .anim-breathe-dot {
   animation: breathe-dot 1.8s ease-in-out infinite;
 }
@@ -192,7 +212,9 @@
   .anim-drawer-left,
   .anim-breathe,
   .anim-breathe-dot,
-  .anim-stagger {
+  .anim-stagger,
+  .anim-pulse-green,
+  .anim-tick {
     animation: none !important;
   }
   .lift-on-hover {
