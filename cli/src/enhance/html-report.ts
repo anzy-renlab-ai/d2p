@@ -27,9 +27,11 @@ import * as path from 'node:path';
 
 import { renderDiffHtml, escapeHtml } from './html-diff.js';
 import { REPORT_CSS, REPORT_JS } from './html-assets.js';
+import { renderFunctionsSection } from './branch-tree-renderer.js';
 import { testFailsToFindings } from './test-fail-to-finding.js';
 import type { TrackLogger } from '../log-types.js';
 import type { TestCaseResult } from '../agent/types.js';
+import type { BranchCoverageReport } from '../agent/branch-coverage-types.js';
 import type {
   FileDiff,
   EnhanceFlowResult,
@@ -55,6 +57,10 @@ export const HTML_MARKERS = {
   findingsEnd: '<!--ZEROU:FINDINGS_END-->',
   findingsCountStart: '<!--ZEROU:FINDINGS_COUNT_START-->',
   findingsCountEnd: '<!--ZEROU:FINDINGS_COUNT_END-->',
+  functionsStart: '<!--ZEROU:FUNCTIONS_START-->',
+  functionsEnd: '<!--ZEROU:FUNCTIONS_END-->',
+  functionsCountStart: '<!--ZEROU:FUNCTIONS_COUNT_START-->',
+  functionsCountEnd: '<!--ZEROU:FUNCTIONS_COUNT_END-->',
   verifyStart: '<!--ZEROU:VERIFY_START-->',
   verifyEnd: '<!--ZEROU:VERIFY_END-->',
   footerStart: '<!--ZEROU:FOOTER_START-->',
@@ -125,6 +131,8 @@ export class HtmlReportWriter {
   private findingsTotal = 0;
   private findingsApplied = 0;
   private findingsRejected = 0;
+  /** Branch coverage data (Phase 11.5). */
+  private branchCoverage: BranchCoverageReport | null = null;
 
   constructor(opts: HtmlReportOpts) {
     this.reportPath = opts.reportPath;
@@ -265,6 +273,31 @@ export class HtmlReportWriter {
     await fs.writeFile(this.reportPath, html, 'utf8');
   }
 
+  /**
+   * Set the branch-coverage report (Phase 11.5). Splices the FUNCTIONS
+   * section between FINDINGS and VERIFY. Calling it again replaces the
+   * previously rendered section.
+   */
+  async setBranchCoverage(report: BranchCoverageReport): Promise<void> {
+    this.branchCoverage = report;
+    let html = await fs.readFile(this.reportPath, 'utf8');
+    html = spliceBetween(html, HTML_MARKERS.functionsStart, HTML_MARKERS.functionsEnd, () =>
+      renderFunctionsSection(report),
+    );
+    html = spliceBetween(
+      html,
+      HTML_MARKERS.functionsCountStart,
+      HTML_MARKERS.functionsCountEnd,
+      () => String(report.summary.functionsAnalyzed),
+    );
+    // Reveal the section (it ships hidden in the skeleton).
+    html = html.replace(
+      '<section class="section fn-section-empty hidden" data-section="functions">',
+      '<section class="section" data-section="functions">',
+    );
+    await fs.writeFile(this.reportPath, html, 'utf8');
+  }
+
   /** Record the verify result so the summary + finalize reflect it. */
   async setVerify(verify: VerifyResult): Promise<void> {
     this.verifyResult = verify;
@@ -346,6 +379,7 @@ export class HtmlReportWriter {
     findingsTotal: number;
     findingsApplied: number;
     findingsRejected: number;
+    branchCoverage: BranchCoverageReport | null;
   } {
     return {
       fileCount: this.fileCount,
@@ -356,6 +390,7 @@ export class HtmlReportWriter {
       findingsTotal: this.findingsTotal,
       findingsApplied: this.findingsApplied,
       findingsRejected: this.findingsRejected,
+      branchCoverage: this.branchCoverage,
     };
   }
 }
@@ -375,6 +410,8 @@ export interface OneShotOpts {
   reasonOf?: (file: string) => string | undefined;
   /** Optional: TestCaseResult[] for findings table rendering. */
   testResults?: TestCaseResult[];
+  /** Optional: per-function branch coverage (Phase 11.5). */
+  branchCoverage?: BranchCoverageReport;
   logger?: TrackLogger;
 }
 
@@ -404,6 +441,7 @@ export async function writeEnhanceHtmlReport(opts: OneShotOpts): Promise<void> {
   const findingRows = buildFindingRows(opts.result, opts.testResults ?? []);
   if (findingRows.length > 0) await writer.setFindings(findingRows);
 
+  if (opts.branchCoverage) await writer.setBranchCoverage(opts.branchCoverage);
   if (opts.result.verify) await writer.setVerify(opts.result.verify);
   await writer.finalize(opts.result.durationMs);
 }
@@ -512,6 +550,13 @@ function renderSkeleton(opts: SkeletonOpts): string {
     `<h2>findings <span class="count">${HTML_MARKERS.findingsCountStart}0${HTML_MARKERS.findingsCountEnd}</span></h2>`,
     `${HTML_MARKERS.findingsStart}\n<div class="empty">No remaining findings.</div>\n${HTML_MARKERS.findingsEnd}`,
     '</section>',
+    // FUNCTIONS section (branch coverage). Hidden until setBranchCoverage()
+    // is called — kept in the DOM with marker comments so splice operations
+    // stay consistent across writer methods.
+    `<section class="section fn-section-empty hidden" data-section="functions">`,
+    `<h2>functions <span class="count">${HTML_MARKERS.functionsCountStart}0${HTML_MARKERS.functionsCountEnd}</span></h2>`,
+    `${HTML_MARKERS.functionsStart}${HTML_MARKERS.functionsEnd}`,
+    `</section>`,
     // VERIFY section
     `<section class="section" data-section="verify">`,
     `<h2>verify</h2>`,

@@ -370,6 +370,17 @@ export async function runEnhance(opts: EnhanceCliOpts): Promise<number> {
     }
     // Read test-results.json so findings table can show patched/rejected rows.
     const testResults = readTestResultsFile(targetCwd);
+    // Phase 11.5: read branch-coverage.json so FUNCTIONS section can show
+    // the 4-signal branch tree + self-deceiving callouts.
+    let branchCoverage: import('./agent/branch-coverage-types.js').BranchCoverageReport | undefined;
+    try {
+      const branchPath = path.join(targetCwd, '.zerou', 'branch-coverage.json');
+      if (fs.existsSync(branchPath)) {
+        branchCoverage = JSON.parse(fs.readFileSync(branchPath, 'utf8'));
+      }
+    } catch (e) {
+      logCatch(logger, 'enhance.branch-coverage.read-error', e);
+    }
     await writeEnhanceHtmlReport({
       reportPath: archivedHtmlPath,
       project: path.basename(targetCwd) || 'project',
@@ -377,6 +388,7 @@ export async function runEnhance(opts: EnhanceCliOpts): Promise<number> {
       diffs,
       diffError,
       testResults,
+      branchCoverage,
       // Use a sibling-relative link so the markdown link resolves next to the html.
       markdownPath: 'enhance-report.md',
       logger,

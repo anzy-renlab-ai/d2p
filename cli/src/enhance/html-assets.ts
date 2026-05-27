@@ -432,6 +432,141 @@ footer code {
 .hk-overlay .panel dd {
   margin: 0; color: var(--fg-muted);
 }
+/* ── Functions / branch-tree section (Phase 11.5) ──────────────────────── */
+.fn-section-header {
+  padding: 8px 16px;
+  font-family: var(--code-font); font-size: 12px;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border-soft);
+}
+.fn-section-header .fn-counts strong { color: var(--fg); font-weight: 600; }
+.fn-section-header .fn-self-deceiving-count { color: var(--bad); }
+.fn-section-header .fn-untested-count { color: var(--warn); }
+.fn-filter-bar {
+  display: flex; gap: 8px; align-items: center;
+  padding: 6px 16px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--code-font); font-size: 12px;
+}
+.fn-filter-bar .fn-filter-label { color: var(--fg-muted); }
+.fn-filter-bar select,
+.fn-filter-bar input[type=text] {
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 2px 6px; font-family: inherit; font-size: 12px;
+}
+.fn-filter-bar input[type=text] { width: 220px; }
+.fn-rows { }
+details.fn-row > summary {
+  grid-template-columns: 18px minmax(0, 1fr) 60px 48px 48px 48px 80px;
+}
+details.fn-row > summary .fn-glyph {
+  text-align: center;
+}
+details.fn-row > summary .fn-glyph.fn-covered { color: var(--ok); }
+details.fn-row > summary .fn-glyph.fn-partial { color: var(--warn); }
+details.fn-row > summary .fn-glyph.fn-deceiving { color: var(--bad); }
+details.fn-row > summary .fn-path {
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+details.fn-row > summary .fn-path .fn-name { color: var(--accent); font-weight: 600; }
+details.fn-row > summary .fn-path .fn-sep { color: var(--fg-dim); }
+details.fn-row > summary .fn-stat {
+  text-align: right;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+details.fn-row > summary .fn-stat strong { color: var(--fg); font-weight: 600; }
+details.fn-row > summary .fn-stat-glyph { margin-left: 2px; opacity: 0.85; }
+details.fn-row > summary .fn-stat-covered strong,
+details.fn-row > summary .fn-stat-covered { color: var(--ok); }
+details.fn-row > summary .fn-stat-untested { color: var(--warn); }
+details.fn-row > summary .fn-stat-deceiving { color: var(--bad); }
+details.fn-row > summary .fn-spec-count {
+  text-align: right;
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+.fn-expand { background: var(--bg); padding: 8px 16px 12px; }
+.branch-tree-header {
+  font-family: var(--code-font); font-size: 12px;
+  color: var(--fg-muted);
+  padding: 4px 16px 6px;
+  border-bottom: 1px dashed var(--border-soft);
+  margin-bottom: 6px;
+}
+.branch-tree-empty {
+  font-family: var(--code-font); font-size: 12px;
+  color: var(--fg-dim); font-style: italic;
+  padding: 8px 16px;
+}
+.branch-tree {
+  font-family: var(--code-font); font-size: 12px;
+  padding: 4px 8px 4px 16px;
+  background: var(--bg);
+}
+.branch-row {
+  display: grid;
+  grid-template-columns: auto 18px minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+  padding: 1px 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.branch-row .bn-prefix {
+  color: var(--fg-dim);
+  white-space: pre;
+  font-family: var(--code-font);
+}
+.branch-row .bn-glyph { text-align: center; }
+.branch-row .bn-label {
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.branch-row.bn-covered .bn-glyph { color: var(--ok); }
+.branch-row.bn-judge-only .bn-glyph { color: var(--bad); }
+.branch-row.bn-untested .bn-glyph { color: var(--bad); }
+.branch-row.bn-spec-only .bn-glyph,
+.branch-row.bn-run-only .bn-glyph { color: var(--warn); }
+.branch-row.bn-unknown .bn-glyph { color: var(--fg-dim); }
+.bn-badges {
+  display: inline-flex; gap: 4px; flex-shrink: 0;
+}
+.bn-badge {
+  font-size: 10px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-elev);
+  color: var(--fg-muted);
+  letter-spacing: 0.3px;
+  text-transform: none;
+}
+.bn-badge-ast { color: var(--accent); border-color: var(--accent); }
+.bn-badge-spec.bn-badge-off,
+.bn-badge-judge.bn-badge-off,
+.bn-badge-run.bn-badge-off {
+  color: var(--fg-dim); border-color: var(--border-soft); background: var(--bg);
+}
+.bn-badge.bn-badge-on { color: var(--ok); border-color: var(--ok); }
+.bn-badge.bn-badge-fail { color: var(--bad); border-color: var(--bad); background: var(--bad-bg); }
+.bn-marker {
+  font-size: 10px;
+  padding: 0 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.bn-marker-deceiving {
+  color: var(--bad);
+  background: var(--bad-bg);
+  border: 1px solid var(--bad);
+  font-weight: 600;
+}
 `;
 
 export const REPORT_JS = `
@@ -441,6 +576,8 @@ export const REPORT_JS = `
     modules: new Set(),  // empty = all
     severity: 'all',     // 'all' | 'P1' | 'P2' | 'P3'
     query: '',
+    fnVerdict: 'all',    // 'all' | 'self-deceiving' | 'untested' | 'covered'
+    fnName: '',
   };
   function readHash() {
     var h = location.hash.slice(1);
@@ -453,6 +590,8 @@ export const REPORT_JS = `
       if (k === 'm' && v) state.modules = new Set(v.split(','));
       else if (k === 's' && v) state.severity = v;
       else if (k === 'q') state.query = v;
+      else if (k === 'fn' && v) state.fnVerdict = v;
+      else if (k === 'fnq' && v) state.fnName = v;
     });
   }
   function writeHash() {
@@ -460,6 +599,8 @@ export const REPORT_JS = `
     if (state.modules.size > 0) parts.push('m=' + encodeURIComponent(Array.from(state.modules).join(',')));
     if (state.severity !== 'all') parts.push('s=' + encodeURIComponent(state.severity));
     if (state.query) parts.push('q=' + encodeURIComponent(state.query));
+    if (state.fnVerdict !== 'all') parts.push('fn=' + encodeURIComponent(state.fnVerdict));
+    if (state.fnName) parts.push('fnq=' + encodeURIComponent(state.fnName));
     var h = parts.length > 0 ? '#' + parts.join('&') : '';
     if (location.hash !== h) {
       history.replaceState(null, '', location.pathname + location.search + h);
@@ -508,6 +649,21 @@ export const REPORT_JS = `
       var qOk2 = !q || target.indexOf(q) !== -1 || msg.indexOf(q) !== -1;
       if (sevOk && qOk2) fr.classList.remove('hidden'); else fr.classList.add('hidden');
     }
+    // Functions (branch-coverage rows)
+    var fnRows = document.querySelectorAll('details.fn-row');
+    var fnq = state.fnName.toLowerCase();
+    for (var fi=0; fi<fnRows.length; fi++) {
+      var fnRow = fnRows[fi];
+      var selfDec = parseInt(fnRow.getAttribute('data-fn-self-deceiving') || '0', 10);
+      var untested = parseInt(fnRow.getAttribute('data-fn-untested') || '0', 10);
+      var fnName = (fnRow.getAttribute('data-fn-name') || '').toLowerCase();
+      var verdictOk = state.fnVerdict === 'all'
+        || (state.fnVerdict === 'self-deceiving' && selfDec > 0)
+        || (state.fnVerdict === 'untested' && untested > 0)
+        || (state.fnVerdict === 'covered' && selfDec === 0 && untested === 0);
+      var nameOk = !fnq || fnName.indexOf(fnq) !== -1;
+      if (verdictOk && nameOk) fnRow.classList.remove('hidden'); else fnRow.classList.add('hidden');
+    }
     // Update chip pressed state
     var chips = document.querySelectorAll('button.chip[data-module]');
     for (var k=0; k<chips.length; k++) {
@@ -520,6 +676,7 @@ export const REPORT_JS = `
     // Update empty placeholders
     updateEmptyState('section[data-section=files]', 'details.file-row');
     updateEmptyState('section[data-section=findings]', 'details.finding-row');
+    updateEmptyState('section[data-section=functions]', 'details.fn-row');
     writeHash();
   }
   function updateEmptyState(sectionSel, rowSel) {
@@ -551,6 +708,8 @@ export const REPORT_JS = `
   }
   function setSeverity(s) { state.severity = s; applyFilters(); }
   function setQuery(q) { state.query = q; applyFilters(); }
+  function setFnVerdict(v) { state.fnVerdict = v; applyFilters(); }
+  function setFnName(q) { state.fnName = q; applyFilters(); }
   function expandAllFiles() {
     var files = document.querySelectorAll('details.file-row');
     for (var i=0; i<files.length; i++) files[i].open = true;
@@ -614,6 +773,17 @@ export const REPORT_JS = `
     if (inp) {
       inp.value = state.query;
       inp.addEventListener('input', function(){ setQuery(inp.value); });
+    }
+    // Function verdict filter
+    var fnSel = document.getElementById('fn-verdict-filter');
+    if (fnSel) {
+      fnSel.value = state.fnVerdict;
+      fnSel.addEventListener('change', function(){ setFnVerdict(fnSel.value); });
+    }
+    var fnInp = document.getElementById('fn-name-filter');
+    if (fnInp) {
+      fnInp.value = state.fnName;
+      fnInp.addEventListener('input', function(){ setFnName(fnInp.value); });
     }
     // Hotkey overlay close
     var overlay = document.getElementById('hk-overlay');

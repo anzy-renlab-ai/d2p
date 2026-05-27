@@ -21,6 +21,11 @@ import type {
   AuditFinding,
 } from './types.js';
 import type { TestCaseResult } from '../agent/types.js';
+import type {
+  BranchCoverageReport,
+  FunctionCoverage,
+  BranchNode,
+} from '../agent/branch-coverage-types.js';
 
 let scratch: string[] = [];
 
@@ -767,6 +772,159 @@ describe('filter wiring (data attributes drive JS filter)', () => {
     const html = await fs.readFile(p, 'utf8');
     expect(html).toContain('data-target="api/users.ts:30"');
     expect(html).toContain('data-message="tenant isolation broken"');
+  });
+});
+
+// ── FUNCTIONS section (branch coverage) ──────────────────────────────────
+
+function makeBranchNode(over: Partial<BranchNode> = {}): BranchNode {
+  return {
+    id: over.id ?? 'br-1',
+    label: over.label ?? 'entry',
+    lineStart: 1,
+    lineEnd: 2,
+    kind: 'entry',
+    children: over.children ?? [],
+    ast: { present: true },
+    specMatches: [],
+    judgeEvidence: [],
+    runtimeCoverage: { linesTotal: 1, linesCovered: 1, branchHit: true },
+    verdict: over.verdict ?? 'covered',
+    ...over,
+  };
+}
+
+function makeFnCoverage(over: Partial<FunctionCoverage> = {}): FunctionCoverage {
+  return {
+    id: over.id ?? 'app/api/login.ts:handleLogin@5',
+    file: over.file ?? 'app/api/login.ts',
+    name: over.name ?? 'handleLogin',
+    line: over.line ?? 5,
+    branchCount: over.branchCount ?? 1,
+    coveredCount: over.coveredCount ?? 1,
+    selfDeceivingCount: over.selfDeceivingCount ?? 0,
+    untestedCount: over.untestedCount ?? 0,
+    root: over.root ?? makeBranchNode(),
+    associatedSpecs: over.associatedSpecs ?? [],
+  };
+}
+
+function makeBranchReport(fns: FunctionCoverage[]): BranchCoverageReport {
+  let bt = 0, bc = 0, sd = 0, ut = 0, fwsd = 0;
+  for (const f of fns) {
+    bt += f.branchCount; bc += f.coveredCount;
+    sd += f.selfDeceivingCount; ut += f.untestedCount;
+    if (f.selfDeceivingCount > 0) fwsd++;
+  }
+  return {
+    generatedAt: new Date(0).toISOString(),
+    cwd: '/tmp/demo',
+    functions: fns,
+    summary: {
+      functionsAnalyzed: fns.length,
+      branchesTotal: bt,
+      branchesCovered: bc,
+      selfDeceivingTotal: sd,
+      untestedTotal: ut,
+      functionsWithSelfDeception: fwsd,
+    },
+    availability: { ast: true, spec: true, judge: true, runtime: true },
+  };
+}
+
+describe('HtmlReportWriter.setBranchCoverage', () => {
+  it('emits a FUNCTIONS section with function rows', async () => {
+    const dir = await mkScratch();
+    const p = path.join(dir, 'r.html');
+    const w = makeWriter(p);
+    await w.writeSkeleton();
+    await w.setBranchCoverage(makeBranchReport([makeFnCoverage()]));
+    const html = await fs.readFile(p, 'utf8');
+    expect(html).toContain('data-section="functions"');
+    expect(html).toContain('<details class="row fn-row"');
+  });
+
+  it('FUNCTIONS section header contains correct counts', async () => {
+    const dir = await mkScratch();
+    const p = path.join(dir, 'r.html');
+    const w = makeWriter(p);
+    await w.writeSkeleton();
+    const fn = makeFnCoverage({
+      selfDeceivingCount: 1,
+      untestedCount: 2,
+      branchCount: 5,
+      coveredCount: 2,
+    });
+    await w.setBranchCoverage(makeBranchReport([fn]));
+    const html = await fs.readFile(p, 'utf8');
+    expect(html).toMatch(/<strong>1<\/strong> function\b/);
+    expect(html).toMatch(/1 self-deceiving/);
+    expect(html).toMatch(/2 untested/);
+  });
+
+  it('Filter dropdown is rendered with all 4 verdict options', async () => {
+    const dir = await mkScratch();
+    const p = path.join(dir, 'r.html');
+    const w = makeWriter(p);
+    await w.writeSkeleton();
+    await w.setBranchCoverage(makeBranchReport([makeFnCoverage()]));
+    const html = await fs.readFile(p, 'utf8');
+    expect(html).toContain('id="fn-verdict-filter"');
+    expect(html).toContain('<option value="all">');
+    expect(html).toContain('<option value="self-deceiving">');
+    expect(html).toContain('<option value="untested">');
+    expect(html).toContain('<option value="covered">');
+  });
+
+  it('Function rows carry data-fn-* attributes used by the filter JS', async () => {
+    const dir = await mkScratch();
+    const p = path.join(dir, 'r.html');
+    const w = makeWriter(p);
+    await w.writeSkeleton();
+    await w.setBranchCoverage(
+      makeBranchReport([
+        makeFnCoverage({
+          file: 'app/x.ts',
+          name: 'doStuff',
+          selfDeceivingCount: 2,
+          untestedCount: 1,
+          coveredCount: 3,
+        }),
+      ]),
+    );
+    const html = await fs.readFile(p, 'utf8');
+    expect(html).toContain('data-fn-self-deceiving="2"');
+    expect(html).toContain('data-fn-untested="1"');
+    expect(html).toContain('data-fn-covered="3"');
+    expect(html).toContain('data-fn-name="dostuff app/x.ts"');
+  });
+
+  it('FUNCTIONS section appears AFTER FINDINGS and BEFORE VERIFY', async () => {
+    const dir = await mkScratch();
+    const p = path.join(dir, 'r.html');
+    const w = makeWriter(p);
+    await w.writeSkeleton();
+    await w.setBranchCoverage(makeBranchReport([makeFnCoverage()]));
+    const html = await fs.readFile(p, 'utf8');
+    const findingsIdx = html.indexOf('data-section="findings"');
+    const fnIdx = html.indexOf('data-section="functions"');
+    const verifyIdx = html.indexOf('data-section="verify"');
+    expect(findingsIdx).toBeGreaterThan(-1);
+    expect(fnIdx).toBeGreaterThan(-1);
+    expect(verifyIdx).toBeGreaterThan(-1);
+    expect(fnIdx).toBeGreaterThan(findingsIdx);
+    expect(fnIdx).toBeLessThan(verifyIdx);
+  });
+
+  it('setBranchCoverage updates writer state', async () => {
+    const dir = await mkScratch();
+    const p = path.join(dir, 'r.html');
+    const w = makeWriter(p);
+    await w.writeSkeleton();
+    expect(w.__state.branchCoverage).toBeNull();
+    await w.setBranchCoverage(makeBranchReport([makeFnCoverage()]));
+    expect(w.__state.branchCoverage).not.toBeNull();
+    expect(w.__state.branchCoverage?.summary.functionsAnalyzed).toBe(1);
   });
 });
 

@@ -654,6 +654,26 @@ async function doAudit(
         logCatch(testLogger, 'agent.test-results.persist-error', e);
       }
     }
+
+    // Phase 11.5: build the 4-signal branch-coverage report (AST x SPEC x
+    // JUDGE x RUN). Surfaces self-deceiving tests in the HTML report.
+    try {
+      const { collectBranchCoverage, writeBranchCoverage } = await import(
+        './agent/branch-coverage.js'
+      );
+      const branchReport = await collectBranchCoverage({
+        cwd: repoInfo.cwd,
+        logger: testLogger,
+      });
+      const branchPath = writeBranchCoverage(repoInfo.cwd, branchReport);
+      logBranch(testLogger, 'agent.branch-coverage.persist', {
+        decision: 'written',
+        reasoning: `persisted ${branchReport.summary.functionsAnalyzed} functions / ${branchReport.summary.branchesTotal} branches; ${branchReport.summary.selfDeceivingTotal} self-deceiving`,
+        path: branchPath,
+      });
+    } catch (e) {
+      logCatch(testLogger, 'agent.branch-coverage.error', e);
+    }
     await testLogger.flush();
   }
 

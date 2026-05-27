@@ -7,6 +7,7 @@
  */
 import type { EngineConfig } from '../stubs.js';
 import type { TrackLogger } from '../log-types.js';
+import type { BranchCoverageReport } from '../agent/branch-coverage-types.js';
 
 export type Framework =
   | 'next.js'
@@ -206,4 +207,9 @@ export interface ReportOpts {
    * `result.worktreePath`, not `cwd`.
    */
   diffFetcher?: DiffFetcher;
+  /**
+   * Optional per-function branch coverage report (Phase 11.5). When present,
+   * the HTML report renders a FUNCTIONS section between FINDINGS and VERIFY.
+   */
+  branchCoverage?: BranchCoverageReport;
 }
