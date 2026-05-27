@@ -368,12 +368,15 @@ export async function runEnhance(opts: EnhanceCliOpts): Promise<number> {
     } catch (err) {
       diffError = err instanceof Error ? err.message : String(err);
     }
+    // Read test-results.json so findings table can show patched/rejected rows.
+    const testResults = readTestResultsFile(targetCwd);
     await writeEnhanceHtmlReport({
       reportPath: archivedHtmlPath,
       project: path.basename(targetCwd) || 'project',
       result,
       diffs,
       diffError,
+      testResults,
       // Use a sibling-relative link so the markdown link resolves next to the html.
       markdownPath: 'enhance-report.md',
       logger,
