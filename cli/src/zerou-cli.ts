@@ -7,6 +7,7 @@ import { runAudit } from './audit.js';
 import { runTrace } from './trace.js';
 import { runEnhance } from './enhance.js';
 import { runReview } from './review.js';
+import { runCoverage } from './coverage.js';
 
 export async function main(argv: string[]): Promise<void> {
   // argv = ['node', 'zerou', <subcommand>, ...]
@@ -17,6 +18,10 @@ export async function main(argv: string[]): Promise<void> {
   }
   if (sub === 'review') {
     const code = await runReview({ argv });
+    process.exit(code);
+  }
+  if (sub === 'coverage') {
+    const code = await runCoverage({ argv });
     process.exit(code);
   }
   if (sub === 'trace') {

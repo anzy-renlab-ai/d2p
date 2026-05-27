@@ -671,6 +671,18 @@ async function doAudit(
         reasoning: `persisted ${branchReport.summary.functionsAnalyzed} functions / ${branchReport.summary.branchesTotal} branches; ${branchReport.summary.selfDeceivingTotal} self-deceiving`,
         path: branchPath,
       });
+
+      // Phase 13.1: emit branch-trace.jsonl — line-oriented OTel-shaped
+      // wide-event stream whose `branch_id`s are the proof of coverage.
+      // `cat branch-trace.jsonl | jq -r '.branch_id' | sort -u | wc -l`
+      // == branchReport.summary.branchesTotal.
+      const { writeBranchTrace } = await import('./agent/branch-trace.js');
+      const tracePath = writeBranchTrace(repoInfo.cwd, branchReport);
+      logBranch(testLogger, 'agent.branch-trace.persist', {
+        decision: 'written',
+        reasoning: `${branchReport.summary.branchesTotal} branch events`,
+        path: tracePath,
+      });
     } catch (e) {
       logCatch(testLogger, 'agent.branch-coverage.error', e);
     }
