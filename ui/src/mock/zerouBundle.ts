@@ -1,0 +1,422 @@
+/**
+ * Mock ReviewBundle for offline preview.
+ *
+ * Modeled on meme-weather (Next.js app, 38 endpoint findings, 72 branch
+ * functions, 15 self-deceiving, 225 untested). Not the verbatim run output;
+ * shaped to exercise every UI path (P1/P2/P3 findings; patched/unpatched/
+ * skipped/failed statuses; added/modified file rows; verify pass + a
+ * skipped step; branch coverage with self-deceiving + judge-only + untested
+ * verdicts).
+ */
+import type { ReviewBundle, ReviewFinding, ReviewFile, BranchNode } from '../types-zerou.js';
+
+// ---------------------------------------------------------------------------
+// Findings — 38 total, grouped by severity. Each row keys off an API route.
+// ---------------------------------------------------------------------------
+
+const ROUTES_P1 = [
+  '/api/memes/[id]',
+  '/api/memes/[id]/bet',
+  '/api/me/profile',
+  '/api/memes/[id]/resolve',
+  '/api/users/[id]/follow',
+  '/api/memes/[id]/comments',
+  '/api/me/credits',
+  '/api/me/wallet/withdraw',
+  '/api/auth/signin',
+  '/api/auth/signup',
+];
+
+const ROUTES_P2 = [
+  '/api/radar/nominate',
+  '/api/radar/feed',
+  '/api/memes',
+  '/api/leaderboard',
+  '/api/feed/personal',
+  '/api/notifications',
+  '/api/notifications/[id]/read',
+  '/api/users/[id]/profile',
+  '/api/users/search',
+  '/api/me/preferences',
+  '/api/me/notifications',
+  '/api/uploads/avatar',
+  '/api/uploads/meme',
+  '/api/comments/[id]',
+  '/api/comments/[id]/like',
+  '/api/feed/trending',
+  '/api/admin/flags',
+  '/api/admin/users',
+];
+
+const ROUTES_P3 = [
+  '/api/health',
+  '/api/version',
+  '/api/og/[id]',
+  '/api/og/leaderboard',
+  '/api/sitemap',
+  '/api/feed/explore',
+  '/api/me/sessions',
+  '/api/admin/feature-flags',
+  '/api/admin/audit',
+  '/api/_debug/echo',
+];
+
+function mkFinding(
+  i: number,
+  endpoint: string,
+  severity: ReviewFinding['severity'],
+  status: ReviewFinding['status']
+): ReviewFinding {
+  const baseMsg =
+    severity === 'P1'
+      ? 'unhandled rejection on DB lookup — no try/catch, 500s leak Prisma stack trace'
+      : severity === 'P2'
+      ? 'missing input validation on request body — request crashes route on malformed JSON'
+      : 'console.log left in production path';
+  const expected =
+    severity === 'P1'
+      ? 'wrap DB call, return 500 with stable shape, log via pino'
+      : severity === 'P2'
+      ? 'zod-parse body, return 400 with field errors'
+      : 'remove or guard behind NODE_ENV !== "production"';
+  const actual =
+    severity === 'P1'
+      ? 'await prisma.X.findUnique throws → handler crashes with full stack'
+      : severity === 'P2'
+      ? 'JSON.parse on body string, no schema check'
+      : 'console.log(`[debug] X`, payload)';
+  return {
+    id: `f-${i}`,
+    source: severity === 'P3' ? 'static' : (i % 3 === 0 ? 'test-fail' : 'static'),
+    severity,
+    category: severity === 'P3' ? 'cleanup' : severity === 'P2' ? 'validation' : 'error-handling',
+    file: `app${endpoint.replace(/\[(\w+)\]/g, '[$1]')}/route.ts`,
+    line: 18 + (i % 30),
+    message: `${endpoint} — ${baseMsg}`,
+    expectedBehavior: expected,
+    actualBehavior: actual,
+    snippet:
+      severity === 'P1'
+        ? `const meme = await prisma.meme.findUnique({ where: { id } })\nreturn NextResponse.json(meme)`
+        : severity === 'P2'
+        ? `const body = JSON.parse(await req.text())\nreturn handler(body)`
+        : `console.log('[og] rendering', id)`,
+    status,
+    reason:
+      status === 'skipped'
+        ? 'low-confidence patch site — implementer asked human'
+        : status === 'failed'
+        ? 'patch attempted but tsc regressed; reverted'
+        : undefined,
+  };
+}
+
+const findings: ReviewFinding[] = [
+  // P1 — 10 routes, all unpatched (loud demo: hardener can't auto-fix these)
+  ...ROUTES_P1.map((r, i) => mkFinding(i, r, 'P1', 'unpatched')),
+  // P2 — 18 routes, mix of patched(8) / unpatched(7) / skipped(2) / failed(1)
+  ...ROUTES_P2.map((r, i) => {
+    const status: ReviewFinding['status'] =
+      i < 8 ? 'patched' : i < 15 ? 'unpatched' : i < 17 ? 'skipped' : 'failed';
+    return mkFinding(10 + i, r, 'P2', status);
+  }),
+  // P3 — 10 cleanup, all patched (cheap easy wins)
+  ...ROUTES_P3.map((r, i) => mkFinding(28 + i, r, 'P3', 'patched')),
+];
+
+// ---------------------------------------------------------------------------
+// Files — 12 entries (logger setup, middleware, health route, sentry wiring,
+// env example, then 5 patched route files). Diffs are minimal but realistic.
+// ---------------------------------------------------------------------------
+
+const files: ReviewFile[] = [
+  {
+    path: 'src/logger.ts',
+    status: 'added',
+    additions: 42,
+    deletions: 0,
+    modules: ['logging'],
+    unifiedDiff:
+      `+import pino from 'pino';\n` +
+      `+\n` +
+      `+export const logger = pino({\n` +
+      `+  level: process.env.LOG_LEVEL ?? 'info',\n` +
+      `+  transport: process.env.NODE_ENV === 'development'\n` +
+      `+    ? { target: 'pino-pretty' }\n` +
+      `+    : undefined,\n` +
+      `+  base: { service: 'meme-weather' },\n` +
+      `+  redact: ['req.headers.authorization', 'req.headers.cookie'],\n` +
+      `+});\n`,
+  },
+  {
+    path: 'middleware.ts',
+    status: 'modified',
+    additions: 18,
+    deletions: 2,
+    modules: ['logging'],
+    unifiedDiff:
+      ` import { NextResponse } from 'next/server';\n` +
+      `+import { logger } from './src/logger';\n` +
+      ` \n` +
+      ` export function middleware(req) {\n` +
+      `+  const start = Date.now();\n` +
+      `+  const reqId = crypto.randomUUID();\n` +
+      `+  logger.info({ reqId, path: req.nextUrl.pathname }, 'request.start');\n` +
+      `   return NextResponse.next();\n` +
+      ` }\n`,
+  },
+  {
+    path: 'app/api/health/route.ts',
+    status: 'added',
+    additions: 31,
+    deletions: 0,
+    modules: ['health'],
+    unifiedDiff:
+      `+import { NextResponse } from 'next/server';\n` +
+      `+import { prisma } from '@/lib/prisma';\n` +
+      `+\n` +
+      `+export async function GET() {\n` +
+      `+  const checks = { db: 'unknown', uptime: process.uptime() };\n` +
+      `+  try {\n` +
+      `+    await prisma.$queryRaw\`SELECT 1\`;\n` +
+      `+    checks.db = 'ok';\n` +
+      `+  } catch { checks.db = 'fail'; }\n` +
+      `+  const ok = checks.db === 'ok';\n` +
+      `+  return NextResponse.json({ ok, checks }, { status: ok ? 200 : 503 });\n` +
+      `+}\n`,
+  },
+  {
+    path: 'src/sentry.client.config.ts',
+    status: 'added',
+    additions: 22,
+    deletions: 0,
+    modules: ['sentry'],
+    unifiedDiff:
+      `+import * as Sentry from '@sentry/nextjs';\n` +
+      `+Sentry.init({\n` +
+      `+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,\n` +
+      `+  tracesSampleRate: 0.1,\n` +
+      `+  environment: process.env.NODE_ENV,\n` +
+      `+});\n`,
+  },
+  {
+    path: 'src/sentry.server.config.ts',
+    status: 'added',
+    additions: 19,
+    deletions: 0,
+    modules: ['sentry'],
+    unifiedDiff:
+      `+import * as Sentry from '@sentry/nextjs';\n` +
+      `+Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });\n`,
+  },
+  {
+    path: 'src/sentry.edge.config.ts',
+    status: 'added',
+    additions: 12,
+    deletions: 0,
+    modules: ['sentry'],
+    unifiedDiff: `+import * as Sentry from '@sentry/nextjs';\n+Sentry.init({ dsn: process.env.SENTRY_DSN });\n`,
+  },
+  {
+    path: 'next.config.mjs',
+    status: 'modified',
+    additions: 8,
+    deletions: 1,
+    modules: ['sentry'],
+    unifiedDiff:
+      `-export default config;\n` +
+      `+import { withSentryConfig } from '@sentry/nextjs';\n` +
+      `+export default withSentryConfig(config, { silent: true });\n`,
+  },
+  {
+    path: '.env.example',
+    status: 'modified',
+    additions: 6,
+    deletions: 0,
+    modules: ['env'],
+    unifiedDiff:
+      `+LOG_LEVEL=info\n` +
+      `+SENTRY_DSN=\n` +
+      `+NEXT_PUBLIC_SENTRY_DSN=\n`,
+  },
+  {
+    path: 'app/api/radar/nominate/route.ts',
+    status: 'modified',
+    additions: 24,
+    deletions: 3,
+    modules: ['bug-patch'],
+    unifiedDiff:
+      `+import { z } from 'zod';\n` +
+      `+const Body = z.object({ memeId: z.string().min(1), reason: z.string().max(280) });\n` +
+      `-const body = JSON.parse(await req.text());\n` +
+      `+const parsed = Body.safeParse(await req.json());\n` +
+      `+if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });\n`,
+  },
+  {
+    path: 'app/api/leaderboard/route.ts',
+    status: 'modified',
+    additions: 18,
+    deletions: 2,
+    modules: ['bug-patch'],
+    unifiedDiff:
+      `+try {\n` +
+      `   const rows = await prisma.score.findMany({ orderBy: { score: 'desc' }, take: 50 });\n` +
+      `+  return NextResponse.json({ rows });\n` +
+      `+} catch (e) { logger.error({ err: e }, 'leaderboard.fail'); return NextResponse.json({ error: 'internal' }, { status: 500 }); }\n`,
+  },
+  {
+    path: 'app/api/og/[id]/route.ts',
+    status: 'modified',
+    additions: 4,
+    deletions: 2,
+    modules: ['bug-patch'],
+    unifiedDiff:
+      `-console.log('[og] rendering', id);\n` +
+      `+if (process.env.NODE_ENV !== 'production') logger.debug({ id }, 'og.render');\n`,
+  },
+  {
+    path: 'app/api/sitemap/route.ts',
+    status: 'modified',
+    additions: 5,
+    deletions: 1,
+    modules: ['bug-patch'],
+    unifiedDiff:
+      `-console.log('[sitemap] regenerating')\n` +
+      `+logger.info('sitemap.regen')\n`,
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Branch coverage — synthesize 72 functions; ~15 with self-deceiving spec
+// matches; the rest mix of covered / spec-only / untested. We only fill
+// detailed trees for the first 8; the rest are summary stubs.
+// ---------------------------------------------------------------------------
+
+function leaf(id: string, label: string, verdict: BranchNode['verdict']): BranchNode {
+  return {
+    id,
+    label,
+    lineStart: 10,
+    lineEnd: 14,
+    kind: 'block',
+    children: [],
+    ast: { present: true },
+    specMatches: verdict === 'spec-only' || verdict === 'covered'
+      ? [{ specId: 's-1', specName: 'happy path returns 200', matchedTokens: ['returns', '200'] }]
+      : [],
+    judgeEvidence: verdict === 'covered'
+      ? [{ specId: 's-1', status: 'pass', snippet: 'expect(res.status).toBe(200)' }]
+      : verdict === 'judge-only'
+      ? [{ specId: 's-2', status: 'pass', snippet: 'asserts body.ok === true' }]
+      : [],
+    runtimeCoverage:
+      verdict === 'covered' || verdict === 'run-only'
+        ? { linesTotal: 5, linesCovered: 5, branchHit: true }
+        : { linesTotal: 5, linesCovered: 0, branchHit: false },
+    verdict,
+  };
+}
+
+function mkFunctionBranches(seed: number) {
+  // every function: try/catch root with 2 happy + 1 error children
+  const happy = leaf(`n-${seed}-happy`, 'if (valid)', seed % 5 === 0 ? 'spec-only' : 'covered');
+  const errorPath = leaf(`n-${seed}-err`, 'catch (e)', seed % 3 === 0 ? 'spec-only' : 'untested');
+  const fallback = leaf(`n-${seed}-fb`, 'return 500', seed % 7 === 0 ? 'judge-only' : 'untested');
+  return {
+    root: {
+      id: `n-${seed}-root`,
+      label: 'try { … } catch { … }',
+      lineStart: 12,
+      lineEnd: 60,
+      kind: 'try',
+      children: [happy, errorPath, fallback],
+      ast: { present: true },
+      specMatches: [],
+      judgeEvidence: [],
+      runtimeCoverage: { linesTotal: 48, linesCovered: 18, branchHit: null },
+      verdict: 'unknown',
+    } satisfies BranchNode,
+    selfDeceivingCount: seed % 5 === 0 ? 1 : 0,  // spec-only → self-deceiving
+    untestedCount: (seed % 3 === 0 ? 0 : 1) + (seed % 7 === 0 ? 0 : 1),
+    coveredCount: seed % 5 === 0 ? 0 : 1,
+  };
+}
+
+const functions = Array.from({ length: 72 }).map((_, i) => {
+  const fn = mkFunctionBranches(i);
+  const routePool = [...ROUTES_P1, ...ROUTES_P2, ...ROUTES_P3];
+  const endpoint = routePool[i % routePool.length] ?? '/api/unknown';
+  return {
+    id: `fn-${i}`,
+    file: `app${endpoint}/route.ts`,
+    name: `${endpoint.split('/').pop()?.replace(/\W/g, '') || 'handler'}_${i}`,
+    line: 12,
+    branchCount: 3,
+    coveredCount: fn.coveredCount,
+    selfDeceivingCount: fn.selfDeceivingCount,
+    untestedCount: fn.untestedCount,
+    root: fn.root,
+    associatedSpecs: i % 4 === 0
+      ? [{ specId: `s-${i}`, specName: 'returns 200 on happy path', status: 'pass', category: 'integration' }]
+      : [],
+  };
+});
+
+const selfDeceivingTotal = functions.reduce((s, f) => s + f.selfDeceivingCount, 0);
+const untestedTotal = functions.reduce((s, f) => s + f.untestedCount, 0);
+const branchesCovered = functions.reduce((s, f) => s + f.coveredCount, 0);
+
+// ---------------------------------------------------------------------------
+// Bundle root
+// ---------------------------------------------------------------------------
+
+export const mockZerouBundle: ReviewBundle = {
+  version: 1,
+  project: {
+    name: 'meme-weather',
+    cwd: 'D:\\lll\\meme-weather-zerou-test',
+    branch: 'zerou-enhance-20260527-160917',
+    worktreePath: 'D:\\lll\\meme-weather-zerou-test.worktrees\\zerou-enhance-20260527-160917',
+    runTs: '20260527-160917',
+  },
+  generatedAt: '2026-05-27T16:13:42.117Z',
+  durationMs: 242_000,
+  modules: [
+    { id: 'logging', label: 'Logging', status: 'ok', summary: 'pino + request middleware', filesTouched: 2 },
+    { id: 'bug-patch', label: 'Bug patches', status: 'partial', summary: '8 of 38 findings auto-patched', filesTouched: 4 },
+    { id: 'health', label: 'Health', status: 'ok', summary: '/api/health with DB ping', filesTouched: 1 },
+    { id: 'sentry', label: 'Sentry', status: 'ok', summary: 'client + server + edge wiring', filesTouched: 4 },
+    { id: 'env', label: 'Env', status: 'ok', summary: '+3 vars in .env.example', filesTouched: 1 },
+    { id: 'verify', label: 'Verify', status: 'ok', summary: 'install + tsc + build green', filesTouched: 0 },
+  ],
+  files,
+  findings,
+  branchCoverage: {
+    generatedAt: '2026-05-27T16:13:40.001Z',
+    cwd: 'D:\\lll\\meme-weather-zerou-test',
+    functions,
+    summary: {
+      functionsAnalyzed: 72,
+      branchesTotal: 72 * 3,
+      branchesCovered,
+      selfDeceivingTotal,
+      untestedTotal,
+      functionsWithSelfDeception: functions.filter((f) => f.selfDeceivingCount > 0).length,
+    },
+    availability: { ast: true, spec: true, judge: true, runtime: false },
+  },
+  verify: {
+    ok: true,
+    steps: [
+      { name: 'install', status: 'pass', durationMs: 38_400 },
+      { name: 'tsc', status: 'pass', durationMs: 21_900 },
+      { name: 'test', status: 'skipped', durationMs: 0 },
+      { name: 'build', status: 'pass', durationMs: 88_200 },
+    ],
+  },
+  audit: {
+    durationMs: 14_300,
+    hardeningFindings: 38,
+    testCases: { total: 12, pass: 8, fail: 2, inconclusive: 1, skipped: 1 },
+  },
+};

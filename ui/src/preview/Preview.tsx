@@ -29,6 +29,7 @@ import { SessionResumeBanner } from '../components/SessionResumeBanner.js';
 import { smallCommitDiff, mediumCommitDiff } from '../mock/diff.js';
 import { mockRiskByCommitSha } from '../mock/risk.js';
 import { sampleCorePathHits } from '../mock/corePaths.js';
+import { ZerouReview } from '../pages/ZerouReview.js';
 
 export type MultiTurnPreviewState = 'running' | 'paused' | 'finalizing' | 'done' | 'stream';
 export type MockupPreviewState = 'drafting' | 'review' | 'revising' | 'approved';
@@ -40,6 +41,7 @@ export type PreviewParam =
   | { kind: 'multi-turn'; state: MultiTurnPreviewState }
   | { kind: 'mockup-phase'; state: MockupPreviewState }
   | { kind: 'git-pro'; key: GitProKey }
+  | { kind: 'zerou-review' }
   | { kind: 'index' };
 
 /** Parses ?preview=track/page, ?preview=index, ?preview=multi-turn[/state], ?preview=mockup-phase/<state>. */
@@ -49,6 +51,7 @@ export function readPreviewParam(): PreviewParam | null {
   const v = sp.get('preview');
   if (!v) return null;
   if (v === 'index' || v === '1' || v === 'true') return { kind: 'index' };
+  if (v === 'zerou-review' || v === 'zerou') return { kind: 'zerou-review' };
   const parts = v.split('/');
   const head = parts[0];
   if (head === 'git-pro') {
@@ -107,6 +110,10 @@ export function Preview() {
       // git-pro previews are self-contained — no store required
       return;
     }
+    if (param.kind === 'zerou-review') {
+      // zerou-review previews are self-contained — no store required
+      return;
+    }
     const { page } = param;
     if (page === 'landing') {
       useStore.setState(mockStoreFor({ empty: true }));
@@ -162,6 +169,9 @@ export function Preview() {
   if (param.kind === 'git-pro') {
     return <GitProPreview previewKey={param.key} />;
   }
+  if (param.kind === 'zerou-review') {
+    return <ZerouReviewPreview />;
+  }
   const Component = variants[param.track][param.page];
   return (
     <div>
@@ -177,7 +187,24 @@ function paramToKey(p: PreviewParam | null): string {
   if (p.kind === 'multi-turn') return `mt/${p.state}`;
   if (p.kind === 'mockup-phase') return `mockup/${p.state}`;
   if (p.kind === 'git-pro') return `git-pro/${p.key}`;
+  if (p.kind === 'zerou-review') return 'zerou-review';
   return `${p.track}/${p.page}`;
+}
+
+function ZerouReviewPreview() {
+  return (
+    <div className="min-h-screen bg-paper text-ink pt-9" data-testid="preview-zerou-review">
+      <div className="fixed top-0 left-0 right-0 z-50 bg-ink text-cream text-xs px-4 py-1.5 flex items-center justify-between font-mono">
+        <span>
+          <a href="?preview=index" className="text-cream hover:text-coral">← all variants</a>
+          <span className="mx-2 text-cream/40">·</span>
+          <span className="text-cream/70">ZeroU · review page</span>
+        </span>
+        <span className="text-cream/40">mock bundle · meme-weather · no daemon</span>
+      </div>
+      <ZerouReview source={{ kind: 'preview' }} />
+    </div>
+  );
 }
 
 function PreviewToolbar({ track, page }: { track: VariantTrack; page: VariantPage }) {

@@ -188,3 +188,118 @@ describe('runReview', () => {
     expect(err).toMatch(/does not exist/);
   });
 });
+
+describe('runReview --serve', () => {
+  function stubHandle(url = 'http://127.0.0.1:55555'): {
+    handle: { url: string; port: number; host: string; close: () => Promise<void> };
+    closed: () => boolean;
+  } {
+    let closed = false;
+    return {
+      handle: {
+        url,
+        port: Number(url.match(/:(\d+)$/)?.[1] ?? 0),
+        host: '127.0.0.1',
+        close: async () => { closed = true; },
+      },
+      closed: () => closed,
+    };
+  }
+
+  it('--serve boots server, opens browser URL, then closes on waitForExit', async () => {
+    const cwd = await mkScratch();
+    const { handle, closed } = stubHandle();
+    let openedUrl = '';
+    let startedWith: { cwd: string; port?: number; uiDistDir: string } | null = null;
+    let out = '';
+
+    const code = await runReview({
+      argv: ['node', 'zerou', 'review', cwd, '--serve'],
+      opener: async (u) => { openedUrl = u; return { ok: true }; },
+      writeOut: (s) => { out += s; },
+      writeErr: () => {},
+      resolveUiDist: async () => '/fake/ui/dist',
+      startServer: async (a) => { startedWith = a; return handle; },
+      waitForExit: async () => {},
+    });
+
+    expect(code).toBe(0);
+    expect(startedWith).not.toBeNull();
+    expect(startedWith!.cwd).toBe(cwd);
+    expect(startedWith!.uiDistDir).toBe('/fake/ui/dist');
+    expect(openedUrl).toBe(handle.url);
+    expect(out).toContain(handle.url);
+    expect(out).toContain('Ctrl-C');
+    expect(closed()).toBe(true);
+  });
+
+  it('--serve --port 8080 forwards port to server', async () => {
+    const cwd = await mkScratch();
+    const { handle } = stubHandle('http://127.0.0.1:8080');
+    let startedWith: { port?: number } | null = null;
+
+    await runReview({
+      argv: ['node', 'zerou', 'review', cwd, '--serve', '--port', '8080'],
+      opener: async () => ({ ok: true }),
+      writeOut: () => {},
+      writeErr: () => {},
+      resolveUiDist: async () => '/fake/ui/dist',
+      startServer: async (a) => { startedWith = a; return handle; },
+      waitForExit: async () => {},
+    });
+
+    expect(startedWith?.port).toBe(8080);
+  });
+
+  it('--serve --no-open does not invoke opener', async () => {
+    const cwd = await mkScratch();
+    const { handle } = stubHandle();
+    let openerCalled = false;
+
+    const code = await runReview({
+      argv: ['node', 'zerou', 'review', cwd, '--serve', '--no-open'],
+      opener: async () => { openerCalled = true; return { ok: true }; },
+      writeOut: () => {},
+      writeErr: () => {},
+      resolveUiDist: async () => '/fake/ui/dist',
+      startServer: async () => handle,
+      waitForExit: async () => {},
+    });
+
+    expect(code).toBe(0);
+    expect(openerCalled).toBe(false);
+  });
+
+  it('--serve with missing ui/dist returns exit 4', async () => {
+    const cwd = await mkScratch();
+    let err = '';
+    const code = await runReview({
+      argv: ['node', 'zerou', 'review', cwd, '--serve'],
+      opener: async () => ({ ok: true }),
+      writeOut: () => {},
+      writeErr: (s) => { err += s; },
+      resolveUiDist: async () => null,
+      startServer: async () => { throw new Error('should not be called'); },
+      waitForExit: async () => {},
+    });
+    expect(code).toBe(4);
+    expect(err).toMatch(/ui\/dist/);
+    expect(err).toMatch(/pnpm/);
+  });
+
+  it('--serve server failure returns exit 6', async () => {
+    const cwd = await mkScratch();
+    let err = '';
+    const code = await runReview({
+      argv: ['node', 'zerou', 'review', cwd, '--serve'],
+      opener: async () => ({ ok: true }),
+      writeOut: () => {},
+      writeErr: (s) => { err += s; },
+      resolveUiDist: async () => '/fake/ui/dist',
+      startServer: async () => { throw new Error('EADDRINUSE'); },
+      waitForExit: async () => {},
+    });
+    expect(code).toBe(6);
+    expect(err).toMatch(/EADDRINUSE|could not start/);
+  });
+});

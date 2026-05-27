@@ -151,6 +151,29 @@ export function PreviewIndex() {
           </div>
         </section>
 
+        <section className="mt-10 pt-6 border-t border-warmline">
+          <div className="text-xs font-mono text-coral uppercase tracking-widest mb-2">component preview</div>
+          <h2 className="text-2xl tracking-tight mb-3">ZeroU review page</h2>
+          <p className="text-muted mb-5 leading-relaxed text-sm max-w-2xl">
+            One-shot hardener pivot 的产出页：modules/files/findings/branch-coverage/verify
+            一锅端，附 merge/drop CLI。数据来自 meme-weather mock bundle。
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <a
+              href="?preview=zerou-review"
+              className="px-4 py-2 rounded-md border border-warmline bg-cream hover:border-coral hover:bg-coralsoft/30 text-sm transition-colors font-mono"
+            >
+              zerou-review
+            </a>
+            <a
+              href="?review=preview"
+              className="px-4 py-2 rounded-md border border-warmline bg-cream hover:border-coral hover:bg-coralsoft/30 text-sm transition-colors font-mono"
+            >
+              ?review=preview (standalone)
+            </a>
+          </div>
+        </section>
+
         <div className="mt-12 text-xs text-muted/70 font-serif italic">
           Production app stays at <code className="not-italic">/</code>; previews are URL-gated only.
         </div>

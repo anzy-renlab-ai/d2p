@@ -8,15 +8,21 @@ import { Done } from './pages/Done.js';
 import { Settings } from './pages/Settings.js';
 import { Preview, readPreviewParam } from './preview/Preview.js';
 import { SessionsList } from './components/SessionsList.js';
+import { ZerouReview, readReviewParam } from './pages/ZerouReview.js';
 
 export function App() {
+  // ZeroU review mode short-circuits everything else when ?review=... is set.
+  // It reads the bundle from window.__ZEROU_DATA__ (server-injected),
+  // /api/review-data.json (live daemon), or the mock (preview).
+  const reviewParam = readReviewParam();
   // Preview mode short-circuits production routing entirely — no daemon poll,
   // no SSE, no real session — so designers can iterate offline.
   const previewParam = readPreviewParam();
   useEffect(() => {
-    if (previewParam) return; // skip bootstrap in preview
+    if (reviewParam || previewParam) return; // skip bootstrap in review/preview
     return bootstrap();
-  }, [previewParam]);
+  }, [reviewParam, previewParam]);
+  if (reviewParam) return <ZerouReview source={reviewParam} />;
   if (previewParam) return <Preview />;
 
   const session = useStore((s) => s.session);

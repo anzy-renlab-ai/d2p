@@ -399,6 +399,18 @@ export async function runEnhance(opts: EnhanceCliOpts): Promise<number> {
     pushModule('⚠', 'Report', `html error: ${(e as Error).message}`);
   }
 
+  // Phase 12: write the React-UI-ready review bundle JSON (stable + archived).
+  try {
+    const { buildReviewBundle, writeReviewBundle } = await import('./review-data.js');
+    const bundle = await buildReviewBundle(targetCwd, {
+      runTs: ts,
+      onWarn: (event, detail) => logger.log('warn', event, detail as Record<string, unknown>),
+    });
+    writeReviewBundle(targetCwd, bundle, ts);
+  } catch (e) {
+    logCatch(logger, 'enhance.review-bundle.error', e);
+  }
+
   // ── Compact 8-10 line summary ────────────────────────────────────────────
   for (const line of moduleLines) writeOut(`${line}\n`);
   writeOut(`─────────────────────────────────\n`);
