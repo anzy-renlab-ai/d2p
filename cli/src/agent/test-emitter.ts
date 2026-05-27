@@ -31,6 +31,8 @@ import type { TestCaseSpec } from './types.js';
 import type { FunctionInfo } from './ast-analyzer.js';
 import { fetchLlm } from './llm-fetch.js';
 import { runConcurrent } from './concurrency.js';
+import type { AuthShape } from './auth-detector.js';
+import { fixtureFor, fixtureRelImport, fixtureFileName } from './auth-fixtures.js';
 
 const DEFAULT_CONCURRENCY = 5;
 
@@ -67,6 +69,13 @@ export interface EmitOptions {
   concurrency?: number;
   /** Optional AbortSignal to short-circuit pending spec renders. */
   signal?: AbortSignal;
+  /**
+   * Phase 11.3: project auth shape (from `detectAuthShape`). When set,
+   * the emitter writes a canonical auth fixture file once and injects
+   * `mockAuthenticatedUser` / `mockAnonymous` calls into every emitted
+   * test based on its spec.given posture.
+   */
+  authShape?: AuthShape;
 }
 
 /**
@@ -106,6 +115,34 @@ export async function emitVitestTests(opts: EmitOptions): Promise<EmittedTestFil
   // Ensure the output directory exists (idempotent).
   fs.mkdirSync(outDir, { recursive: true });
 
+  // Phase 11.3: write canonical auth fixture once per audit run (idempotent).
+  const authShape = opts.authShape;
+  let authFixtureRelImport: string | null = null;
+  if (authShape && authShape.kind !== 'none') {
+    const tmpl = fixtureFor(authShape.kind);
+    if (tmpl) {
+      const fixturesDir = path.join(outDir, 'fixtures');
+      fs.mkdirSync(fixturesDir, { recursive: true });
+      const fixturePath = path.join(fixturesDir, fixtureFileName(authShape.kind));
+      try {
+        // Idempotent: only write if missing or content differs.
+        let existing = '';
+        try { existing = fs.readFileSync(fixturePath, 'utf8'); } catch { /* ignore */ }
+        if (existing !== tmpl) fs.writeFileSync(fixturePath, tmpl, 'utf8');
+        authFixtureRelImport = fixtureRelImport(authShape.kind);
+        logger.log('info', 'agent.emit.auth-fixture.written', {
+          kind: authShape.kind,
+          path: fixturePath,
+        });
+      } catch (e) {
+        logCatch(logger, 'agent.emit.auth-fixture.write-failed', e, {
+          kind: authShape.kind,
+          path: fixturePath,
+        });
+      }
+    }
+  }
+
   for (const [targetFile, specs] of buckets) {
     logger.log('info', 'agent.emit.file.start', {
       targetFile,
@@ -113,8 +150,18 @@ export async function emitVitestTests(opts: EmitOptions): Promise<EmittedTestFil
     });
 
     const fnByKey = indexFunctions(opts.functions);
-    const collectedImports = new Set<string>();
-    collectedImports.add(`import { describe, it, expect, vi } from 'vitest';`);
+    // Phase 11.3: track imports as structured { source, names, default? } so
+    // duplicate `import { vi } from 'vitest'` and `import { vi, expect } from
+    // 'vitest'` collapse into ONE consolidated import.
+    const importTracker = new ImportTracker();
+    importTracker.addParsed(`import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';`);
+
+    // If auth fixture is in play, add the import + ensure beforeEach is in scope.
+    if (authFixtureRelImport) {
+      importTracker.addParsed(
+        `import { mockAuthenticatedUser, mockAnonymous, resetAuth } from '${authFixtureRelImport}';`,
+      );
+    }
 
     // Render specs in parallel (bounded by `concurrency`). `renderSpec`
     // never throws — failures collapse to it.todo(...) — so we don't need
@@ -133,6 +180,8 @@ export async function emitVitestTests(opts: EmitOptions): Promise<EmittedTestFil
           criticApiKey: opts.criticApiKey ?? null,
           callLLM: opts.callLLM,
           timeoutMs,
+          authShape,
+          authFixtureRelImport,
         });
     });
     const settled = await runConcurrent(tasks, {
@@ -146,7 +195,7 @@ export async function emitVitestTests(opts: EmitOptions): Promise<EmittedTestFil
       const r = settled[i]!;
       if (r.ok && r.value) {
         rendered.push(r.value);
-        for (const imp of r.value.imports) collectedImports.add(imp);
+        for (const imp of r.value.imports) importTracker.addParsed(imp);
       } else {
         // Aborted or unexpected — fall back to it.todo so file stays valid.
         const spec = specs[i]!;
@@ -162,8 +211,9 @@ export async function emitVitestTests(opts: EmitOptions): Promise<EmittedTestFil
     const outFilePath = path.join(outDir, `${slugifyTarget(targetFile)}.test.ts`);
     const content = buildFileContent({
       targetFile,
-      imports: [...collectedImports],
+      imports: importTracker.render(),
       rendered,
+      authFixtureRelImport,
     });
 
     try {
@@ -243,6 +293,8 @@ interface RenderSpecArgs {
   criticApiKey: string | null;
   callLLM?: EmitLlmCaller;
   timeoutMs: number;
+  authShape?: AuthShape;
+  authFixtureRelImport?: string | null;
 }
 
 async function renderSpec(args: RenderSpecArgs): Promise<RenderedSpec> {
@@ -267,6 +319,8 @@ async function renderSpec(args: RenderSpecArgs): Promise<RenderedSpec> {
     spec,
     fnInfo,
     relImportPath,
+    authShape: args.authShape,
+    authFixtureRelImport: args.authFixtureRelImport ?? null,
   });
 
   logger.log('info', 'agent.emit.spec.llm-call.start', {
@@ -332,12 +386,146 @@ async function renderSpec(args: RenderSpecArgs): Promise<RenderedSpec> {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 
+  // Phase 11.3: sanitize body — strip any nested `it(`, `describe(`, or
+  // top-level test wrappers the LLM may have emitted despite the prompt
+  // telling it not to. Without this we get the broken output documented in
+  // app-api-me-bets-route.test.ts where a `beforeEach` and a nested `it()`
+  // both end up INSIDE another `it()` body.
+  const sanitizedBody = sanitizeTestBody(parsed.body, spec.id, logger);
+
+  // Phase 11.3: prepend auth fixture call when authShape + spec.given signals.
+  const authPrefix = authPostureForSpec(spec, args.authShape, args.authFixtureRelImport ?? null);
+  const finalBody = authPrefix ? `${authPrefix}\n${sanitizedBody}` : sanitizedBody;
+
   return {
     spec,
     imports: importLines,
-    body: wrapWithGwtComment(spec, parsed.body),
+    body: wrapWithGwtComment(spec, finalBody),
     isTodo: false,
   };
+}
+
+/**
+ * Strip top-level `it(...)`, `describe(...)`, or stray `beforeEach(...)` calls
+ * from the LLM body. We only want the inside-of-it() content; the harness
+ * supplies the outer `it(...)` wrapper itself.
+ *
+ * Strategy (regex-light, deterministic): walk the body line by line, track
+ * brace depth, and elide any line whose top-level (depth=0) statement starts
+ * with `it(`, `it.skip(`, `it.only(`, `it.todo(`, `describe(`, `beforeAll(`,
+ * `beforeEach(`, `afterAll(`, `afterEach(`. Also elide the closing `})`/`});`
+ * that pairs with each elided opener.
+ *
+ * If, after sanitization, the body is empty, return an `expect.fail(...)`
+ * stub so the test still surfaces something to the user.
+ */
+export function sanitizeTestBody(
+  rawBody: string,
+  specId: string,
+  logger: TrackLogger,
+): string {
+  const NESTED_OPENERS = /^(?:it|describe|beforeAll|beforeEach|afterAll|afterEach)(?:\.\w+)?\s*\(/;
+  const lines = rawBody.split(/\r?\n/);
+  const out: string[] = [];
+  let topLevelDepth = 0;        // brace depth at the start of each line
+  let skipUntilDepth: number | null = null; // when set, drop lines until depth returns to this
+  let strippedCount = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (skipUntilDepth !== null) {
+      // We are inside an elided block — track braces, drop the line.
+      topLevelDepth += countCharsOutsideStrings(line, '{') - countCharsOutsideStrings(line, '}');
+      topLevelDepth += countCharsOutsideStrings(line, '(') - countCharsOutsideStrings(line, ')');
+      if (topLevelDepth <= skipUntilDepth) {
+        skipUntilDepth = null;
+      }
+      strippedCount++;
+      continue;
+    }
+    if (topLevelDepth === 0 && NESTED_OPENERS.test(trimmed)) {
+      // Elide this entire block.
+      const openersOnLine = countCharsOutsideStrings(line, '(') + countCharsOutsideStrings(line, '{');
+      const closersOnLine = countCharsOutsideStrings(line, ')') + countCharsOutsideStrings(line, '}');
+      const delta = openersOnLine - closersOnLine;
+      strippedCount++;
+      if (delta <= 0) {
+        // Single-line `it.todo("name");` or similar — already self-closing.
+        continue;
+      }
+      topLevelDepth += delta;
+      skipUntilDepth = 0;
+      continue;
+    }
+    topLevelDepth += countCharsOutsideStrings(line, '{') - countCharsOutsideStrings(line, '}');
+    topLevelDepth += countCharsOutsideStrings(line, '(') - countCharsOutsideStrings(line, ')');
+    out.push(line);
+  }
+
+  let cleaned = out.join('\n').replace(/^\s*\n/, '').replace(/\n\s*\n\s*$/, '\n');
+  if (strippedCount > 0) {
+    logBranch(logger, 'agent.emit.spec.sanitize-decision', {
+      decision: 'stripped-nested-test-wrappers',
+      specId,
+      strippedLines: strippedCount,
+    });
+  }
+  if (cleaned.trim().length === 0) {
+    cleaned = `expect.fail('TODO: LLM body collapsed after sanitization');`;
+  }
+  return cleaned;
+}
+
+function countCharsOutsideStrings(line: string, ch: string): number {
+  // Heuristic — does not handle template literals / escape sequences fully,
+  // but accurate enough for test-body brace counting where we only care
+  // about top-level structure.
+  let count = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '\\') { i++; continue; }
+    if (!inDouble && !inBacktick && c === "'") inSingle = !inSingle;
+    else if (!inSingle && !inBacktick && c === '"') inDouble = !inDouble;
+    else if (!inSingle && !inDouble && c === '`') inBacktick = !inBacktick;
+    else if (!inSingle && !inDouble && !inBacktick && c === ch) count++;
+  }
+  return count;
+}
+
+/**
+ * Pick the right auth posture for this spec by inspecting `spec.given`.
+ * Returns a code snippet to inject before the spec body (inside the it()),
+ * or null if no auth fixture is in play.
+ *
+ *   given mentions 'anonymous' / 'unauthenticated' / 'no session' → mockAnonymous()
+ *   given mentions 'authenticated' / 'logged in' / 'user a' (default for IDOR) → mockAuthenticatedUser()
+ *   otherwise: default to authenticated (most specs assume reaching business logic).
+ */
+function authPostureForSpec(
+  spec: TestCaseSpec,
+  authShape: AuthShape | undefined,
+  fixtureRelImportPath: string | null,
+): string | null {
+  if (!authShape || authShape.kind === 'none' || !fixtureRelImportPath) return null;
+  const given = (spec.given ?? '').toLowerCase();
+  if (/anonymous|unauthenticated|no session|without (?:a |the )?session|no auth/.test(given)) {
+    return `mockAnonymous();`;
+  }
+  if (/authenticated|logged in|valid session|signed-in|signed in/.test(given)) {
+    return `mockAuthenticatedUser();`;
+  }
+  // Default: most specs in real audits assume reaching business logic, so
+  // they need an authenticated user. The category is the tiebreaker — auth
+  // category specs default to anonymous (testing the gate), others to authed.
+  if (spec.category === 'auth' || spec.category === 'security') {
+    if (/missing auth|bypass|cookie tampering|forge/.test(given)) {
+      return `mockAnonymous();`;
+    }
+  }
+  return `mockAuthenticatedUser();`;
 }
 
 function wrapWithGwtComment(spec: TestCaseSpec, body: string): string {
@@ -502,10 +690,12 @@ interface BuildPromptArgs {
   spec: TestCaseSpec;
   fnInfo: FunctionInfo | null;
   relImportPath: string;
+  authShape?: AuthShape;
+  authFixtureRelImport?: string | null;
 }
 
 function buildEmitUserPrompt(args: BuildPromptArgs): string {
-  const { spec, fnInfo, relImportPath } = args;
+  const { spec, fnInfo, relImportPath, authShape, authFixtureRelImport } = args;
   const lines = [
     `Test Specification:`,
     `- ID: ${spec.id}`,
@@ -558,7 +748,26 @@ function buildEmitUserPrompt(args: BuildPromptArgs): string {
     );
   }
 
+  if (authShape && authShape.kind !== 'none' && authFixtureRelImport) {
+    lines.push(
+      ``,
+      `Authentication context: this project uses ${authShape.kind}.`,
+      `Auth helper: ${authShape.helperFunctionName ?? 'unknown'} from ${authShape.helperImport ?? '(relative)'}.`,
+      `A canonical fixture is available at ${authFixtureRelImport} — exports:`,
+      `  - mockAuthenticatedUser(user?)  → mocks the auth helper to return a user`,
+      `  - mockAnonymous()                → mocks the auth helper to return null`,
+      `  - resetAuth()                    → reset between tests`,
+      `The harness has ALREADY imported these and (based on spec.given) will`,
+      `call mockAuthenticatedUser() or mockAnonymous() before your body runs.`,
+      `DO NOT emit your own vi.mock() of the auth helper — it's already done`,
+      `at fixture load time and would conflict.`,
+    );
+  }
   lines.push(
+    ``,
+    `IMPORTANT: output ONLY the body of a single it() block. Do NOT include`,
+    `\`it(...)\`, \`describe(...)\`, \`beforeEach(...)\`, or other test wrappers`,
+    `in the body field — they will be stripped or break the file.`,
     ``,
     `Produce the JSON object now.`,
   );
@@ -571,6 +780,7 @@ interface BuildFileArgs {
   targetFile: string;
   imports: string[];
   rendered: RenderedSpec[];
+  authFixtureRelImport?: string | null;
 }
 
 function buildFileContent(args: BuildFileArgs): string {
@@ -584,6 +794,10 @@ function buildFileContent(args: BuildFileArgs): string {
   out.push(...args.imports);
   out.push(``);
   out.push(`describe(${JSON.stringify(describeName)}, () => {`);
+  if (args.authFixtureRelImport) {
+    out.push(`  afterEach(() => { resetAuth(); });`);
+    out.push(``);
+  }
   for (const r of args.rendered) {
     if (r.isTodo) {
       out.push(`  ${r.body}`);
@@ -601,6 +815,149 @@ function buildFileContent(args: BuildFileArgs): string {
   out.push(`});`);
   out.push(``);
   return out.join('\n');
+}
+
+// ── Import deduplication ────────────────────────────────────────────────────
+
+/**
+ * Parses + merges `import` statements so the file ends up with one
+ * consolidated line per `from '...'` source.
+ *
+ * Handles three forms:
+ *   import X from 'mod';                  (default)
+ *   import { a, b } from 'mod';           (named)
+ *   import * as ns from 'mod';            (namespace)
+ *   side-effect imports like `import 'foo'` are kept as-is (rare).
+ *
+ * Output ordering: the tracker preserves the FIRST seen `from` source order
+ * so deterministic output is predictable.
+ */
+interface ParsedImport {
+  source: string;
+  names: Set<string>;       // named imports
+  default: string | null;   // default import binding
+  namespace: string | null; // `* as ns` binding
+  /** Raw line for non-parseable statements (e.g. side-effect imports). */
+  raw?: string;
+}
+
+export class ImportTracker {
+  private bySource = new Map<string, ParsedImport>();
+  private order: string[] = [];
+  private rawSideEffects: string[] = [];
+
+  /** Add a (possibly multi-line) import statement. Robust to malformed input. */
+  addParsed(line: string): void {
+    const trimmed = line.trim().replace(/;$/, '').trim();
+    if (!trimmed.startsWith('import')) {
+      // Not actually an import — keep as opaque line. Avoid swallowing user code.
+      if (!this.rawSideEffects.includes(line.trim())) {
+        this.rawSideEffects.push(line.trim());
+      }
+      return;
+    }
+
+    // Side-effect: `import 'foo';`
+    const sideEffectRe = /^import\s+(['"])([^'"]+)\1$/;
+    const seM = sideEffectRe.exec(trimmed);
+    if (seM) {
+      const src = seM[2]!;
+      this.touchSource(src).raw = `import ${JSON.stringify(src)};`;
+      return;
+    }
+
+    // Forms: `import X from 'mod'`, `import { a, b } from 'mod'`,
+    //        `import X, { a, b } from 'mod'`, `import * as ns from 'mod'`,
+    //        `import X, * as ns from 'mod'`
+    const fromRe = /^import\s+([\s\S]+?)\s+from\s+(['"])([^'"]+)\2$/;
+    const m = fromRe.exec(trimmed);
+    if (!m) {
+      // Unparseable — keep verbatim to be safe.
+      if (!this.rawSideEffects.includes(trimmed + ';')) {
+        this.rawSideEffects.push(trimmed + ';');
+      }
+      return;
+    }
+    const clausePart = m[1]!.trim();
+    const source = m[3]!;
+    const entry = this.touchSource(source);
+
+    // Walk the clause(s).
+    const clauses = splitTopLevel(clausePart, ',');
+    for (const c of clauses.map((s) => s.trim()).filter(Boolean)) {
+      if (c.startsWith('{') && c.endsWith('}')) {
+        // Named imports: `{a, b as B}` — strip braces, split.
+        const body = c.slice(1, -1);
+        const names = body.split(',').map((s) => s.trim()).filter(Boolean);
+        for (const n of names) entry.names.add(normalizeNamedImport(n));
+      } else if (c.startsWith('*')) {
+        // `* as ns`
+        const nsM = /^\*\s*as\s+([A-Za-z_$][\w$]*)$/.exec(c);
+        if (nsM) entry.namespace = nsM[1]!;
+      } else if (/^[A-Za-z_$][\w$]*$/.test(c)) {
+        entry.default = c;
+      }
+    }
+  }
+
+  private touchSource(source: string): ParsedImport {
+    let e = this.bySource.get(source);
+    if (!e) {
+      e = { source, names: new Set(), default: null, namespace: null };
+      this.bySource.set(source, e);
+      this.order.push(source);
+    }
+    return e;
+  }
+
+  render(): string[] {
+    const out: string[] = [];
+    for (const src of this.order) {
+      const e = this.bySource.get(src)!;
+      if (e.raw) {
+        out.push(e.raw);
+        continue;
+      }
+      const pieces: string[] = [];
+      if (e.default) pieces.push(e.default);
+      if (e.namespace) pieces.push(`* as ${e.namespace}`);
+      if (e.names.size > 0) {
+        const sorted = [...e.names].sort((a, b) => a.localeCompare(b));
+        pieces.push(`{ ${sorted.join(', ')} }`);
+      }
+      if (pieces.length === 0) {
+        out.push(`import ${JSON.stringify(src)};`);
+      } else {
+        out.push(`import ${pieces.join(', ')} from ${JSON.stringify(src)};`);
+      }
+    }
+    out.push(...this.rawSideEffects);
+    return out;
+  }
+}
+
+function normalizeNamedImport(s: string): string {
+  // `a as B` — keep entire alias for correctness.
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+function splitTopLevel(s: string, sep: string): string[] {
+  // Splits a clause-list on `sep` ignoring sep inside `{ ... }` groups.
+  const out: string[] = [];
+  let depth = 0;
+  let buf = '';
+  for (const c of s) {
+    if (c === '{') depth++;
+    else if (c === '}') depth--;
+    if (c === sep && depth === 0) {
+      out.push(buf);
+      buf = '';
+    } else {
+      buf += c;
+    }
+  }
+  if (buf) out.push(buf);
+  return out;
 }
 
 function describeNameFor(targetFile: string, rendered: RenderedSpec[]): string {

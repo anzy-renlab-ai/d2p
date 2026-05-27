@@ -39,6 +39,7 @@ import { logBranch, logCatch } from './log/branch.js';
 import { detectProject } from './agent/project-detector.js';
 import { buildChecklist } from './agent/checklist-builder.js';
 import { generateTestCases } from './agent/test-case-generator.js';
+import { detectAuthShape, type AuthShape } from './agent/auth-detector.js';
 import { runTestCaseBatch } from './agent/test-spec-runner.js';
 import type { TestCaseSpec, TestCaseResult, TestSummary } from './agent/types.js';
 import { loadMarkdownPresets } from './agent/preset-md-loader.js';
@@ -542,6 +543,7 @@ async function doAudit(
   // ── Phase 5: Test case generator + runner (when agent mode active) ─────────
   let testResults: TestCaseResult[] = [];
   let testSummary: TestSummary | null = null;
+  let runAuthShape: AuthShape | undefined;
   if (presetsRequested.length === 0) {
     const testLogger = createTrackLogger('agent', {
       logRoot: effectiveLogRoot,
@@ -560,6 +562,10 @@ async function doAudit(
         packageMgr: null as 'npm' | 'pnpm' | 'yarn' | null,
         evidence: {} as Record<string, string>,
       };
+      // Phase 11.3: detect auth shape so generator/judge/emitter all know
+      // about the project's auth gate.
+      const authShape = await detectAuthShape({ cwd: repoInfo.cwd, logger: testLogger });
+      runAuthShape = authShape;
       const specs = await generateTestCases({
         cwd: repoInfo.cwd,
         profile: profileForTests,
@@ -568,6 +574,7 @@ async function doAudit(
         criticApiKey: policy.criticApiKey ?? null,
         maxCasesPerTarget: 3,
         concurrency,
+        authShape,
       });
       if (specs.length > 0) {
         logBranch(testLogger, 'agent.test-gen.summary-decision', {
@@ -580,6 +587,7 @@ async function doAudit(
           criticConfig: policy.criticConfig,
           criticApiKey: policy.criticApiKey ?? null,
           concurrency,
+          authShape,
         });
         testResults = batchResult.results;
         testSummary = batchResult.summary;
@@ -627,6 +635,24 @@ async function doAudit(
     } catch (e) {
       logCatch(testLogger, 'agent.test-phase.error', e);
       // Non-fatal: tests are advisory in v1.
+    }
+
+    // Phase 11.3: persist structured test results so `zerou enhance` can
+    // ingest LLM-judge fails as AuditFindings without scraping jsonl logs.
+    if (testResults.length > 0) {
+      try {
+        const zerouDir = path.join(repoInfo.cwd, '.zerou');
+        fs.mkdirSync(zerouDir, { recursive: true });
+        const resultsPath = path.join(zerouDir, 'test-results.json');
+        fs.writeFileSync(resultsPath, JSON.stringify(testResults, null, 2), 'utf8');
+        logBranch(testLogger, 'agent.test-results.persist', {
+          decision: 'written',
+          reasoning: `persisted ${testResults.length} test results for enhance pipeline`,
+          path: resultsPath,
+        });
+      } catch (e) {
+        logCatch(testLogger, 'agent.test-results.persist-error', e);
+      }
     }
     await testLogger.flush();
   }
@@ -884,6 +910,7 @@ async function doAudit(
           criticConfig: policy.criticConfig,
           criticApiKey: policy.criticApiKey ?? null,
           concurrency,
+          authShape: runAuthShape,
         });
         await report.appendSection(
           'test-suite',

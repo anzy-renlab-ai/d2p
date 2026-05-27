@@ -33,6 +33,7 @@ import type { EngineConfig } from '../stubs.js';
 import { engineFamily } from '../stubs.js';
 import { fetchLlm } from './llm-fetch.js';
 import { runConcurrent } from './concurrency.js';
+import type { AuthShape } from './auth-detector.js';
 
 const DEFAULT_CONCURRENCY = 5;
 
@@ -54,6 +55,12 @@ export interface TestRunOptions {
   contextLines?: number;
   /** Per-call timeout. Default 30s. */
   timeoutMs?: number;
+  /**
+   * Phase 11.3: project auth shape. When set, the judge's prompt mentions
+   * the auth helper so "endpoint queries db without auth check" reasoning
+   * doesn't treat one-helper-call-up gates as missing.
+   */
+  authShape?: AuthShape;
 }
 
 export interface TestBatchOptions
@@ -152,7 +159,7 @@ export async function runTestCase(opts: TestRunOptions): Promise<TestCaseResult>
   }
 
   // ── 3. Build prompt + call LLM ───────────────────────────────────────────
-  const userPrompt = buildUserPrompt(spec, ctx);
+  const userPrompt = buildUserPrompt(spec, ctx, opts.authShape);
   const model = opts.criticConfig.modelId;
   const family = engineFamily(opts.criticConfig);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -344,13 +351,13 @@ function readContextWindow(
   }
 }
 
-function buildUserPrompt(spec: TestCaseSpec, ctx: ContextWindow): string {
+function buildUserPrompt(spec: TestCaseSpec, ctx: ContextWindow, authShape?: AuthShape): string {
   // Phase 9 Lite — information isolation. We deliberately do NOT include:
   //   - spec.id      (naming intent can leak generator's framing)
   //   - spec.category (priming the judge to look for a specific class of bug)
   //   - spec.reasoning (the generator's internal "why this test matters" — the
   //     judge must reach its own conclusion from the raw assertion + code)
-  return [
+  const lines: string[] = [
     'TASK: Find reasons the source code FAILS the assertion below.',
     'DEFAULT VERDICT: fail. Only return pass if you can quote the specific code',
     'line(s) that obviously satisfy the assertion. Be skeptical.',
@@ -380,7 +387,25 @@ function buildUserPrompt(spec: TestCaseSpec, ctx: ContextWindow): string {
     "Use 'inconclusive' only when the relevant code is genuinely not visible",
     '(e.g., the assertion targets a function declared elsewhere that is not in',
     'the shown window). Do not use inconclusive as a way to avoid judgement.',
-  ].join('\n');
+  ];
+  // Phase 11.3: surface auth context so the judge stops marking
+  // "endpoint queries DB without auth check" when the gate is one helper away.
+  if (authShape && authShape.kind !== 'none') {
+    const fnName = authShape.helperFunctionName ?? 'auth helper';
+    const fromMod = authShape.helperImport ?? '(relative)';
+    lines.push(
+      '',
+      `AUTH CONTEXT: this project uses ${authShape.kind}. The auth gate is`,
+      `\`${fnName}\` from \`${fromMod}\`. If the visible window does NOT show`,
+      `a call to ${fnName}() but the file imports it (or imports may be`,
+      `omitted from the window), treat the auth check as POTENTIALLY PRESENT`,
+      `at a helper one frame up — do NOT mark "auth missing" fail unless you`,
+      `can quote both (a) absence of ${fnName}() in the window AND (b) absence`,
+      `of any 401-returning early return. When in doubt prefer 'inconclusive'`,
+      `with reason 'auth-context-may-be-upstream' over 'fail'.`,
+    );
+  }
+  return lines.join('\n');
 }
 
 interface ParsedDecisionOk {

@@ -467,11 +467,187 @@ describe('emitVitestTests', () => {
       callLLM: llm,
     });
     const body = fs.readFileSync(files[0].path, 'utf8');
-    const importMatches = body.match(/import \{ describe, it, expect, vi \} from 'vitest';/g);
-    // Source emits the canonical line; the LLM's duplicate (with double quotes)
-    // is a different string and may or may not be deduped — assert the canonical
-    // form appears at least once.
-    expect(importMatches?.length ?? 0).toBeGreaterThanOrEqual(1);
+    // Phase 11.3: ALL `from 'vitest'` imports collapse to exactly one line.
+    const vitestImports = body.match(/^import .* from ['"]vitest['"];/gm) ?? [];
+    expect(vitestImports.length).toBe(1);
+    await logger.flush();
+    t.cleanup();
+  });
+});
+
+// ── Phase 11.3: regression tests for dedupe + nested-it ─────────────────────
+
+describe('Phase 11.3 — import dedup + body sanitization', () => {
+  it('dedupes duplicate vi imports across LLM responses', async () => {
+    const t = tmpDir();
+    const logger = mkLogger(t.dir);
+    const llm: EmitLlmCaller = async () => ({
+      rawText:
+        // LLM emits a fresh `import { vi } from 'vitest'` line — should NOT
+        // produce a second top-level import in the emitted file.
+        '{"imports":"import { vi } from \\"vitest\\";\\nimport { NextRequest } from \\"next/server\\";","body":"expect(1).toBe(1);"}',
+      durationMs: 5,
+    });
+    const files = await emitVitestTests({
+      specs: [mkSpec({ id: 's1' }), mkSpec({ id: 's2' })],
+      functions: [],
+      cwd: t.dir,
+      logger,
+      criticConfig: fakeConfig,
+      criticApiKey: 'fake-key',
+      callLLM: llm,
+    });
+    const body = fs.readFileSync(files[0].path, 'utf8');
+    const vitestLines = body.match(/^import .* from ['"]vitest['"];/gm) ?? [];
+    expect(vitestLines.length).toBe(1);
+    // The single consolidated line must include both vi and other globals.
+    expect(vitestLines[0]).toContain('vi');
+    expect(vitestLines[0]).toContain('describe');
+    // next/server kept verbatim.
+    expect(body).toMatch(/^import \{ NextRequest \} from ['"]next\/server['"];/m);
+    await logger.flush();
+    t.cleanup();
+  });
+
+  it('strips nested it(...) inside an it() body', async () => {
+    const t = tmpDir();
+    const logger = mkLogger(t.dir);
+    const llm: EmitLlmCaller = async () => ({
+      rawText: JSON.stringify({
+        imports: '',
+        body:
+          "beforeEach(() => { vi.restoreAllMocks(); });\n" +
+          "it('nested wrapper that should be stripped', async () => {\n" +
+          "  expect('should not appear in output').toBe(true);\n" +
+          "});",
+      }),
+      durationMs: 5,
+    });
+    const files = await emitVitestTests({
+      specs: [mkSpec()],
+      functions: [],
+      cwd: t.dir,
+      logger,
+      criticConfig: fakeConfig,
+      criticApiKey: 'fake-key',
+      callLLM: llm,
+    });
+    const body = fs.readFileSync(files[0].path, 'utf8');
+    // After sanitization, the LLM-emitted `it(` should be gone — only the
+    // harness-emitted outer `it("rejects empty email", ...)` remains.
+    const itOpeners = body.match(/^\s*it\(/gm) ?? [];
+    expect(itOpeners.length).toBe(1);
+    expect(body).not.toContain('nested wrapper that should be stripped');
+    expect(body).not.toContain("vi.restoreAllMocks()");
+    await logger.flush();
+    t.cleanup();
+  });
+
+  it('strips top-level beforeEach() from LLM body', async () => {
+    const t = tmpDir();
+    const logger = mkLogger(t.dir);
+    const llm: EmitLlmCaller = async () => ({
+      rawText: JSON.stringify({
+        imports: '',
+        body: "beforeEach(() => { /* setup */ });\nexpect(true).toBe(true);",
+      }),
+      durationMs: 5,
+    });
+    const files = await emitVitestTests({
+      specs: [mkSpec()],
+      functions: [],
+      cwd: t.dir,
+      logger,
+      criticConfig: fakeConfig,
+      criticApiKey: 'fake-key',
+      callLLM: llm,
+    });
+    const body = fs.readFileSync(files[0].path, 'utf8');
+    // The retained `expect(true)` line stays; the stray beforeEach is stripped.
+    expect(body).toContain('expect(true).toBe(true)');
+    // No top-level beforeEach inside test body region.
+    expect(body).not.toMatch(/^\s*beforeEach\(/m);
+    await logger.flush();
+    t.cleanup();
+  });
+
+  it('writes auth fixture file once when authShape provided', async () => {
+    const t = tmpDir();
+    const logger = mkLogger(t.dir);
+    const llm: EmitLlmCaller = async () => ({
+      rawText: JSON.stringify({ imports: '', body: "expect(true).toBe(true);" }),
+      durationMs: 5,
+    });
+    await emitVitestTests({
+      specs: [mkSpec()],
+      functions: [],
+      cwd: t.dir,
+      logger,
+      criticConfig: fakeConfig,
+      criticApiKey: 'fake-key',
+      callLLM: llm,
+      authShape: {
+        kind: 'supabase-ssr',
+        helperFile: 'lib/auth/server.ts',
+        helperImport: '@/lib/auth/server',
+        helperFunctionName: 'getServerUser',
+      },
+    });
+    const fixturesDir = path.join(t.dir, 'tests', '__zerou__', 'fixtures');
+    expect(fs.existsSync(path.join(fixturesDir, 'auth-supabase-ssr.ts'))).toBe(true);
+    await logger.flush();
+    t.cleanup();
+  });
+
+  it('emitted test file imports auth fixture helpers when authShape set', async () => {
+    const t = tmpDir();
+    const logger = mkLogger(t.dir);
+    const llm: EmitLlmCaller = async () => ({
+      rawText: JSON.stringify({ imports: '', body: "expect(true).toBe(true);" }),
+      durationMs: 5,
+    });
+    const files = await emitVitestTests({
+      specs: [mkSpec({ given: 'an authenticated user' })],
+      functions: [],
+      cwd: t.dir,
+      logger,
+      criticConfig: fakeConfig,
+      criticApiKey: 'fake-key',
+      callLLM: llm,
+      authShape: {
+        kind: 'supabase-ssr',
+        helperFunctionName: 'getServerUser',
+      },
+    });
+    const body = fs.readFileSync(files[0].path, 'utf8');
+    expect(body).toContain("mockAuthenticatedUser");
+    expect(body).toContain('./fixtures/auth-supabase-ssr');
+    // 'authenticated' given → mockAuthenticatedUser() called inside the it.
+    expect(body).toMatch(/mockAuthenticatedUser\(\);/);
+    await logger.flush();
+    t.cleanup();
+  });
+
+  it('anonymous given → mockAnonymous() injected', async () => {
+    const t = tmpDir();
+    const logger = mkLogger(t.dir);
+    const llm: EmitLlmCaller = async () => ({
+      rawText: JSON.stringify({ imports: '', body: "expect(res.status).toBe(401);" }),
+      durationMs: 5,
+    });
+    const files = await emitVitestTests({
+      specs: [mkSpec({ given: 'an anonymous request with no session cookie' })],
+      functions: [],
+      cwd: t.dir,
+      logger,
+      criticConfig: fakeConfig,
+      criticApiKey: 'fake-key',
+      callLLM: llm,
+      authShape: { kind: 'supabase-ssr', helperFunctionName: 'getServerUser' },
+    });
+    const body = fs.readFileSync(files[0].path, 'utf8');
+    expect(body).toMatch(/mockAnonymous\(\);/);
+    expect(body).not.toMatch(/mockAuthenticatedUser\(\);/);
     await logger.flush();
     t.cleanup();
   });

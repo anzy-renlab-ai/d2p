@@ -632,3 +632,106 @@ describe('patchBugs — happy path + safety rails', () => {
     }
   });
 });
+
+// ── Phase 11.3: test-case-fail category triage ─────────────────────────────
+
+describe('classifyFinding — test-case-fail categories', () => {
+  async function run(f: AuditFinding) {
+    const { cwd, cleanup } = withTempDir();
+    try {
+      writeFile(cwd, f.file, 'a\nb\nc\nd\ne\n');
+      return await patchBugs({
+        cwd,
+        findings: [f],
+        criticConfig: fakeCfg,
+        criticApiKey: 'k',
+        logger: silentLogger(),
+        callLLM: mockLlm(''),
+        runTscFn: tscOk,
+      });
+    } finally {
+      cleanup();
+    }
+  }
+
+  it('test-case-fail-security with IDOR → reject (authz-needs-row-predicate-v2)', async () => {
+    const res = await run(makeFinding({
+      category: 'test-case-fail-security',
+      message: 'User B reads User A row via IDOR',
+      actualBehavior: 'no tenant predicate; returns any row by id',
+    }));
+    expect(res[0]!.status).toBe('skipped');
+    expect(res[0]!.reason).toMatch(/authz-needs-row-predicate/);
+  });
+
+  it('test-case-fail-security with race condition → reject (concurrency)', async () => {
+    const res = await run(makeFinding({
+      category: 'test-case-fail-security',
+      message: 'TOCTOU race on counter',
+      actualBehavior: 'double-spend possible without transaction',
+    }));
+    expect(res[0]!.status).toBe('skipped');
+    expect(res[0]!.reason).toMatch(/concurrency-needs-tx/);
+  });
+
+  it('test-case-fail-security with validation gap → eligible', async () => {
+    const res = await run(makeFinding({
+      category: 'test-case-fail-security',
+      message: 'parseInt accepts hex, bypassing numeric guard',
+      expectedBehavior: 'sanitize input before query',
+      actualBehavior: 'hex injection accepted by parseInt',
+    }));
+    // Eligible → it will attempt patch and fail on malformed LLM output.
+    expect(res[0]!.status).toBe('failed'); // patch-malformed, NOT skipped
+    expect(res[0]!.reason).not.toMatch(/p3|not-mechanical/);
+  });
+
+  it('test-case-fail-error-handling → eligible', async () => {
+    const res = await run(makeFinding({
+      category: 'test-case-fail-error-handling',
+      message: 'unhandled rejection leaks stack',
+    }));
+    expect(res[0]!.status).toBe('failed'); // tries to patch
+    expect(res[0]!.reason).not.toMatch(/p3|not-mechanical/);
+  });
+
+  it('test-case-fail-validation → eligible', async () => {
+    const res = await run(makeFinding({
+      category: 'test-case-fail-validation',
+      message: 'missing email format check',
+    }));
+    expect(res[0]!.status).toBe('failed');
+    expect(res[0]!.reason).not.toMatch(/p3|not-mechanical/);
+  });
+
+  it('test-case-fail-auth missing-auth-check → reject (auth-needs-helper-context)', async () => {
+    const res = await run(makeFinding({
+      category: 'test-case-fail-auth',
+      message: 'GET handler has no authentication check',
+      actualBehavior: 'no authentication; query runs without verifying user',
+    }));
+    expect(res[0]!.status).toBe('skipped');
+    expect(res[0]!.reason).toMatch(/auth-needs-helper-context/);
+  });
+
+  it('test-case-fail-edge-case nullable → eligible (null-guard)', async () => {
+    const res = await run(makeFinding({
+      category: 'test-case-fail-edge-case',
+      severity: 'P2',
+      message: 'derivativeCount may be undefined',
+      actualBehavior: 'r.derivativeCount accessed without null check',
+    }));
+    expect(res[0]!.status).toBe('failed'); // eligible but LLM returned ''
+    expect(res[0]!.reason).not.toMatch(/p3|not-mechanical/);
+  });
+
+  it('test-case-fail-happy-path with mechanical hint → eligible', async () => {
+    const res = await run(makeFinding({
+      category: 'test-case-fail-happy-path',
+      severity: 'P2',
+      expectedBehavior: 'sanitize user input',
+    }));
+    expect(res[0]!.status).toBe('failed'); // eligible
+    expect(res[0]!.reason).not.toMatch(/p3|not-mechanical/);
+  });
+});

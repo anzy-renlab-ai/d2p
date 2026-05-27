@@ -26,6 +26,7 @@ import type {
 } from './types.js';
 import { fetchLlm } from './llm-fetch.js';
 import { runConcurrent } from './concurrency.js';
+import type { AuthShape } from './auth-detector.js';
 
 const DEFAULT_CONCURRENCY = 5;
 
@@ -54,6 +55,13 @@ export interface TestGenOptions {
   concurrency?: number;
   /** Optional AbortSignal to short-circuit pending targets. */
   signal?: AbortSignal;
+  /**
+   * Phase 11.3: project auth shape. When set, the spec-generation prompt
+   * mentions the auth helper so specs use the correct given posture
+   * ("authenticated user" / "anonymous request") instead of writing
+   * happy-path specs that ignore the 401 wall.
+   */
+  authShape?: AuthShape;
 }
 
 /** A program point that warrants test specs. */
@@ -517,7 +525,22 @@ const SPEC_SCHEMA_DOC = `[
   }
 ]`;
 
-function buildSpecPrompt(target: ExtractedTarget, maxCases: number): string {
+function buildSpecPrompt(target: ExtractedTarget, maxCases: number, authShape?: AuthShape): string {
+  const authBlock: string[] = [];
+  if (authShape && authShape.kind !== 'none') {
+    const fnName = authShape.helperFunctionName ?? 'auth helper';
+    authBlock.push(
+      ``,
+      `AUTH CONTEXT: this project uses ${authShape.kind} (${fnName}` +
+        (authShape.helperImport ? ` from ${authShape.helperImport}` : '') + `).`,
+      `Protected endpoints return 401 BEFORE business logic when unauthenticated.`,
+      `When writing specs, choose the right user state in \`given\`:`,
+      ` - happy path / business logic → \`given\` MUST mention "authenticated user with ..." (test will mock auth)`,
+      ` - auth boundary → \`given\` says "anonymous request" or "unauthorized role"`,
+      ` - Anonymous calls to protected endpoints → \`then\` MUST be "returns 401" not the business outcome.`,
+      ` - IDOR / cross-tenant → \`given\` MUST mention "authenticated user A" + "data owned by user B".`,
+    );
+  }
   return [
     `Target under attack:`,
     `- File: ${target.file}:${target.line}`,
@@ -551,6 +574,8 @@ function buildSpecPrompt(target: ExtractedTarget, maxCases: number): string {
     `Cap at ${maxCases} specs total. Pick the ${maxCases} highest-severity attack`,
     `surfaces for this target. Each spec MUST describe a concrete, executable`,
     `scenario — not a generic "validates input correctly".`,
+    ``,
+    ...authBlock,
     ``,
     `Return strict JSON array matching this schema:`,
     SPEC_SCHEMA_DOC,
@@ -754,7 +779,7 @@ export async function generateTestCases(opts: TestGenOptions): Promise<TestCaseS
             cfg: opts.criticConfig!,
             apiKey: opts.criticApiKey!,
             systemPrompt: SPEC_SYSTEM_PROMPT,
-            userPrompt: buildSpecPrompt(target, maxCases),
+            userPrompt: buildSpecPrompt(target, maxCases, opts.authShape),
             timeoutMs,
           });
         } catch (e) {

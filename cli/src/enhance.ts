@@ -39,6 +39,7 @@ import { completeEnvExample } from './enhance/env-completer.js';
 import { verifyEnhancedCode } from './enhance/verify.js';
 import { writeEnhanceReport, defaultDiffFetcher } from './enhance/report.js';
 import { writeEnhanceHtmlReport } from './enhance/html-report.js';
+import { testFailsToFindings, readTestResultsFile } from './enhance/test-fail-to-finding.js';
 
 export interface EnhanceCliOpts {
   argv: string[];
@@ -491,51 +492,73 @@ function readAuditFindings(
   targetCwd: string,
   logger: ReturnType<typeof createTrackLogger>,
 ): AuditFinding[] {
-  // For v1 we ONLY read the structured findings from the audit-report.md table.
-  // The richer test-case results (LLM-judge fail entries) are in logs but
-  // require parsing event streams; defer to v2.
+  // Phase 11.3: union of TWO sources:
+  //   1. <cwd>/.zerou/audit-report.md  →  Static Hardening Findings table
+  //   2. <cwd>/.zerou/test-results.json →  LLM-judge test-case fails
+  //
+  // Static findings + test-case fails are merged, then de-duped by
+  // (file, line, message). Bug-patcher classifies each via the extended
+  // classifyFinding() that knows the `test-case-fail-<category>` taxonomy.
+  const findings: AuditFinding[] = [];
   const reportPath = path.join(targetCwd, '.zerou', 'audit-report.md');
-  if (!fs.existsSync(reportPath)) {
+
+  if (fs.existsSync(reportPath)) {
+    try {
+      const text = fs.readFileSync(reportPath, 'utf8');
+      const sectionMatch = text.match(
+        /<!-- section:static-findings start -->([\s\S]*?)<!-- section:static-findings end -->/,
+      );
+      if (sectionMatch) {
+        const body = sectionMatch[1] ?? '';
+        const rowRe = /^\|\s*([^|]+?)\s*\|\s*([^|]+?):(\d+)\s*\|\s*(P\d)\s*\|\s*([^|]+?)\s*\|\s*$/gm;
+        let m: RegExpExecArray | null;
+        while ((m = rowRe.exec(body))) {
+          const [, id, file, line, severity, verdict] = m;
+          if (id === 'Finding') continue;
+          if (verdict?.trim() === 'false-positive') continue;
+          findings.push({
+            id: id!.trim(),
+            file: file!.trim(),
+            line: parseInt(line!, 10),
+            severity: severity as 'P1' | 'P2' | 'P3',
+            category: 'unknown',
+            message: id!.trim(),
+          });
+        }
+      }
+    } catch (e) {
+      logCatch(logger, 'enhance.audit-findings-decision', e);
+    }
+  } else {
     logBranch(logger, 'enhance.audit-findings-decision', {
-      decision: 'no-prior-audit',
+      decision: 'no-prior-audit-md',
       reasoning: `${reportPath} missing`,
     });
-    return [];
   }
-  try {
-    const text = fs.readFileSync(reportPath, 'utf8');
-    const findings: AuditFinding[] = [];
-    // Parse Static Hardening Findings table:
-    //   | Finding | Location | Severity | Verdict |
-    const sectionMatch = text.match(
-      /<!-- section:static-findings start -->([\s\S]*?)<!-- section:static-findings end -->/,
-    );
-    if (sectionMatch) {
-      const body = sectionMatch[1] ?? '';
-      const rowRe = /^\|\s*([^|]+?)\s*\|\s*([^|]+?):(\d+)\s*\|\s*(P\d)\s*\|\s*([^|]+?)\s*\|\s*$/gm;
-      let m: RegExpExecArray | null;
-      while ((m = rowRe.exec(body))) {
-        const [, id, file, line, severity, verdict] = m;
-        if (id === 'Finding') continue; // header row
-        if (verdict?.trim() === 'false-positive') continue;
-        findings.push({
-          id: id!.trim(),
-          file: file!.trim(),
-          line: parseInt(line!, 10),
-          severity: severity as 'P1' | 'P2' | 'P3',
-          category: 'unknown',
-          message: id!.trim(),
-        });
-      }
-    }
-    logBranch(logger, 'enhance.audit-findings-decision', {
-      decision: 'parsed',
-      reasoning: `parsed ${findings.length} findings from ${reportPath}`,
-      count: findings.length,
-    });
-    return findings;
-  } catch (e) {
-    logCatch(logger, 'enhance.audit-findings-decision', e);
-    return [];
+  const staticCount = findings.length;
+
+  // ── Test-case-fail findings (Phase 11.3) ──────────────────────────────────
+  const results = readTestResultsFile(targetCwd);
+  const testFindings = testFailsToFindings({ results, minSeverity: 'P3' });
+  const seen = new Set<string>();
+  for (const f of findings) {
+    seen.add(`${f.file}|${f.line}|${f.message}`);
   }
+  let testAdded = 0;
+  for (const tf of testFindings) {
+    const key = `${tf.file}|${tf.line}|${tf.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    findings.push(tf);
+    testAdded++;
+  }
+
+  logBranch(logger, 'enhance.audit-findings-decision', {
+    decision: 'parsed',
+    reasoning: `static=${staticCount} + test-case-fail=${testAdded} = ${findings.length}`,
+    count: findings.length,
+    staticCount,
+    testFailCount: testAdded,
+  });
+  return findings;
 }

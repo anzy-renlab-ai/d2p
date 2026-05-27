@@ -57,6 +57,7 @@ function classifyFinding(f: AuditFinding): Eligibility {
     return { eligible: false, reason: 'p3-not-included-in-v1' };
   }
   const cat = (f.category ?? '').toLowerCase();
+  // ── Static-hardening categories (preset-based findings) ──────────────────
   switch (cat) {
     case 'secrets-leak':
       return { eligible: false, reason: 'secrets-not-auto-patched-v1' };
@@ -73,13 +74,110 @@ function classifyFinding(f: AuditFinding): Eligibility {
     default:
       break;
   }
-  const expected = (f.expectedBehavior ?? '').toLowerCase();
+
+  // ── Test-case-fail-derived categories (Phase 11.3) ───────────────────────
+  // The judge marks specs as `fail` and we ingest them with category prefix
+  // `test-case-fail-<original-category>`. Triage them per docs/reviews/2026-05-27.
+  if (cat.startsWith('test-case-fail-')) {
+    const orig = cat.slice('test-case-fail-'.length);
+    switch (orig) {
+      case 'security':
+        return classifySecurityTestFail(f);
+      case 'auth':
+        return classifyAuthTestFail(f);
+      case 'validation':
+        return { eligible: true, reason: 'mechanical-validation-gap' };
+      case 'error-handling':
+        return { eligible: true, reason: 'mechanical-error-handling' };
+      case 'edge-case':
+        return classifyEdgeCaseTestFail(f);
+      case 'happy-path':
+        // A failing happy-path usually means real bug — defer to expected/actual hints.
+        return classifyByHints(f, 'happy-path');
+      default:
+        return { eligible: false, reason: 'unknown-test-case-fail-category' };
+    }
+  }
+
+  return classifyByHints(f, 'static');
+}
+
+/** Look at expected/actual/message text for mechanical hints. */
+function classifyByHints(f: AuditFinding, contextTag: string): Eligibility {
+  const text = `${f.expectedBehavior ?? ''} ${f.actualBehavior ?? ''} ${f.message ?? ''}`.toLowerCase();
   for (const hint of MECHANICAL_HINTS) {
-    if (expected.includes(hint)) {
+    if (text.includes(hint)) {
       return { eligible: true, reason: `mechanical-hint:${hint}` };
     }
   }
-  return { eligible: false, reason: 'not-mechanical-v1' };
+  // Null/undefined-access bugs are mechanical (insert ?. or guard).
+  if (/null|undefined|nullable|optional chain/.test(text)) {
+    return { eligible: true, reason: 'mechanical-null-guard' };
+  }
+  // Unhandled rejection / stack-trace leak — wrap with try/catch.
+  if (/unhandled|stack trace|leaked exception|rejection/.test(text)) {
+    return { eligible: true, reason: 'mechanical-error-handling' };
+  }
+  return { eligible: false, reason: `not-mechanical-${contextTag}` };
+}
+
+/**
+ * Security test-case fails are heterogeneous: IDOR / authz / race / unhandled
+ * error / input validation. Triage by verdict text:
+ *  - IDOR / authz / cross-tenant → reject ('authz-needs-row-predicate-v2')
+ *  - race / TOCTOU / double-spend → reject ('concurrency-needs-tx-rewrite-v2')
+ *  - input validation / sanitize → eligible (mechanical-validation-gap)
+ *  - unhandled error / stack leak → eligible (mechanical-error-handling)
+ *  - auth-context-missing (spec mal-specified) → reject
+ *  - anything else → fall back to hint-based check
+ */
+function classifySecurityTestFail(f: AuditFinding): Eligibility {
+  const text = `${f.expectedBehavior ?? ''} ${f.actualBehavior ?? ''} ${f.message ?? ''}`.toLowerCase();
+  if (/idor|cross-tenant|other user|user b reads user a|wrong owner|tenant predicate/.test(text)) {
+    return { eligible: false, reason: 'authz-needs-row-predicate-v2' };
+  }
+  if (/race|toctou|double[-\s]?spend|concurrent|duplicate write/.test(text)) {
+    return { eligible: false, reason: 'concurrency-needs-tx-rewrite-v2' };
+  }
+  if (/auth-context-missing|spec mal-specified|spec mis-specified/.test(text)) {
+    return { eligible: false, reason: 'spec-mal-specified' };
+  }
+  if (/validation|sanitize|sanitise|parseint|hex|injection|xss|encodeuri/.test(text)) {
+    return { eligible: true, reason: 'mechanical-validation-gap' };
+  }
+  if (/unhandled|stack trace|leaked exception|rejection|missing try|missing catch/.test(text)) {
+    return { eligible: true, reason: 'mechanical-error-handling' };
+  }
+  return classifyByHints(f, 'security-test-fail');
+}
+
+/**
+ * Auth test-case fails — usually missing-auth-check on a read endpoint.
+ * The patcher can insert `await getServerUser()` + guard IF an auth helper
+ * exists in the project (auth-shape detection). For v1 we reject and let
+ * the user wire it manually; the auth-fixture work makes future patches
+ * possible.
+ */
+function classifyAuthTestFail(f: AuditFinding): Eligibility {
+  const text = `${f.expectedBehavior ?? ''} ${f.actualBehavior ?? ''} ${f.message ?? ''}`.toLowerCase();
+  if (/missing auth check|no authentication|without auth|unauthenticated/.test(text)) {
+    return { eligible: false, reason: 'auth-needs-helper-context-v2' };
+  }
+  if (/session fixation|session hijack|cookie tampering|jwt forge/.test(text)) {
+    return { eligible: false, reason: 'auth-design-rewrite-needed' };
+  }
+  return classifyByHints(f, 'auth-test-fail');
+}
+
+function classifyEdgeCaseTestFail(f: AuditFinding): Eligibility {
+  const text = `${f.expectedBehavior ?? ''} ${f.actualBehavior ?? ''} ${f.message ?? ''}`.toLowerCase();
+  if (/null|undefined/.test(text)) {
+    return { eligible: true, reason: 'mechanical-null-guard' };
+  }
+  if (/overflow|integer|max safe|boundary/.test(text)) {
+    return { eligible: false, reason: 'edge-case-needs-design-v2' };
+  }
+  return classifyByHints(f, 'edge-case-test-fail');
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
