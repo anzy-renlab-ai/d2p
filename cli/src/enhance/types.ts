@@ -161,9 +161,49 @@ export interface EnhanceFlowResult {
   startedAt: string;
 }
 
+// ── Inline-diff rendering ──────────────────────────────────────────────────
+
+export type FileDiffStatus = 'added' | 'modified' | 'deleted' | 'renamed';
+
+export interface FileDiff {
+  /** POSIX relative path (post-rename for renamed entries). */
+  file: string;
+  /** For renamed entries, the original path. */
+  oldFile?: string;
+  status: FileDiffStatus;
+  additions: number;
+  deletions: number;
+  /**
+   * FULL `git diff` unified text for this single file. May be huge — the
+   * renderer caps to ~200 lines (first 100 + ellipsis + last 100) and
+   * elides entirely above 50 KB.
+   */
+  unifiedDiff: string;
+  /**
+   * If the diff was deliberately omitted (binary, generated, lockfile),
+   * a short human-readable reason rendered in the report.
+   */
+  omittedReason?: string;
+}
+
+/**
+ * Signature for the default + injectable diff fetcher. Resolves `main..HEAD`
+ * in the worktree and returns one `FileDiff` per changed file. Implementations
+ * must NEVER throw on missing-main or missing-git; they must instead reject
+ * with an Error whose message the renderer surfaces verbatim.
+ */
+export type DiffFetcher = (worktreePath: string) => Promise<FileDiff[]>;
+
 export interface ReportOpts {
   cwd: string;                     // worktree path
   reportPath: string;              // .zerou/enhance-report.md (in user's cwd or worktree)
   result: EnhanceFlowResult;
   logger: TrackLogger;
+  /**
+   * Optional override for diff-fetching. When omitted, the default fetcher
+   * shells out to `git -C <worktreePath> diff main..HEAD` (falling back to
+   * master then HEAD~1). Tests inject mocks here. The fetcher runs against
+   * `result.worktreePath`, not `cwd`.
+   */
+  diffFetcher?: DiffFetcher;
 }

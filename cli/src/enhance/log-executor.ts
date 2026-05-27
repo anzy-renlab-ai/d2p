@@ -475,36 +475,150 @@ const CONSOLE_MAP: Record<string, string> = {
 };
 
 /**
+ * Scan the masked argument span starting at `from` (the index immediately
+ * after the opening `(`) until the matching `)`. Returns the index of the
+ * closing `)` and the count of top-level commas (commas not nested inside
+ * `()`, `{}`, or `[]`).
+ *
+ * The `masked` view has string literals / comments / template literals
+ * blanked out to ASCII spaces, so we don't need string-quote tracking — any
+ * brackets/commas inside a string have already been masked. Newlines are
+ * preserved in masking, so we can still scan linearly.
+ *
+ * Returns null if no balanced closing `)` is found (unterminated call —
+ * malformed source).
+ */
+function scanArgList(
+  masked: string,
+  from: number,
+): { closeIdx: number; topCommas: number; nonEmpty: boolean } | null {
+  let depth = 1; // we start just after the opening '('
+  let topCommas = 0;
+  let nonEmpty = false;
+  let i = from;
+  while (i < masked.length) {
+    const c = masked[i]!;
+    if (c === '(' || c === '{' || c === '[') {
+      depth++;
+      nonEmpty = true;
+    } else if (c === ')') {
+      depth--;
+      if (depth === 0) {
+        return { closeIdx: i, topCommas, nonEmpty };
+      }
+    } else if (c === '}' || c === ']') {
+      depth--;
+    } else if (c === ',' && depth === 1) {
+      topCommas++;
+      nonEmpty = true;
+    } else if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') {
+      // Any non-whitespace character at any depth means args are non-empty.
+      nonEmpty = true;
+    }
+    i++;
+  }
+  return null;
+}
+
+/**
  * P1-2 + P1-6 fix: run against `masked` text, and require that `console`
  * NOT be preceded by `.` or an identifier char — so `this.console.log()` and
  * `myConsole.log()` are left alone.
+ *
+ * Phase 10.6 fix: pino uses the OPPOSITE argument order from console
+ * (`logger.error({ err }, "msg")` vs `console.error("msg", err)`). A naive
+ * 1:1 rewrite produces type errors and silently loses data. Policy:
+ *
+ *   - 0 args     → rewrite (`console.log()` → `logger.info()`)
+ *   - 1 arg      → rewrite (string / number / object / template literal —
+ *                  pino accepts any as a single positional arg)
+ *   - 2+ args    → SKIP (leave the original `console.X(...)` text alone,
+ *                  log a decision branch)
+ *
+ * The argument-count is computed by scanning the masked argument span and
+ * counting top-level commas. Masking guarantees that string-literal commas
+ * and template-literal commas are blanked, so we can use plain character
+ * scanning to find argument boundaries.
  */
 function transformConsoleCalls(
   content: string,
   loggerName: string,
   masked: string,
-): { content: string; count: number } {
+  log?: TrackLogger,
+  fileRel?: string,
+): { content: string; count: number; multiArgSkipCount: number } {
   // P1-6: negative lookbehind `(?<![.\w$])` prevents matching when `console`
   // is a property access (e.g., `this.console`, `foo.console`) or part of a
   // larger identifier (`myConsole`).
   const re =
     /(?<![.\w$])console\b\s*\.\s*(log|info|warn|error|debug)\s*\(/g;
   let count = 0;
+  let multiArgSkipCount = 0;
   let result = '';
   let cursor = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(masked)) !== null) {
     const start = m.index;
-    const end = start + m[0].length;
+    const headerEnd = start + m[0].length; // index just after '('
     const method = m[1]!;
     const mapped = CONSOLE_MAP[method] ?? 'info';
-    result += content.slice(cursor, start) + loggerName + '.' + mapped + '(';
-    cursor = end;
+
+    // Scan the argument span to determine arg count.
+    const scan = scanArgList(masked, headerEnd);
+    if (!scan) {
+      // Unterminated — leave it alone (malformed source).
+      if (log) {
+        logBranch(log, 'enhance.log.executor.file-change-decision', {
+          decision: 'skip',
+          reasoning: 'console-call-unterminated',
+          file: fileRel,
+          method,
+        });
+      }
+      // Keep the original text as-is; don't advance over the broken call.
+      // Advance cursor by copying up to `headerEnd` (which is `console.X(`)
+      // would corrupt; safer: copy up to the matched header and let regex
+      // continue past it on next iteration.
+      result += content.slice(cursor, headerEnd);
+      cursor = headerEnd;
+      continue;
+    }
+
+    const topCommas = scan.topCommas;
+    if (topCommas >= 1) {
+      // 2+ args — SKIP. Phase 10.6: pino's arg order differs from console;
+      // a 1:1 rewrite would type-error or silently lose data.
+      multiArgSkipCount++;
+      if (log) {
+        logBranch(log, 'enhance.log.executor.file-change-decision', {
+          decision: 'skip',
+          reasoning: 'console-call-multi-arg',
+          file: fileRel,
+          method,
+          argCount: topCommas + 1,
+        });
+      }
+      // Copy original text untouched through the closing ')'.
+      result += content.slice(cursor, scan.closeIdx + 1);
+      cursor = scan.closeIdx + 1;
+      // Advance the regex lastIndex past this call so we don't re-match
+      // inside it.
+      re.lastIndex = scan.closeIdx + 1;
+      continue;
+    }
+
+    // 0 args (empty parens) or 1 arg — rewrite.
+    result +=
+      content.slice(cursor, start) + loggerName + '.' + mapped + '(';
+    cursor = headerEnd;
     count++;
   }
   result += content.slice(cursor);
-  return { content: result, count };
+  return { content: result, count, multiArgSkipCount };
 }
+
+// Internal export for unit tests (Phase 10.6). Not part of the public API.
+export const __internal = { transformConsoleCalls, maskNonCodeRegions, scanArgList };
 
 // ── Bootstrap + middleware ──────────────────────────────────────────────────
 
@@ -735,6 +849,7 @@ function applyToFile(
   let masked = maskResult.masked;
   let touched = 0;
   let consoles = 0;
+  let consolesSkipped = 0;
   let catches = 0;
 
   if (kinds.has('silent-catch')) {
@@ -757,7 +872,8 @@ function applyToFile(
     }
   }
   if (kinds.has('console-log')) {
-    const t = transformConsoleCalls(next, loggerLocalName, masked);
+    const t = transformConsoleCalls(next, loggerLocalName, masked, log, rel);
+    consolesSkipped = t.multiArgSkipCount;
     if (t.count > 0) {
       next = t.content;
       consoles = t.count;
@@ -818,15 +934,17 @@ function applyToFile(
   }
   logBranch(log, 'enhance.log.executor.file-change-decision', {
     decision: 'apply',
-    reasoning: `rewrote ${catches} silent-catch, ${consoles} console call(s)`,
+    reasoning: `rewrote ${catches} silent-catch, ${consoles} console call(s); skipped ${consolesSkipped} multi-arg console`,
     file: rel,
     catches,
     consoles,
+    consolesSkipped,
   });
   log.log('info', 'enhance.log.executor.file-changed', {
     file: rel,
     catches,
     consoles,
+    consolesSkipped,
   });
   return { status: 'changed' };
 }
