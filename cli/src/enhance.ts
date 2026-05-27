@@ -37,7 +37,8 @@ import { addHealthEndpoint } from './enhance/health-gen.js';
 import { installSentry } from './enhance/sentry-installer.js';
 import { completeEnvExample } from './enhance/env-completer.js';
 import { verifyEnhancedCode } from './enhance/verify.js';
-import { writeEnhanceReport } from './enhance/report.js';
+import { writeEnhanceReport, defaultDiffFetcher } from './enhance/report.js';
+import { writeEnhanceHtmlReport } from './enhance/html-report.js';
 
 export interface EnhanceCliOpts {
   argv: string[];
@@ -74,6 +75,13 @@ export async function runEnhance(opts: EnhanceCliOpts): Promise<number> {
 
   const writeOut = (s: string): void => {
     process.stdout.write(s);
+  };
+
+  // Compact per-module status lines, flushed at end (8-10 lines max).
+  // Each entry is one rendered row in the final summary block.
+  const moduleLines: string[] = [];
+  const pushModule = (icon: '✅' | '➖' | '❌' | '⚠', label: string, note: string): void => {
+    moduleLines.push(`${icon} ${label.padEnd(14)} ${note}`);
   };
 
   if (!fs.existsSync(targetCwd)) {
@@ -135,17 +143,10 @@ export async function runEnhance(opts: EnhanceCliOpts): Promise<number> {
   }
 
   writeOut(`zerou enhance ${targetCwd}\n`);
-  writeOut(`Worktree:  ${worktreePath}\n`);
-  writeOut(`Branch:    ${branch}\n`);
-  writeOut(`Framework: ${framework}\n\n`);
+  writeOut(`─────────────────────────────────\n`);
 
   // ── Read existing audit findings (optional) ──────────────────────────────
   const findings = readAuditFindings(targetCwd, logger);
-  if (findings.length > 0) {
-    writeOut(`Found ${findings.length} audit findings from prior \`zerou audit\` run.\n\n`);
-  } else if (!skipBugs) {
-    writeOut(`No prior audit findings (looked for .zerou/audit-report.md). Bug-patcher will be a no-op.\n\n`);
-  }
 
   // ── Run modules ──────────────────────────────────────────────────────────
   const result: EnhanceFlowResult = {
@@ -159,25 +160,25 @@ export async function runEnhance(opts: EnhanceCliOpts): Promise<number> {
   // Module A/B: log injection
   if (!skipLog) {
     try {
-      writeOut(`▶ Module A/B: log injection planning…\n`);
       const plan = await planLogInjection({ cwd: worktreePath, framework, logger });
       result.modules.logPlanner = plan;
-      writeOut(`  Logger: ${plan.loggerLib}, ${plan.sites.length} sites planned\n`);
-
-      writeOut(`▶ Module B:   log injection executing…\n`);
       const exec = await executeLogInjection({ cwd: worktreePath, plan, logger });
       result.modules.logExecutor = exec;
-      writeOut(`  Changed ${exec.filesChanged.length} files; ${exec.failures.length} failures\n\n`);
+      const note = exec.filesChanged.length === 0
+        ? `0 sites (logger ${plan.loggerLib})`
+        : `${plan.sites.length} sites → ${exec.filesChanged.length} files`;
+      pushModule(exec.failures.length > 0 ? '⚠' : '✅', 'Logging', note);
     } catch (e) {
       logCatch(logger, 'enhance.log.error', e);
-      writeOut(`  ⚠ log module errored: ${(e as Error).message}\n\n`);
+      pushModule('⚠', 'Logging', `errored: ${(e as Error).message}`);
     }
+  } else {
+    pushModule('➖', 'Logging', 'skipped (--skip-log)');
   }
 
   // Module C: bug patcher
   if (!skipBugs && findings.length > 0) {
     try {
-      writeOut(`▶ Module C:   bug auto-patch (${findings.length} findings)…\n`);
       const patches = await patchBugs({
         cwd: worktreePath,
         findings,
@@ -187,60 +188,62 @@ export async function runEnhance(opts: EnhanceCliOpts): Promise<number> {
       });
       result.modules.bugPatcher = patches;
       const applied = patches.filter((p) => p.status === 'applied').length;
-      const skipped = patches.filter((p) => p.status === 'skipped').length;
-      const failed = patches.filter((p) => p.status === 'failed').length;
-      writeOut(`  Applied ${applied} / skipped ${skipped} / failed ${failed}\n\n`);
+      pushModule(applied > 0 ? '✅' : '➖', 'Bug fix', `${applied}/${patches.length} patches`);
     } catch (e) {
       logCatch(logger, 'enhance.bugs.error', e);
-      writeOut(`  ⚠ bug-patcher errored: ${(e as Error).message}\n\n`);
+      pushModule('⚠', 'Bug fix', `errored: ${(e as Error).message}`);
     }
+  } else {
+    pushModule('➖', 'Bug fix', findings.length === 0 ? '0 findings' : 'skipped');
   }
 
   // Module D: health endpoint
   if (!skipHealth) {
     try {
-      writeOut(`▶ Module D:   health endpoint…\n`);
       const h = await addHealthEndpoint({ cwd: worktreePath, framework, logger });
       result.modules.healthGen = h;
-      writeOut(`  ${h.added ? '✅ created ' + h.added : '➖ skipped (' + (h.reason ?? '?') + ')'}\n\n`);
+      pushModule(h.added ? '✅' : '➖', 'Health', h.added ? `+ ${h.added}` : `skipped (${h.reason ?? '?'})`);
     } catch (e) {
       logCatch(logger, 'enhance.health.error', e);
-      writeOut(`  ⚠ health-gen errored: ${(e as Error).message}\n\n`);
+      pushModule('⚠', 'Health', `errored: ${(e as Error).message}`);
     }
+  } else {
+    pushModule('➖', 'Health', 'skipped (--skip-health)');
   }
 
   // Module E: sentry
   if (!skipSentry) {
     try {
-      writeOut(`▶ Module E:   sentry SDK install…\n`);
       const s = await installSentry({ cwd: worktreePath, framework, logger });
       result.modules.sentryInstaller = s;
-      writeOut(
-        s.added.length === 0
-          ? `  ➖ skipped (tracker already present or no deps to add)\n\n`
-          : `  ✅ added ${s.added.length} files + ${s.dependencies.length} deps\n\n`,
-      );
+      const note = s.added.length === 0 && s.dependencies.length === 0
+        ? 'already tracked'
+        : `${s.added.length} files + ${s.dependencies.length} deps`;
+      pushModule(s.added.length > 0 ? '✅' : '➖', 'Sentry', note);
     } catch (e) {
       logCatch(logger, 'enhance.sentry.error', e);
-      writeOut(`  ⚠ sentry-installer errored: ${(e as Error).message}\n\n`);
+      pushModule('⚠', 'Sentry', `errored: ${(e as Error).message}`);
     }
+  } else {
+    pushModule('➖', 'Sentry', 'skipped (--skip-sentry)');
   }
 
   // Module F: env
   if (!skipEnv) {
     try {
-      writeOut(`▶ Module F:   .env.example completion…\n`);
       const env = await completeEnvExample({ cwd: worktreePath, logger });
       result.modules.envCompleter = env;
-      writeOut(`  Added ${env.added.length} vars; ${env.unusedRemoved.length} declared-but-unused\n\n`);
+      pushModule(env.added.length > 0 ? '✅' : '➖', '.env',
+        env.added.length > 0 ? `+${env.added.length} var${env.added.length === 1 ? '' : 's'}` : 'no changes');
     } catch (e) {
       logCatch(logger, 'enhance.env.error', e);
-      writeOut(`  ⚠ env-completer errored: ${(e as Error).message}\n\n`);
+      pushModule('⚠', '.env', `errored: ${(e as Error).message}`);
     }
+  } else {
+    pushModule('➖', '.env', 'skipped (--skip-env)');
   }
 
   // ── Verification ─────────────────────────────────────────────────────────
-  writeOut(`▶ Module G:   verifying (install + tsc + test${skipBuild ? '' : ' + build'})…\n`);
   try {
     const verify = await verifyEnhancedCode({
       cwd: worktreePath,
@@ -249,15 +252,11 @@ export async function runEnhance(opts: EnhanceCliOpts): Promise<number> {
       timeoutMs: 600_000,
     });
     result.verify = verify;
-    for (const step of verify.steps) {
-      const glyph = step.status === 'pass' ? '✅' : step.status === 'fail' ? '❌' : '➖';
-      const secs = (step.durationMs / 1000).toFixed(1);
-      writeOut(`  ${glyph} ${step.name.padEnd(8)} ${secs}s${step.status === 'fail' ? ` (exit ${step.exitCode})` : ''}\n`);
-    }
-    writeOut(`  ${verify.ok ? '✅ all verification passed' : '❌ verification failed' + (verify.brokenBy ? ' (broken by ' + verify.brokenBy + ')' : '')}\n\n`);
+    const stepLabels = verify.steps.map((s) => `${s.status === 'pass' ? '✅' : s.status === 'fail' ? '❌' : '➖'} ${s.name}`);
+    pushModule(verify.ok ? '✅' : '❌', 'Verify', stepLabels.join(' · '));
   } catch (e) {
     logCatch(logger, 'enhance.verify.error', e);
-    writeOut(`  ⚠ verify errored: ${(e as Error).message}\n\n`);
+    pushModule('⚠', 'Verify', `errored: ${(e as Error).message}`);
   }
 
   // ── Auto-commit changes to worktree branch ────────────────────────────────
@@ -321,15 +320,13 @@ export async function runEnhance(opts: EnhanceCliOpts): Promise<number> {
           decision: 'committed',
           reasoning: 'auto-committed enhance changes to worktree branch (--no-verify)',
         });
-        writeOut(`📌 Committed all changes to branch ${branch}\n`);
       } else {
         const errOut = (commit.stderr || commit.stdout || 'unknown').slice(0, 500);
         logBranch(logger, 'enhance.commit-decision', {
           decision: 'failed',
           reasoning: errOut,
         });
-        writeOut(`⚠ auto-commit failed: ${errOut.slice(0, 200)}\n`);
-        writeOut(`  Use 'git -C ${worktreePath} status' to see staged changes.\n`);
+        pushModule('⚠', 'Commit', errOut.slice(0, 80));
       }
     } else {
       logBranch(logger, 'enhance.commit-decision', {
@@ -343,30 +340,72 @@ export async function runEnhance(opts: EnhanceCliOpts): Promise<number> {
 
   // ── Report ───────────────────────────────────────────────────────────────
   result.durationMs = Date.now() - startedAt.getTime();
-  const reportPath = path.join(targetCwd, '.zerou', 'enhance-report.md');
+  const zerouDir = path.join(targetCwd, '.zerou');
+  const runArchiveDir = path.join(zerouDir, 'runs', ts);
+  fs.mkdirSync(runArchiveDir, { recursive: true });
+
+  const archivedMdPath = path.join(runArchiveDir, 'enhance-report.md');
+  const archivedHtmlPath = path.join(runArchiveDir, 'enhance-report.html');
+  const stableMdPath = path.join(zerouDir, 'enhance-report.md');
+  const stableHtmlPath = path.join(zerouDir, 'enhance-report.html');
+
+  // Write canonical markdown to the archived run directory first, then copy.
   try {
-    await writeEnhanceReport({ cwd: targetCwd, reportPath, result, logger });
-    writeOut(`📄 Report:  ${reportPath}\n`);
+    await writeEnhanceReport({ cwd: targetCwd, reportPath: archivedMdPath, result, logger });
+    fs.copyFileSync(archivedMdPath, stableMdPath);
   } catch (e) {
     logCatch(logger, 'enhance.report.error', e);
-    writeOut(`  ⚠ report errored: ${(e as Error).message}\n`);
+    pushModule('⚠', 'Report', `md error: ${(e as Error).message}`);
   }
 
-  // ── User-facing instructions ─────────────────────────────────────────────
-  writeOut(`\n${noColor ? '' : ''}Next steps:\n`);
-  writeOut(`  cd ${worktreePath}\n`);
-  writeOut(`  git diff main..HEAD          # review changes\n`);
-  writeOut(`  cd ${targetCwd}\n`);
-  writeOut(`  git merge --no-ff ${branch}  # accept changes\n`);
-  writeOut(`  # or:  git worktree remove ${worktreePath}  # drop changes\n`);
+  // Live-append HTML report into the archive, then copy to stable path.
+  try {
+    let diffs: import('./enhance/types.js').FileDiff[] | null = null;
+    let diffError: string | null = null;
+    try {
+      diffs = await defaultDiffFetcher(worktreePath);
+    } catch (err) {
+      diffError = err instanceof Error ? err.message : String(err);
+    }
+    await writeEnhanceHtmlReport({
+      reportPath: archivedHtmlPath,
+      project: path.basename(targetCwd) || 'project',
+      result,
+      diffs,
+      diffError,
+      // Use a sibling-relative link so the markdown link resolves next to the html.
+      markdownPath: 'enhance-report.md',
+      logger,
+    });
+    fs.copyFileSync(archivedHtmlPath, stableHtmlPath);
+  } catch (e) {
+    logCatch(logger, 'enhance.html.error', e);
+    pushModule('⚠', 'Report', `html error: ${(e as Error).message}`);
+  }
+
+  // ── Compact 8-10 line summary ────────────────────────────────────────────
+  for (const line of moduleLines) writeOut(`${line}\n`);
+  writeOut(`─────────────────────────────────\n`);
+  writeOut(`📄 ${toFileUri(stableHtmlPath)}\n`);
+  writeOut(`   open with: zerou review\n`);
+  writeOut(`   merge:     git merge --no-ff ${branch}\n`);
+  if (noColor) {
+    // currently a no-op flag retained for backwards compat; explicit acknowledgement.
+  }
 
   logger.log('info', 'enhance.complete', {
     durationMs: result.durationMs,
     verifyOk: result.verify?.ok ?? false,
     branch,
+    archiveDir: runArchiveDir,
   });
   await logger.flush();
   return result.verify?.ok === false ? 1 : 0;
+}
+
+function toFileUri(p: string): string {
+  const norm = p.replace(/\\/g, '/');
+  return norm.startsWith('/') ? `file://${norm}` : `file:///${norm}`;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
