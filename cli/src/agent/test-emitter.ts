@@ -29,6 +29,10 @@ import { logBranch, logCatch } from '../log/branch.js';
 import type { EngineConfig } from '../stubs.js';
 import type { TestCaseSpec } from './types.js';
 import type { FunctionInfo } from './ast-analyzer.js';
+import { fetchLlm } from './llm-fetch.js';
+import { runConcurrent } from './concurrency.js';
+
+const DEFAULT_CONCURRENCY = 5;
 
 // ── Public surface ──────────────────────────────────────────────────────────
 
@@ -56,6 +60,13 @@ export interface EmitOptions {
   callLLM?: EmitLlmCaller;
   /** Per-spec LLM call timeout. Default 30s. */
   timeoutMs?: number;
+  /**
+   * Max concurrent in-flight spec LLM calls per file bucket. Default 5
+   * (Phase 11.1). Tests should pass `concurrency: 1` for determinism.
+   */
+  concurrency?: number;
+  /** Optional AbortSignal to short-circuit pending spec renders. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -77,6 +88,7 @@ export async function emitVitestTests(opts: EmitOptions): Promise<EmittedTestFil
   const { logger } = opts;
   const outDir = opts.outDir ?? path.join(opts.cwd, 'tests', '__zerou__');
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const concurrency = opts.concurrency ?? DEFAULT_CONCURRENCY;
   const hasLlm = !!(opts.criticConfig && opts.criticApiKey);
 
   logger.log('info', 'agent.emit.start', {
@@ -84,6 +96,7 @@ export async function emitVitestTests(opts: EmitOptions): Promise<EmittedTestFil
     functionCount: opts.functions.length,
     outDir,
     hasLlm,
+    concurrency,
   });
 
   // Bucket specs by spec.scope.file → one .test.ts per source file.
@@ -100,26 +113,50 @@ export async function emitVitestTests(opts: EmitOptions): Promise<EmittedTestFil
     });
 
     const fnByKey = indexFunctions(opts.functions);
-    const rendered: RenderedSpec[] = [];
     const collectedImports = new Set<string>();
     collectedImports.add(`import { describe, it, expect, vi } from 'vitest';`);
 
-    for (const spec of specs) {
+    // Render specs in parallel (bounded by `concurrency`). `renderSpec`
+    // never throws — failures collapse to it.todo(...) — so we don't need
+    // recovery in this layer.
+    const tasks = specs.map((spec) => {
       const fnInfo = pickFunctionInfo(spec, fnByKey);
-      const r = await renderSpec({
-        spec,
-        fnInfo,
-        targetFile,
-        outDir,
-        cwd: opts.cwd,
-        logger,
-        criticConfig: opts.criticConfig ?? null,
-        criticApiKey: opts.criticApiKey ?? null,
-        callLLM: opts.callLLM,
-        timeoutMs,
-      });
-      rendered.push(r);
-      for (const imp of r.imports) collectedImports.add(imp);
+      return () =>
+        renderSpec({
+          spec,
+          fnInfo,
+          targetFile,
+          outDir,
+          cwd: opts.cwd,
+          logger,
+          criticConfig: opts.criticConfig ?? null,
+          criticApiKey: opts.criticApiKey ?? null,
+          callLLM: opts.callLLM,
+          timeoutMs,
+        });
+    });
+    const settled = await runConcurrent(tasks, {
+      maxInFlight: concurrency,
+      logger,
+      branchPrefix: 'agent.emit.file',
+      signal: opts.signal,
+    });
+    const rendered: RenderedSpec[] = [];
+    for (let i = 0; i < settled.length; i++) {
+      const r = settled[i]!;
+      if (r.ok && r.value) {
+        rendered.push(r.value);
+        for (const imp of r.value.imports) collectedImports.add(imp);
+      } else {
+        // Aborted or unexpected — fall back to it.todo so file stays valid.
+        const spec = specs[i]!;
+        rendered.push({
+          spec,
+          imports: [],
+          body: `it.todo(${JSON.stringify(spec.name)});`,
+          isTodo: true,
+        });
+      }
     }
 
     const outFilePath = path.join(outDir, `${slugifyTarget(targetFile)}.test.ts`);
@@ -615,35 +652,17 @@ const defaultEmitLlmCaller: EmitLlmCaller = async ({
     throw new Error('criticConfig.baseUrl is required for default LLM caller');
   }
   const url = baseUrl.replace(/\/$/, '') + '/chat/completions';
-  const start = Date.now();
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: criticConfig.modelId,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0,
-      stream: false,
-    }),
-    signal: AbortSignal.timeout(timeoutMs),
+  const out = await fetchLlm({
+    url,
+    apiKey,
+    model: criticConfig.modelId,
+    systemPrompt,
+    userPrompt,
+    timeoutMs,
+    branchPrefix: 'agent.emit.llm-fetch',
   });
-  const text = await res.text();
-  const durationMs = Date.now() - start;
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+  if (!out.ok) {
+    throw new Error(out.error);
   }
-  const env = JSON.parse(text) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const content = env.choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || content.length === 0) {
-    throw new Error('response missing choices[0].message.content');
-  }
-  return { rawText: content, durationMs };
+  return { rawText: out.rawText, durationMs: out.durationMs };
 };

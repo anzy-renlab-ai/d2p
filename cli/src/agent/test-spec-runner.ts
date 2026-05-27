@@ -31,6 +31,10 @@ import {
 import { logBranch, logCatch } from '../log/branch.js';
 import type { EngineConfig } from '../stubs.js';
 import { engineFamily } from '../stubs.js';
+import { fetchLlm } from './llm-fetch.js';
+import { runConcurrent } from './concurrency.js';
+
+const DEFAULT_CONCURRENCY = 5;
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -54,8 +58,13 @@ export interface TestRunOptions {
 
 export interface TestBatchOptions
   extends Omit<TestRunOptions, 'spec'> {
-  /** Reserved for v2 — v1 runs serially regardless. */
+  /**
+   * Max concurrent LLM calls. Default 5 (Phase 11.1). Set to 1 for
+   * deterministic test ordering.
+   */
   concurrency?: number;
+  /** Optional AbortSignal to short-circuit pending specs. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -240,22 +249,46 @@ export async function runTestCase(opts: TestRunOptions): Promise<TestCaseResult>
 // ── Batch runner ─────────────────────────────────────────────────────────────
 
 /**
- * Run a batch of specs serially. v1 deliberately avoids parallelism — critic
- * providers rate-limit aggressively and static-analysis prompts are slow.
+ * Run a batch of specs with bounded concurrency. Default N=5 (Phase 11.1).
+ * Tests should pass `concurrency: 1` for deterministic ordering. Failures
+ * inside `runTestCase` never throw — they surface as `inconclusive` results.
  */
 export async function runTestCaseBatch(
   specs: TestCaseSpec[],
   ctx: TestBatchOptions,
 ): Promise<{ results: TestCaseResult[]; summary: TestSummary }> {
+  const concurrency = ctx.concurrency ?? DEFAULT_CONCURRENCY;
   ctx.logger.log('info', 'agent.test-run.batch.start', {
     total: specs.length,
     hasCritic: !!(ctx.criticConfig && ctx.criticApiKey),
+    concurrency,
+  });
+
+  const tasks = specs.map((spec) => () => runTestCase({ ...ctx, spec }));
+  const settled = await runConcurrent(tasks, {
+    maxInFlight: concurrency,
+    logger: ctx.logger,
+    branchPrefix: 'agent.test-run.batch',
+    signal: ctx.signal,
   });
 
   const results: TestCaseResult[] = [];
-  for (const spec of specs) {
-    const r = await runTestCase({ ...ctx, spec });
-    results.push(r);
+  for (let i = 0; i < settled.length; i++) {
+    const s = settled[i]!;
+    if (s.ok && s.value) {
+      results.push(s.value);
+    } else {
+      // runTestCase never throws; this branch only fires on AbortSignal.
+      const spec = specs[i]!;
+      results.push({
+        spec,
+        status: 'inconclusive',
+        verdictReason: `batch task aborted: ${s.error?.message ?? 'unknown'}`,
+        evidence: { file: spec.scope.file, line: spec.scope.line },
+        criticFamily: ctx.criticConfig ? engineFamily(ctx.criticConfig) : null,
+        durationMs: s.durationMs,
+      });
+    }
   }
 
   const summary = summarize(results);
@@ -265,6 +298,7 @@ export async function runTestCaseBatch(
     fail: summary.fail,
     inconclusive: summary.inconclusive,
     skipped: summary.skipped,
+    concurrency,
   });
 
   return { results, summary };
@@ -510,35 +544,17 @@ const defaultLlmCaller: LlmCaller = async ({
     throw new Error('criticConfig.baseUrl is required for default LLM caller');
   }
   const url = baseUrl.replace(/\/$/, '') + '/chat/completions';
-  const start = Date.now();
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: criticConfig.modelId,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0,
-      stream: false,
-    }),
-    signal: AbortSignal.timeout(timeoutMs),
+  const out = await fetchLlm({
+    url,
+    apiKey,
+    model: criticConfig.modelId,
+    systemPrompt,
+    userPrompt,
+    timeoutMs,
+    branchPrefix: 'agent.test-run.case.llm-fetch',
   });
-  const text = await res.text();
-  const durationMs = Date.now() - start;
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+  if (!out.ok) {
+    throw new Error(out.error);
   }
-  const env = JSON.parse(text) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const content = env.choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || content.length === 0) {
-    throw new Error('response missing choices[0].message.content');
-  }
-  return { rawText: content, durationMs };
+  return { rawText: out.rawText, durationMs: out.durationMs };
 };

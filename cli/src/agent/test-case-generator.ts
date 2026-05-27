@@ -24,6 +24,10 @@ import type {
   TestCaseCategory,
   TestCaseScope,
 } from './types.js';
+import { fetchLlm } from './llm-fetch.js';
+import { runConcurrent } from './concurrency.js';
+
+const DEFAULT_CONCURRENCY = 5;
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -43,6 +47,13 @@ export interface TestGenOptions {
   extractTargetsFn?: (cwd: string) => ExtractedTarget[];
   /** Max number of source files to scan (default 100). */
   maxFiles?: number;
+  /**
+   * Max concurrent in-flight per-target LLM calls. Default 5 (Phase 11.1).
+   * Tests should pass `concurrency: 1` for deterministic ordering.
+   */
+  concurrency?: number;
+  /** Optional AbortSignal to short-circuit pending targets. */
+  signal?: AbortSignal;
 }
 
 /** A program point that warrants test specs. */
@@ -552,43 +563,19 @@ export const defaultTestGenLlm: TestGenLlmFn = async (params) => {
     return { ok: false, error: 'no baseUrl on engine config', raw: '' };
   }
   const url = params.cfg.baseUrl.replace(/\/$/, '') + '/chat/completions';
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${params.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: params.cfg.modelId,
-        messages: [
-          { role: 'system', content: params.systemPrompt },
-          { role: 'user', content: params.userPrompt },
-        ],
-        temperature: 0,
-        stream: false,
-      }),
-      signal: AbortSignal.timeout(params.timeoutMs),
-    });
-  } catch (e) {
-    return { ok: false, error: (e as Error).message ?? String(e), raw: '' };
+  const out = await fetchLlm({
+    url,
+    apiKey: params.apiKey,
+    model: params.cfg.modelId,
+    systemPrompt: params.systemPrompt,
+    userPrompt: params.userPrompt,
+    timeoutMs: params.timeoutMs,
+    branchPrefix: 'agent.test-gen.llm-fetch',
+  });
+  if (!out.ok) {
+    return { ok: false, error: out.error, raw: '' };
   }
-  const rawText = await res.text();
-  if (!res.ok) {
-    return { ok: false, error: `HTTP ${res.status}`, raw: rawText };
-  }
-  let envelope: unknown;
-  try {
-    envelope = JSON.parse(rawText);
-  } catch {
-    return { ok: false, error: 'envelope not JSON', raw: rawText };
-  }
-  const content = (envelope as { choices?: Array<{ message?: { content?: string } }> })
-    .choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || content.length === 0) {
-    return { ok: false, error: 'missing choices[0].message.content', raw: rawText };
-  }
+  const content = out.rawText;
   let cleaned = content;
   cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
   cleaned = cleaned.replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
@@ -606,7 +593,7 @@ export const defaultTestGenLlm: TestGenLlmFn = async (params) => {
   if (!Array.isArray(parsed)) {
     return { ok: false, error: 'parsed content not an array', raw: content };
   }
-  return { ok: true, raw: rawText, parsed };
+  return { ok: true, raw: content, parsed };
 };
 
 const VALID_CATEGORIES: ReadonlySet<TestCaseCategory> = new Set<TestCaseCategory>([
@@ -739,95 +726,121 @@ export async function generateTestCases(opts: TestGenOptions): Promise<TestCaseS
     return [];
   }
 
-  // Step 2 — for each target, generate specs.
-  const out: TestCaseSpec[] = [];
+  // Step 2 — for each target, generate specs (parallel, bounded by concurrency).
   const llmFn = opts.llmCall ?? defaultTestGenLlm;
   const haveLlm = Boolean(opts.criticConfig && opts.criticApiKey);
+  const concurrency = opts.concurrency ?? DEFAULT_CONCURRENCY;
 
-  for (const target of targets) {
-    log.log('info', 'agent.test-gen.target.start', {
-      targetId: target.id,
-      name: target.name,
-      file: target.file,
-      line: target.line,
-      type: target.type,
-    });
-
-    let perTargetSpecs: TestCaseSpec[] = [];
-
-    if (haveLlm) {
-      log.log('info', 'agent.test-gen.target.llm-call.start', {
+  const targetTask = (target: ExtractedTarget): (() => Promise<TestCaseSpec[]>) =>
+    async () => {
+      log.log('info', 'agent.test-gen.target.start', {
         targetId: target.id,
-        modelId: opts.criticConfig!.modelId,
+        name: target.name,
+        file: target.file,
+        line: target.line,
+        type: target.type,
       });
-      let result: TestGenLlmCallResult;
-      try {
-        result = await llmFn({
-          cfg: opts.criticConfig!,
-          apiKey: opts.criticApiKey!,
-          systemPrompt: SPEC_SYSTEM_PROMPT,
-          userPrompt: buildSpecPrompt(target, maxCases),
-          timeoutMs,
-        });
-      } catch (e) {
-        result = { ok: false, error: (e as Error).message ?? String(e), raw: '' };
-      }
 
-      if (result.ok) {
-        const limited = result.parsed.slice(0, maxCases);
-        for (let i = 0; i < limited.length; i++) {
-          const spec = normalizeSpec(limited[i], target, i);
-          if (spec) perTargetSpecs.push(spec);
-        }
-        log.log('info', 'agent.test-gen.target.llm-call.success', {
+      let perTargetSpecs: TestCaseSpec[] = [];
+
+      if (haveLlm) {
+        log.log('info', 'agent.test-gen.target.llm-call.start', {
           targetId: target.id,
-          rawCount: result.parsed.length,
-          genCount: perTargetSpecs.length,
+          modelId: opts.criticConfig!.modelId,
         });
-        if (perTargetSpecs.length === 0) {
-          // LLM ok but nothing validated — fall back.
-          logBranch(log, 'agent.test-gen.target.validation-decision', {
-            decision: 'all-rejected',
-            reasoning:
-              'LLM returned array but no items matched required schema; fall back to deterministic spec',
+        let result: TestGenLlmCallResult;
+        try {
+          result = await llmFn({
+            cfg: opts.criticConfig!,
+            apiKey: opts.criticApiKey!,
+            systemPrompt: SPEC_SYSTEM_PROMPT,
+            userPrompt: buildSpecPrompt(target, maxCases),
+            timeoutMs,
+          });
+        } catch (e) {
+          result = { ok: false, error: (e as Error).message ?? String(e), raw: '' };
+        }
+
+        if (result.ok) {
+          const limited = result.parsed.slice(0, maxCases);
+          for (let i = 0; i < limited.length; i++) {
+            const spec = normalizeSpec(limited[i], target, i);
+            if (spec) perTargetSpecs.push(spec);
+          }
+          log.log('info', 'agent.test-gen.target.llm-call.success', {
             targetId: target.id,
+            rawCount: result.parsed.length,
+            genCount: perTargetSpecs.length,
+          });
+          if (perTargetSpecs.length === 0) {
+            // LLM ok but nothing validated — fall back.
+            logBranch(log, 'agent.test-gen.target.validation-decision', {
+              decision: 'all-rejected',
+              reasoning:
+                'LLM returned array but no items matched required schema; fall back to deterministic spec',
+              targetId: target.id,
+            });
+            perTargetSpecs = [fallbackSpec(target)];
+            log.log('info', 'agent.test-gen.target.fallback', {
+              targetId: target.id,
+              reason: 'llm-output-invalid',
+            });
+          }
+        } else {
+          log.log('warn', 'agent.test-gen.target.llm-call.failure', {
+            targetId: target.id,
+            reason: result.error,
           });
           perTargetSpecs = [fallbackSpec(target)];
           log.log('info', 'agent.test-gen.target.fallback', {
             targetId: target.id,
-            reason: 'llm-output-invalid',
+            reason: 'llm-call-failed',
           });
         }
       } else {
-        log.log('warn', 'agent.test-gen.target.llm-call.failure', {
-          targetId: target.id,
-          reason: result.error,
-        });
+        // No LLM configured — deterministic fallback.
         perTargetSpecs = [fallbackSpec(target)];
         log.log('info', 'agent.test-gen.target.fallback', {
           targetId: target.id,
-          reason: 'llm-call-failed',
+          reason: 'no-llm-key',
         });
       }
-    } else {
-      // No LLM configured — deterministic fallback.
-      perTargetSpecs = [fallbackSpec(target)];
-      log.log('info', 'agent.test-gen.target.fallback', {
+
+      log.log('info', 'agent.test-gen.target.complete', {
         targetId: target.id,
-        reason: 'no-llm-key',
+        specCount: perTargetSpecs.length,
+      });
+      return perTargetSpecs;
+    };
+
+  const tasks = targets.map((t) => targetTask(t));
+  const settled = await runConcurrent(tasks, {
+    maxInFlight: concurrency,
+    logger: log,
+    branchPrefix: 'agent.test-gen.batch',
+    signal: opts.signal,
+  });
+
+  const out: TestCaseSpec[] = [];
+  for (let i = 0; i < settled.length; i++) {
+    const r = settled[i]!;
+    if (r.ok && r.value) {
+      out.push(...r.value);
+    } else {
+      // Aborted; emit deterministic fallback so target isn't lost silently.
+      const target = targets[i]!;
+      out.push(fallbackSpec(target));
+      log.log('warn', 'agent.test-gen.target.fallback', {
+        targetId: target.id,
+        reason: 'aborted',
       });
     }
-
-    log.log('info', 'agent.test-gen.target.complete', {
-      targetId: target.id,
-      specCount: perTargetSpecs.length,
-    });
-    out.push(...perTargetSpecs);
   }
 
   log.log('info', 'agent.test-gen.complete', {
     totalSpecs: out.length,
     targetCount: targets.length,
+    concurrency,
   });
   return out;
 }

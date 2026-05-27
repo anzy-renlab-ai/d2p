@@ -16,6 +16,7 @@
  */
 import type { TrackLogger } from './log-types.js';
 import { logBranch, logCatch } from './log/branch.js';
+import { fetchLlm } from './agent/llm-fetch.js';
 
 export type CriticVerdict = 'confirmed' | 'false-positive' | 'needs-context';
 
@@ -82,98 +83,45 @@ export async function callOpenAICompatCritic(
   const start = Date.now();
   const log = params.logger;
   const url = params.baseUrl.replace(/\/$/, '') + '/chat/completions';
-  const body = {
-    model: params.modelId,
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: buildUserPrompt(params.finding) },
-    ],
-    temperature: 0,
-    stream: false,
-  };
   const timeoutMs = params.timeoutMs ?? 30_000;
 
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${params.apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (e) {
-    logCatch(log, 'critic.fetch-decision', e, {
-      url,
-      timeoutMs,
-      errorCode: 'P1-E-2',
-    });
-    return {
-      ok: false,
-      errorCode: 'P1-E-2',
-      error: (e as Error).message ?? String(e),
-      rawResponseText: '',
-      durationMs: Date.now() - start,
-    };
-  }
-
-  const rawText = await res.text();
-  const durationMs = Date.now() - start;
-
-  if (!res.ok) {
-    logBranch(log, 'critic.http.status-decision', {
-      decision: 'http-error',
-      status: res.status,
-      errorCode: 'P1-E-2',
-    });
-    return {
-      ok: false,
-      errorCode: 'P1-E-2',
-      error: `HTTP ${res.status}: ${rawText.slice(0, 200)}`,
-      rawResponseText: rawText,
-      durationMs,
-    };
-  }
-  logBranch(log, 'critic.http.status-decision', {
-    decision: 'http-ok',
-    status: res.status,
-    rawBytes: rawText.length,
+  const fetched = await fetchLlm({
+    url,
+    apiKey: params.apiKey,
+    model: params.modelId,
+    systemPrompt: SYSTEM_PROMPT,
+    userPrompt: buildUserPrompt(params.finding),
+    timeoutMs,
+    logger: log ?? undefined,
+    branchPrefix: 'critic.llm-fetch',
   });
 
-  // Parse the response envelope (OpenAI chat shape)
-  let envelope: unknown;
-  try {
-    envelope = JSON.parse(rawText);
-  } catch (e) {
-    logCatch(log, 'critic.parse.envelope-decision', e, {
-      errorCode: 'P1-E-3',
+  if (!fetched.ok) {
+    // Map error to P1-E-2 (network/transport) vs P1-E-3 (envelope parse).
+    const isEnvelope = /envelope/i.test(fetched.error) || /missing/i.test(fetched.error);
+    const errorCode: 'P1-E-2' | 'P1-E-3' = isEnvelope ? 'P1-E-3' : 'P1-E-2';
+    logBranch(log, 'critic.http.status-decision', {
+      decision: isEnvelope ? 'envelope-parse-failed' : 'http-or-network-error',
+      status: fetched.statusCode ?? null,
+      attempts: fetched.attempts,
+      errorCode,
     });
     return {
       ok: false,
-      errorCode: 'P1-E-3',
-      error: 'response envelope not valid JSON',
-      rawResponseText: rawText,
-      durationMs,
+      errorCode,
+      error: fetched.error,
+      rawResponseText: '',
+      durationMs: fetched.durationMs,
     };
   }
-  const content = (envelope as { choices?: Array<{ message?: { content?: string } }> })
-    .choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || content.length === 0) {
-    logBranch(log, 'critic.parse.envelope-decision', {
-      decision: 'missing-content',
-      reasoning: 'choices[0].message.content not a non-empty string',
-      errorCode: 'P1-E-3',
-    });
-    return {
-      ok: false,
-      errorCode: 'P1-E-3',
-      error: 'response missing choices[0].message.content',
-      rawResponseText: rawText,
-      durationMs,
-    };
-  }
+  const content = fetched.rawText;
+  const durationMs = fetched.durationMs;
+  const rawText = content;
+  logBranch(log, 'critic.http.status-decision', {
+    decision: 'http-ok',
+    status: 200,
+    attempts: fetched.attempts,
+  });
   logBranch(log, 'critic.parse.envelope-decision', {
     decision: 'envelope-parsed',
     contentLen: content.length,

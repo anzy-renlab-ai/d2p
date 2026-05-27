@@ -226,6 +226,11 @@ async function doAudit(
   const allowDirty: boolean = cmdOpts.allowDirty ?? false;
   const failOn: 'p1' | 'p2' | 'p3' | 'none' = (cmdOpts.failOn ?? 'none') as any;
   const useColor: boolean = cmdOpts.color !== false;
+  // Phase 11.1: parse --concurrency once; thread into agent gen/run/emit.
+  // Default 5 (matches the Commander default-string '5' parsed below).
+  const concurrencyParsed = Number.parseInt(String(cmdOpts.concurrency ?? '5'), 10);
+  const concurrency =
+    Number.isFinite(concurrencyParsed) && concurrencyParsed >= 1 ? concurrencyParsed : 5;
 
   logger.log('info', 'cli.audit.start', {
     path: path.resolve(auditPath),
@@ -562,6 +567,7 @@ async function doAudit(
         criticConfig: policy.criticConfig,
         criticApiKey: policy.criticApiKey ?? null,
         maxCasesPerTarget: 3,
+        concurrency,
       });
       if (specs.length > 0) {
         logBranch(testLogger, 'agent.test-gen.summary-decision', {
@@ -573,6 +579,7 @@ async function doAudit(
           logger: testLogger,
           criticConfig: policy.criticConfig,
           criticApiKey: policy.criticApiKey ?? null,
+          concurrency,
         });
         testResults = batchResult.results;
         testSummary = batchResult.summary;
@@ -876,6 +883,7 @@ async function doAudit(
           logger: reportLogger,
           criticConfig: policy.criticConfig,
           criticApiKey: policy.criticApiKey ?? null,
+          concurrency,
         });
         await report.appendSection(
           'test-suite',
