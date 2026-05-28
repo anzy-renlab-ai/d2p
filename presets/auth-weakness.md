@@ -202,6 +202,104 @@ rules:
       kind: llm-only
       command: "echo 'manual remediation: add a session check at the top — const user = await getServerUser(); if (!user) return NextResponse.json({ error: login required }, { status: 401 }); — or apply auth middleware in middleware.ts.'"
       verifyCommand: 'true'
+  - ruleId: password-hashed-with-md5-or-sha1
+    label: Password hashed with MD5 or SHA-1 (broken, GPU-crackable)
+    severity: P1
+    mechanism: static-grep
+    source: auth-weakness/v2
+    rationale: |
+      `crypto.createHash('md5').update(password)` / `'sha1'` finishes in
+      microseconds on a GPU, enabling offline brute force at tens of billions
+      of guesses per second. Use a memory-hard password hash: bcrypt (cost >=
+      12), scrypt, or argon2id. This is the OWASP Juice Shop
+      `weakPasswordChallenge` shape — `models/user.ts:77` calls
+      `security.hash(clearTextPassword)` which is defined as `createHash('md5')`
+      in `lib/insecurity.ts`.
+    detection:
+      pattern: createHash\s*\(\s*[''"](md5|sha1|MD5|SHA1)[''"]
+      filePattern: '**/*.{ts,tsx,js,jsx,mjs,cjs}'
+    fix:
+      kind: llm-only
+      command: "echo 'manual remediation: replace crypto.createHash(md5/sha1) with bcrypt.hash(password, 12) or argon2.hash(password). MD5/SHA-1 are fast hashes — not credential hashes.'"
+      verifyCommand: '! grep -rnE "createHash\s*\(\s*[''\"](md5|sha1|MD5|SHA1)[''\"]" --include="*.ts" --include="*.js" --include="*.tsx" --include="*.jsx" --include="*.mjs" --include="*.cjs" .'
+  - ruleId: password-stored-via-insecure-hash-helper
+    label: Password field setter calls a generic hash() helper (often MD5/SHA1 wrapper)
+    severity: P1
+    mechanism: static-grep
+    source: auth-weakness/v2
+    rationale: |
+      `set(clearTextPassword) { this.setDataValue('password', security.hash(clearTextPassword)) }`
+      hides whatever hash the helper uses. In OWASP Juice Shop's user model
+      that helper is MD5. Whenever a password field setter calls a project-
+      local `hash()` / `hashPassword()` / `security.hash()`, the reviewer
+      should confirm the helper is bcrypt/argon2 and not a fast cryptographic
+      hash.
+    detection:
+      pattern: \b(password|passwd|pwd)\b[^;{}]{0,80}?(security\.hash|hashPassword|\bhash)\s*\(
+      filePattern: '**/*.{ts,tsx,js,jsx,mjs,cjs}'
+    fix:
+      kind: llm-only
+      command: "echo 'manual remediation: inspect the hash() helper; replace with bcrypt.hash(value, 12) or argon2.hash(value). Audit every caller — wrapper helpers hide algorithm choice.'"
+      verifyCommand: 'true'
+  - ruleId: predictable-security-question
+    label: Account-recovery security question with publicly-discoverable answer
+    severity: P2
+    mechanism: static-grep
+    source: auth-weakness/v2
+    rationale: |
+      Security questions like "mother's maiden name", "favorite pet", "ZIP code
+      when you were a teenager", "first company", "favorite book/movie" are
+      scrapable from social media + public records. Used as the only factor
+      for password reset they reduce account recovery to OSINT. OWASP Juice
+      Shop flags exactly these questions (`resetPasswordJimChallenge`,
+      `resetPasswordBjoernChallenge`, `resetPasswordBenderChallenge`) as the
+      recovery-bypass primitive. Either pair questions with a second factor
+      (email link + question), use time-limited one-time codes, or drop
+      knowledge-based recovery entirely.
+    detection:
+      pattern: \bquestion\s*:\s*['"][^'"]*(maiden name|mother'?s? (maiden|name)|father'?s?|favorite (pet|book|movie|color|food|place)|first (pet|car|company|job)|zip(/postal)?\s*code|sibling|grandmother|teenager|childhood|hometown|elementary school|hiking)
+      filePattern: '**/*.{yml,yaml,json}'
+    fix:
+      kind: llm-only
+      command: "echo 'manual remediation: remove knowledge-based security questions; use email magic-link or TOTP-protected recovery instead. If you must keep them, require two answers + an email verification step.'"
+      verifyCommand: 'true'
+  - ruleId: password-in-response-body
+    label: Server response includes the raw password field
+    severity: P1
+    mechanism: static-grep
+    source: auth-weakness/v2
+    rationale: |
+      `res.json({ password })` / `res.send({..., password: user.password, ...})`
+      leaks the credential (or its hash, which is almost as bad — see the
+      MD5/SHA1 rule) to whatever fetched the endpoint. Password fields must
+      NEVER appear in a response payload. Strip them at the serialization
+      boundary or use a select that excludes the column.
+    detection:
+      pattern: res\.(json|send)\s*\([^)]*\bpassword\b[^)]*\)
+      filePattern: '**/*.{ts,tsx,js,jsx,mjs,cjs}'
+    fix:
+      kind: llm-only
+      command: "echo 'manual remediation: omit password from the serialized object — destructure { password, ...safe } = user; res.json(safe). Or define a toJSON() on the model that strips sensitive fields by default.'"
+      verifyCommand: '! grep -rnE "res\.(json|send)\s*\([^)]*\\bpassword\\b[^)]*\)" --include="*.ts" --include="*.js" --include="*.tsx" --include="*.jsx" --include="*.mjs" --include="*.cjs" .'
+  - ruleId: password-recovery-no-rate-limit
+    label: Password-reset / forgot-password handler with no rate-limit middleware (LLM)
+    severity: P2
+    mechanism: llm-judgment
+    source: auth-weakness/v2
+    rationale: |
+      Reset / forgot-password endpoints without `express-rate-limit`,
+      `rateLimit`, or equivalent let an attacker brute-force the recovery flow
+      — answer-guessing security questions, OTP-guessing reset codes, or
+      enumerating which emails exist. Pre-filter matches typical handler paths;
+      LLM critic confirms a rate-limit decorator / middleware is present
+      either on the route or in app-level middleware that covers the path.
+    detection:
+      pattern: '/(reset|forgot|recover|recovery)(-?password)?'
+      filePattern: '**/*.{ts,tsx,js,jsx,mjs,cjs}'
+    fix:
+      kind: llm-only
+      command: "echo 'manual remediation: apply express-rate-limit with a strict windowMs/max (e.g. 5/15min) to the reset/forgot endpoint. Mount before the handler. Pair with a captcha after 2 failures.'"
+      verifyCommand: 'true'
   - ruleId: oauth-callback-missing-state-check
     label: OAuth callback handler does not verify state param (LLM judgment)
     severity: P2
@@ -244,7 +342,12 @@ This preset catches twelve common shapes before they reach production.
 9. **`token-in-redirect-url`** — `res.redirect(...?token=...)`.
 10. **`missing-password-policy-validation`** — signup handler skips validation (LLM).
 11. **`route-without-auth-check`** — handler reads user data with no session check (LLM).
-12. **`oauth-callback-missing-state-check`** — OAuth callback skips CSRF state (LLM).
+12. **`password-hashed-with-md5-or-sha1`** — fast cryptographic hash used for passwords.
+13. **`password-stored-via-insecure-hash-helper`** — password setter calls a project-local `hash()` wrapper.
+14. **`predictable-security-question`** — knowledge-based recovery with publicly-known answer (LLM).
+15. **`password-in-response-body`** — `res.json({ password })` leaks credential.
+16. **`password-recovery-no-rate-limit`** — reset/forgot endpoint with no rate limiter (LLM).
+17. **`oauth-callback-missing-state-check`** — OAuth callback skips CSRF state (LLM).
 
 ## Remediation
 

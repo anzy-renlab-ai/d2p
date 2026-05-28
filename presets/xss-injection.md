@@ -108,6 +108,83 @@ rules:
       kind: llm-only
       command: "echo 'manual remediation: render HTML via a templating engine with auto-escape (Handlebars {{ }}, EJS <%= %>, React renderToString), or escape via he/escape-html before concatenation'"
       verifyCommand: "echo 'manual review required'"
+  - ruleId: angular-bypass-security-trust-html
+    label: Angular DomSanitizer.bypassSecurityTrustHtml called on dynamic input
+    severity: P1
+    mechanism: static-grep
+    source: xss-injection/v2
+    rationale: |
+      Angular's `bypassSecurityTrustHtml` (and the sibling `bypassSecurityTrust*`
+      family) explicitly disables Angular's built-in HTML sanitization, marking
+      the value as safe to render via `[innerHTML]`. Calling it on anything
+      derived from a request body, URL query param, or third-party API
+      response is a direct stored / reflected / DOM XSS. This is the canonical
+      OWASP Juice Shop XSS sink (`restfulXssChallenge`, `localXssChallenge`,
+      `xssBonusChallenge` — all flagged at the exact `bypassSecurityTrustHtml`
+      call in `frontend/src/app/search-result/search-result.component.ts`).
+      Only call this on values whose HTML structure you authored yourself.
+    detection:
+      pattern: bypassSecurityTrust(Html|Script|Style|Url|ResourceUrl)\s*\(
+      filePattern: '**/*.{ts,tsx,js,jsx,mjs,cjs}'
+    fix:
+      kind: llm-only
+      command: "echo 'manual remediation: drop the bypassSecurityTrustHtml call and bind via interpolation {{value}} so Angular sanitizes; or sanitize via DOMPurify before marking trusted'"
+      verifyCommand: '! grep -rnE "bypassSecurityTrust(Html|Script|Style|Url|ResourceUrl)\s*\(" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.mjs" --include="*.cjs" .'
+  - ruleId: angular-innerhtml-binding
+    label: Angular template binds [innerHTML] to a component property
+    severity: P1
+    mechanism: static-grep
+    source: xss-injection/v2
+    rationale: |
+      `<div [innerHTML]="userInput"></div>` renders the bound expression as
+      HTML. Angular DOES auto-sanitize bound values, BUT any value that was
+      passed through `bypassSecurityTrustHtml` (see sibling rule) or that
+      contains scripts in attribute event handlers will execute. Prefer
+      `{{ value }}` interpolation which always escapes. Catch any `[innerHTML]`
+      binding so a reviewer can confirm the source is trusted or sanitized.
+    detection:
+      pattern: \[innerHTML\]\s*=\s*["']
+      filePattern: '**/*.{html,ts,tsx,js,jsx}'
+    fix:
+      kind: template
+      command: "echo 'manual remediation: replace [innerHTML]=expr with {{ expr }} interpolation; if you really need HTML, sanitize via DOMPurify and never bypassSecurityTrustHtml on user input'"
+      verifyCommand: '! grep -rnE "\[innerHTML\]\s*=\s*[\"'\'']" --include="*.html" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" .'
+  - ruleId: ejs-unescaped-output
+    label: EJS template uses unescaped <%- %> output tag
+    severity: P1
+    mechanism: static-grep
+    source: xss-injection/v2
+    rationale: |
+      EJS `<%- value %>` emits the value as raw HTML (vs `<%= value %>` which
+      escapes). Any unescaped output with user-controlled data is an XSS sink.
+      This is the canonical Express + EJS hand-off pattern that vibe-coded
+      apps reach for when "the escaping breaks my markup". Switch to `<%= %>`
+      or sanitize via DOMPurify before rendering.
+    detection:
+      pattern: <%-[^%]+%>
+      filePattern: '**/*.{ejs,html}'
+    fix:
+      kind: template
+      command: "echo 'manual remediation: change <%- value %> to <%= value %> for auto-escape; if you need HTML, sanitize via DOMPurify.sanitize on the server first'"
+      verifyCommand: '! grep -rnE "<%-[^%]+%>" --include="*.ejs" --include="*.html" .'
+  - ruleId: res-render-with-req-input
+    label: res.render(view, { html: req.query/body/params... }) — likely raw-HTML pass-through
+    severity: P2
+    mechanism: llm-judgment
+    source: xss-injection/v2
+    rationale: |
+      Passing `req.query.x` / `req.body.x` / `req.params.x` straight into a
+      `res.render` payload is fine ONLY if the template escapes the field.
+      The pre-filter catches the obvious shape; the LLM critic decides whether
+      the template at the named view escapes it. Common bug: developer renders
+      `<%- html %>` (see sibling rule) and feeds it `req.query.html`.
+    detection:
+      pattern: res\.render\s*\([^)]*req\.(query|body|params)\.
+      filePattern: '**/*.{ts,tsx,js,jsx,mjs,cjs}'
+    fix:
+      kind: llm-only
+      command: "echo 'manual remediation: confirm the view escapes the field (<%= %>, Handlebars {{ }}, React JSX); never pass req.* to a <%- %> position. Sanitize via DOMPurify if HTML is required.'"
+      verifyCommand: 'true'
 ---
 
 # XSS & template-injection check
