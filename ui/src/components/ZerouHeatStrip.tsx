@@ -208,17 +208,21 @@ export function ZerouHeatStrip({ events, onJumpToFile }: ZerouHeatStripProps) {
           })}
         </div>
 
-        {hovered && (
-          <div
-            className="mt-2 text-[10px] font-mono text-muted truncate"
-            data-testid="zerou-heat-strip-tooltip"
-            aria-live="polite"
-          >
-            {(() => {
-              const sq = squares.find((s) => s.path === hovered);
-              if (!sq) return null;
-              const b = sq.breakdown;
-              return (
+        {/* Tooltip ALWAYS rendered to avoid layout shift / flicker when
+            hovering between squares. Visibility is opacity-driven. */}
+        <div
+          className={`mt-2 text-[10px] font-mono text-muted truncate min-h-[1.25rem] transition-opacity duration-75 ${
+            hovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+          data-testid="zerou-heat-strip-tooltip"
+          aria-live="polite"
+        >
+          {(() => {
+            if (!hovered) return <>&nbsp;</>;
+            const sq = squares.find((s) => s.path === hovered);
+            if (!sq) return null;
+            const b = sq.breakdown;
+            return (
                 <>
                   <span className="text-ink">{sq.path}</span>
                   <span className="text-muted/40 mx-1">·</span>
@@ -252,7 +256,6 @@ export function ZerouHeatStrip({ events, onJumpToFile }: ZerouHeatStripProps) {
               );
             })()}
           </div>
-        )}
 
         <div className="mt-2 flex justify-between text-[10px] text-muted/70 font-mono">
           {anchorIdxs.map((idx) => {
