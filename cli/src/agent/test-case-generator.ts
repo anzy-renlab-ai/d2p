@@ -28,8 +28,22 @@ import { fetchLlm } from './llm-fetch.js';
 import { runConcurrent } from './concurrency.js';
 import type { AuthShape } from './auth-detector.js';
 import { shouldScanDir, shouldScanFile } from './scope-filter.js';
+import { extractFunctionsFromSource, type FunctionInfo } from './ast-analyzer.js';
+import ts from 'typescript';
 
 const DEFAULT_CONCURRENCY = 5;
+
+/**
+ * Phase 20 — cap on number of library-mode function targets when a project
+ * has NO HTTP endpoints (e.g. BugsJS Node libraries: express, mongoose, etc.).
+ * Without a cap, every exported function in a large library would consume an
+ * LLM call — cost explosion. Sorted by branchCount (more complex → more bug
+ * surface) then by async-ness then by stateful-sounding name.
+ */
+const LIBRARY_MODE_CAP = 50;
+
+/** Functions whose name suggests state mutation — promoted in library mode. */
+const STATEFUL_NAME_RE = /^(set|update|save|process|delete|create|insert|patch|put|remove|merge|append|prepend|push|pop|shift|unshift|sort|reset|init|clear|reload|refresh|sync|commit|persist|flush|apply|mutate)/i;
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -85,6 +99,17 @@ export interface ExtractedTarget {
   signaturePreview: string;
   /** ±N line context snippet (with line numbers) used for LLM prompt. */
   contextSnippet: string;
+  /**
+   * Phase 20 — library mode. True when this target was discovered via the
+   * library-mode AST fallback (project has no HTTP endpoints; we extracted
+   * all exported functions from src/lib/). The spec-generation prompt and
+   * default category change in this mode (logic-correctness over security).
+   */
+  libraryMode?: boolean;
+  /** AST-computed branch count, populated for library-mode targets. */
+  branchCount?: number;
+  /** AST-computed async flag, populated for library-mode targets. */
+  hasAsyncCall?: boolean;
 }
 
 export type TestGenLlmCallResult =
@@ -489,8 +514,408 @@ export function extractAllTargets(cwd: string, maxFiles = 100): ExtractedTarget[
       all.push({ ...t, id });
     }
   }
+
+  // Phase 20 — library-mode fallback. If NO endpoint targets were found, the
+  // project is likely a library (no HTTP surface): BugsJS-style internal
+  // modules, Mongoose-like ORM, Express middleware internals, etc. Without
+  // this fallback, ZeroU emits zero specs for those projects. Re-scan src/,
+  // lib/, and root index.* via the AST analyzer and treat every non-trivial
+  // exported function as a target.
+  const hasEndpoints = all.some((t) => t.type === 'endpoint');
+  if (!hasEndpoints) {
+    const libTargets = extractLibraryTargets(cwd, files, seenGlobal);
+    // Merge any endpoints (none, by definition here) + library targets.
+    // Cap is enforced inside extractLibraryTargets.
+    all.push(...libTargets);
+  } else {
+    // Phase 20 — when endpoints DO exist we still allow library functions to
+    // top up, but only up to LIBRARY_MODE_CAP minus existing function targets,
+    // and only if there's headroom under the cap. Endpoints get priority.
+    const existingFns = all.filter((t) => t.type === 'function').length;
+    const remaining = LIBRARY_MODE_CAP - existingFns;
+    if (remaining > 0) {
+      const libTargets = extractLibraryTargets(cwd, files, seenGlobal, remaining);
+      all.push(...libTargets);
+    }
+  }
   return all;
 }
+
+/**
+ * Phase 20 — library-mode extraction.
+ *
+ * Walks the same source files as endpoint extraction but runs the AST
+ * analyzer (via `extractFunctionsFromSource`) on every file under TARGET_DIRS
+ * (especially lib/, src/) and at the project root index.*. Filters to
+ * non-trivial exported functions, sorts by priority (branchCount desc, then
+ * async, then stateful name), and caps at `cap` (default LIBRARY_MODE_CAP).
+ *
+ * Skip rules:
+ *  - test files (already filtered by walkSources)
+ *  - barrel re-export files (only export {...} statements, no function bodies)
+ *  - pure type-only files (only `export type`/`export interface`)
+ *  - trivial bodies (<=5 source lines AND branchCount===0 AND !hasAsyncCall)
+ *  - HTTP-verb-named exports (would be picked up by endpoint extraction)
+ */
+export function extractLibraryTargets(
+  cwd: string,
+  scannedFiles?: ScannedFile[],
+  seenGlobalIds?: Set<string>,
+  cap: number = LIBRARY_MODE_CAP,
+): ExtractedTarget[] {
+  const files = scannedFiles ?? walkSources(cwd, 100);
+  const seen = seenGlobalIds ?? new Set<string>();
+  const candidates: Array<{ target: ExtractedTarget; priority: number }> = [];
+
+  for (const f of files) {
+    if (isBarrelOrTypeOnlyFile(f.content)) continue;
+
+    let sf: ts.SourceFile;
+    try {
+      sf = ts.createSourceFile(
+        f.rel,
+        f.content,
+        ts.ScriptTarget.Latest,
+        true,
+        f.rel.endsWith('.tsx')
+          ? ts.ScriptKind.TSX
+          : (f.rel.endsWith('.ts') || f.rel.endsWith('.mts') || f.rel.endsWith('.cts'))
+            ? ts.ScriptKind.TS
+            : f.rel.endsWith('.jsx')
+              ? ts.ScriptKind.JSX
+              : ts.ScriptKind.JS,
+      );
+    } catch {
+      continue;
+    }
+
+    let fns: FunctionInfo[];
+    try {
+      fns = extractFunctionsFromSource(sf, f.rel, null);
+    } catch {
+      fns = [];
+    }
+
+    // Phase 20 — CommonJS extension. BugsJS-style libraries (mongoose,
+    // express internals, hexo, eslint) declare functions via:
+    //   function Foo(...) { }            // top-level declaration (no export)
+    //   Foo.prototype.method = function() { }
+    //   module.exports.foo = function() { }
+    //   exports.foo = function() { }
+    // None of these reach extractFunctionsFromSource (which requires the
+    // `export` keyword). We append them here for library mode only.
+    try {
+      const cjsFns = extractCommonJsFunctionsFromSource(sf, f.rel);
+      // Dedup against already-found exported fns (same line + name).
+      const seenKey = new Set(fns.map((x) => `${x.line}:${x.name}`));
+      for (const cjs of cjsFns) {
+        if (!seenKey.has(`${cjs.line}:${cjs.name}`)) fns.push(cjs);
+      }
+    } catch {
+      // ignore — keep ES-export results only
+    }
+
+    for (const fn of fns) {
+      // Skip endpoint-kind (covered by endpoint extraction already).
+      if (fn.kind === 'endpoint') continue;
+      // Skip HTTP-verb-named so we don't accidentally double-count.
+      if (/^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)$/i.test(fn.name)) continue;
+      if (!isNonTrivialFunction(fn)) continue;
+
+      const id = `fn-${slug(fn.name)}`;
+      const line = fn.line;
+      const target: ExtractedTarget = {
+        id,
+        file: fn.file,
+        line,
+        type: 'function',
+        name: `fn:${fn.name}`,
+        signaturePreview: previewLine(f.content, line),
+        contextSnippet: snippetAround(f.content, line),
+        libraryMode: true,
+        branchCount: fn.branchCount,
+        hasAsyncCall: fn.hasAsyncCall,
+      };
+
+      // Priority: higher = picked first. branchCount * 10, +5 if async,
+      // +3 if stateful name.
+      let priority = fn.branchCount * 10;
+      if (fn.hasAsyncCall) priority += 5;
+      if (STATEFUL_NAME_RE.test(fn.name)) priority += 3;
+      candidates.push({ target, priority });
+    }
+  }
+
+  // Sort by priority desc, then by file/line for stable ordering.
+  candidates.sort((a, b) => {
+    if (b.priority !== a.priority) return b.priority - a.priority;
+    if (a.target.file !== b.target.file) return a.target.file.localeCompare(b.target.file);
+    return a.target.line - b.target.line;
+  });
+
+  const out: ExtractedTarget[] = [];
+  for (const c of candidates) {
+    if (out.length >= cap) break;
+    let id = c.target.id;
+    let counter = 1;
+    while (seen.has(id)) {
+      counter++;
+      id = `${c.target.id}-${counter}`;
+    }
+    seen.add(id);
+    out.push({ ...c.target, id });
+  }
+  return out;
+}
+
+/**
+ * A barrel file looks like `export { x } from './x'` and `export * from './y'`
+ * with nothing else. A type-only file has only `export type` / `export
+ * interface` declarations. Both are unsuitable for spec generation — no
+ * runnable code lives in them.
+ */
+function isBarrelOrTypeOnlyFile(content: string): boolean {
+  // Strip comments first so commented-out code doesn't fool the check.
+  const stripped = content
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+    .trim();
+  if (stripped.length === 0) return true;
+
+  // Tokens that disqualify the file from being "barrel/type-only":
+  // any plain function/class/const-with-fn assignment.
+  // Note: presence of `export type` / `export interface` is fine; we look
+  // for the OPPOSITE — any non-type runnable declaration.
+  const RUNNABLE_RE =
+    /\b(function|class|const\s+\w+\s*=\s*(?:async\s*)?(?:\(|function|\w+\s*=>))|\bexport\s+default\s+(?!type\b|interface\b)/;
+  if (RUNNABLE_RE.test(stripped)) return false;
+
+  // No runnable code found and file is non-empty → barrel or type-only.
+  return true;
+}
+
+/**
+ * A function body is "non-trivial" if it would be worth testing:
+ *  - >5 source lines, OR
+ *  - branchCount > 0, OR
+ *  - hasAsyncCall === true (await implies external interaction → bug surface)
+ *
+ * Pure 1-liner exports (e.g. `export const id = (x) => x`) are skipped to
+ * keep the LLM call budget on functions that can actually hide bugs.
+ */
+function isNonTrivialFunction(fn: FunctionInfo): boolean {
+  const lines = fn.sourceSnippet.split(/\r?\n/).length;
+  if (lines > 5) return true;
+  if (fn.branchCount > 0) return true;
+  if (fn.hasAsyncCall) return true;
+  return false;
+}
+
+/**
+ * Phase 20 — CommonJS / pre-ES-module function extractor.
+ *
+ * BugsJS-style libraries (mongoose, hexo, eslint, express internals) and most
+ * legacy Node libraries do NOT use `export function ...`. They use:
+ *   - top-level `function Foo() { ... }` (named declaration, no `export`)
+ *   - `Foo.prototype.method = function () { ... }`
+ *   - `module.exports.foo = function () { ... }`
+ *   - `exports.foo = function () { ... }`
+ *   - `module.exports = function name () { ... }`
+ *
+ * The strict AST analyzer skips all of these because it requires the `export`
+ * keyword. This extractor fills the gap for library mode only. It computes
+ * branch count + async flag the same way as `analyzeBody` in ast-analyzer.ts
+ * (re-implemented locally to avoid changing that file's surface).
+ */
+function extractCommonJsFunctionsFromSource(
+  sf: ts.SourceFile,
+  rel: string,
+): FunctionInfo[] {
+  const out: FunctionInfo[] = [];
+
+  const lineOf = (node: ts.Node): number =>
+    sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+
+  const snippetOf = (node: ts.Node): string => {
+    const raw = sf.text.slice(node.getStart(sf), node.getEnd());
+    const lines = raw.split(/\r?\n/);
+    if (lines.length <= 200) return raw;
+    return lines.slice(0, 200).join('\n');
+  };
+
+  const paramsOf = (params: readonly ts.ParameterDeclaration[]) =>
+    params.map((p) => {
+      let name = '';
+      if (ts.isIdentifier(p.name)) name = p.name.text;
+      else name = sf.text.slice(p.name.getStart(sf), p.name.getEnd());
+      return { name, typeHint: null as string | null };
+    });
+
+  const analyzeBodyLocal = (
+    body: ts.Node | undefined,
+  ): { branchCount: number; hasAsyncCall: boolean } => {
+    const stats = { branchCount: 0, hasAsyncCall: false };
+    if (!body) return stats;
+    const visit = (node: ts.Node): void => {
+      if (
+        node !== body &&
+        (ts.isFunctionDeclaration(node) ||
+          ts.isFunctionExpression(node) ||
+          ts.isArrowFunction(node) ||
+          ts.isMethodDeclaration(node))
+      ) {
+        return;
+      }
+      if (ts.isIfStatement(node)) stats.branchCount += 1;
+      else if (ts.isCaseClause(node)) stats.branchCount += 1;
+      else if (ts.isTryStatement(node)) {
+        stats.branchCount += 1;
+        if (node.catchClause) stats.branchCount += 1;
+        if (node.finallyBlock) stats.branchCount += 1;
+      } else if (ts.isConditionalExpression(node)) stats.branchCount += 1;
+      if (ts.isAwaitExpression(node)) stats.hasAsyncCall = true;
+      ts.forEachChild(node, visit);
+    };
+    ts.forEachChild(body, visit);
+    return stats;
+  };
+
+  const emit = (
+    name: string,
+    node: ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction,
+  ): void => {
+    if (!name) return;
+    if (HTTP_VERBS_LOCAL.has(name.toUpperCase()) && name === name.toUpperCase()) {
+      // Skip HTTP verb constants here — endpoint extraction handles them.
+      return;
+    }
+    const stats = analyzeBodyLocal(node.body);
+    out.push({
+      file: rel,
+      line: lineOf(node),
+      name,
+      kind: 'function',
+      params: paramsOf(node.parameters),
+      returnTypeHint: null,
+      branchCount: stats.branchCount,
+      hasAsyncCall: stats.hasAsyncCall,
+      hasDatabaseCall: false,
+      hasNetworkCall: false,
+      sourceSnippet: snippetOf(node),
+    });
+  };
+
+  const visit = (node: ts.Node): void => {
+    // Top-level function declaration with a name — even without `export`,
+    // for library mode we treat as candidate (CommonJS rarely uses export).
+    if (ts.isFunctionDeclaration(node) && node.name) {
+      emit(node.name.text, node);
+      return;
+    }
+
+    // Assignment expressions at the statement level.
+    if (ts.isExpressionStatement(node) && ts.isBinaryExpression(node.expression)) {
+      const bin = node.expression;
+      if (bin.operatorToken.kind !== ts.SyntaxKind.EqualsToken) return;
+      const lhs = bin.left;
+      const rhs = bin.right;
+      // Only function expressions / arrows on the RHS.
+      if (!ts.isFunctionExpression(rhs) && !ts.isArrowFunction(rhs)) return;
+
+      // Decode LHS shapes:
+      //   Foo.prototype.method = ...
+      //   module.exports.foo = ...
+      //   exports.foo = ...
+      //   module.exports = ... (function named or anonymous)
+      //   Foo.staticMethod = ...
+      if (ts.isPropertyAccessExpression(lhs)) {
+        const chain: string[] = [];
+        let cur: ts.Expression = lhs;
+        while (ts.isPropertyAccessExpression(cur)) {
+          chain.unshift(cur.name.text);
+          cur = cur.expression;
+        }
+        if (ts.isIdentifier(cur)) chain.unshift(cur.text);
+        // `Foo.prototype.method` → name = method (preferred for readability)
+        // `module.exports.foo` / `exports.foo` → name = foo
+        // `module.exports` → name = function's own name or 'default'
+        let name = '';
+        if (chain.length >= 3 && chain[chain.length - 2] === 'prototype') {
+          name = chain[chain.length - 1]!;
+        } else if (
+          chain[0] === 'module' &&
+          chain[1] === 'exports' &&
+          chain.length >= 3
+        ) {
+          name = chain[chain.length - 1]!;
+        } else if (chain[0] === 'exports' && chain.length >= 2) {
+          name = chain[chain.length - 1]!;
+        } else if (chain.length >= 2) {
+          // Foo.staticMethod
+          name = chain[chain.length - 1]!;
+        }
+        if (name) emit(name, rhs);
+        return;
+      }
+      // `module.exports = function name() {}` — covered by the recursive walk:
+      // LHS would be `module.exports` (PropertyAccess) handled above with
+      // chain length 2 → skipped. We special-case here:
+      if (
+        ts.isPropertyAccessExpression(lhs) === false &&
+        ts.isIdentifier(lhs) === false
+      ) {
+        return;
+      }
+    }
+  };
+
+  sf.statements.forEach(visit);
+
+  // Special case: `module.exports = function name() {}` at statement level.
+  // The visit above already records it as PropertyAccess chain
+  // ['module','exports'] length=2 — name resolves to empty so we skip. Re-emit
+  // with the function's own name if it has one.
+  for (const stmt of sf.statements) {
+    if (!ts.isExpressionStatement(stmt)) continue;
+    if (!ts.isBinaryExpression(stmt.expression)) continue;
+    const bin = stmt.expression;
+    if (bin.operatorToken.kind !== ts.SyntaxKind.EqualsToken) continue;
+    const lhs = bin.left;
+    if (!ts.isPropertyAccessExpression(lhs)) continue;
+    const lhsChain: string[] = [];
+    let cur: ts.Expression = lhs;
+    while (ts.isPropertyAccessExpression(cur)) {
+      lhsChain.unshift(cur.name.text);
+      cur = cur.expression;
+    }
+    if (ts.isIdentifier(cur)) lhsChain.unshift(cur.text);
+    if (
+      lhsChain.length === 2 &&
+      lhsChain[0] === 'module' &&
+      lhsChain[1] === 'exports'
+    ) {
+      const rhs = bin.right;
+      if (
+        (ts.isFunctionExpression(rhs) || ts.isFunctionDeclaration(rhs)) &&
+        rhs.name
+      ) {
+        emit(rhs.name.text, rhs as ts.FunctionExpression);
+      }
+    }
+  }
+
+  return out;
+}
+
+const HTTP_VERBS_LOCAL: ReadonlySet<string> = new Set([
+  'GET',
+  'POST',
+  'PUT',
+  'DELETE',
+  'PATCH',
+  'OPTIONS',
+  'HEAD',
+]);
 
 // ── LLM spec generation ─────────────────────────────────────────────────────
 
@@ -527,6 +952,84 @@ const SPEC_SCHEMA_DOC = `[
     "reasoning": string      // why this matters (1-2 sentences)
   }
 ]`;
+
+// Phase 20 — library-mode (logic-correctness) system prompt. Used when the
+// target is an exported function in a library project (no HTTP endpoints).
+// Bias here is CORRECTNESS, not security: BugsJS-style bugs are wrong return
+// values, missed edge cases, off-by-one, async ordering, etc.
+const SPEC_LIBRARY_SYSTEM_PROMPT =
+  'You are a senior library author reviewing a function for CORRECTNESS bugs before release. ' +
+  'Your job is NOT to confirm the code works — assume it has bugs and find them. ' +
+  'For every correctness failure mode you identify, write one test spec that would expose it. ' +
+  'Bias toward edge cases, boundary conditions, type confusion, async pitfalls, and ' +
+  'return-value contracts. Treat the source as written by an inexperienced developer. ' +
+  'Do not write security/auth tests — this is a library function, not a network endpoint. ' +
+  'Output JSON ONLY — no markdown fence, no preamble, no commentary. ' +
+  'Return a JSON array of test spec objects matching the schema exactly. ' +
+  'Be specific and concrete. Prefer "sum([]) returns 0 not undefined" over "Test sum works".';
+
+const SPEC_LIBRARY_SCHEMA_DOC = `[
+  {
+    "name": string,          // human-readable, 5-10 words
+    "category": "happy-path" | "edge-case" | "error-handling" | "validation" | "logic-correctness",
+    "given": string,         // preconditions / input shape
+    "when": string,          // the call being tested
+    "then": string,          // expected return value or side effect
+    "reasoning": string      // why this matters (1-2 sentences)
+  }
+]`;
+
+/**
+ * Phase 20 — library-mode user prompt. Focuses the LLM on correctness
+ * failure modes (edge cases, boundaries, type confusion, async pitfalls,
+ * return contracts, side effects) instead of the security checklist that
+ * makes no sense for a library function.
+ */
+function buildLibrarySpecPrompt(target: ExtractedTarget, maxCases: number): string {
+  return [
+    `Target function for correctness review:`,
+    `- File: ${target.file}:${target.line}`,
+    `- Function: ${target.name}`,
+    `- Signature: ${target.signaturePreview}`,
+    target.branchCount !== undefined
+      ? `- Branches: ${target.branchCount} (more branches → more bug surface)`
+      : '',
+    target.hasAsyncCall ? `- Async: yes (await observed in body)` : '',
+    ``,
+    `Source code (with line numbers, ±30 lines context):`,
+    `\`\`\``,
+    target.contextSnippet,
+    `\`\`\``,
+    ``,
+    `Walk through the following CORRECTNESS checklist. For EACH applicable item,`,
+    `write one spec that would fail if the bug is present:`,
+    ``,
+    `  1. Edge cases — null / undefined / empty array / empty string / empty object input`,
+    `  2. Boundary conditions — 0, -1, 1, MAX_SAFE_INTEGER, off-by-one indexes`,
+    `  3. Type confusion — '1' vs 1, '' vs 0 vs false, NaN handling, mixed array types`,
+    `  4. Async pitfalls — missing await, ordering of resolved promises, unhandled rejection`,
+    `  5. Return value contract — must return X, must NOT return undefined, type stability`,
+    `  6. Side effects — mutates input arg / global state when it shouldn't, or fails to`,
+    `  7. Error handling — wrong error thrown / silent failure / leaking internal exception`,
+    `  8. Idempotency — calling twice gives same result (when contract requires it)`,
+    `  9. Happy path — at least ONE positive test that the intended flow works`,
+    ``,
+    `Skip items that genuinely don't apply (e.g., async pitfalls for a sync pure`,
+    `function). DO NOT skip an item just because the code "looks fine" — the`,
+    `code is presumed buggy until proven otherwise.`,
+    ``,
+    `This is a LIBRARY function — DO NOT write security / auth / HTTP / SQL-`,
+    `injection specs. Focus exclusively on correctness of inputs, outputs, and`,
+    `side effects.`,
+    ``,
+    `Cap at ${maxCases} specs total. Pick the ${maxCases} highest-value correctness`,
+    `concerns for this target. Each spec MUST describe a concrete, executable`,
+    `scenario — not a generic "validates input correctly".`,
+    ``,
+    `Return strict JSON array matching this schema:`,
+    SPEC_LIBRARY_SCHEMA_DOC,
+  ].filter((l) => l !== '').join('\n');
+}
 
 function buildSpecPrompt(target: ExtractedTarget, maxCases: number, authShape?: AuthShape): string {
   const authBlock: string[] = [];
@@ -631,6 +1134,7 @@ const VALID_CATEGORIES: ReadonlySet<TestCaseCategory> = new Set<TestCaseCategory
   'error-handling',
   'auth',
   'validation',
+  'logic-correctness',
 ]);
 
 function normalizeSpec(
@@ -674,6 +1178,21 @@ function fallbackSpec(target: ExtractedTarget): TestCaseSpec {
     file: target.file,
     line: target.line,
   };
+  // Library-mode targets get the correctness-oriented fallback wording so
+  // downstream reporting reflects what the target actually is.
+  if (target.libraryMode) {
+    return {
+      id: `${target.id}-1`,
+      name: `${target.name} returns expected value`,
+      category: 'logic-correctness',
+      scope,
+      given: 'inputs matching the documented signature',
+      when: `the function ${target.name} is invoked`,
+      then: 'it returns a value matching the function contract without throwing',
+      reasoning:
+        'Fallback logic-correctness spec generated without LLM. Library-mode target — replaces a fuller correctness suite when no critic engine is configured.',
+    };
+  }
   return {
     id: `${target.id}-1`,
     name: `${target.name} basic invocation`,
@@ -777,12 +1296,18 @@ export async function generateTestCases(opts: TestGenOptions): Promise<TestCaseS
           modelId: opts.criticConfig!.modelId,
         });
         let result: TestGenLlmCallResult;
+        const systemPrompt = target.libraryMode
+          ? SPEC_LIBRARY_SYSTEM_PROMPT
+          : SPEC_SYSTEM_PROMPT;
+        const userPrompt = target.libraryMode
+          ? buildLibrarySpecPrompt(target, maxCases)
+          : buildSpecPrompt(target, maxCases, opts.authShape);
         try {
           result = await llmFn({
             cfg: opts.criticConfig!,
             apiKey: opts.criticApiKey!,
-            systemPrompt: SPEC_SYSTEM_PROMPT,
-            userPrompt: buildSpecPrompt(target, maxCases, opts.authShape),
+            systemPrompt,
+            userPrompt,
             timeoutMs,
           });
         } catch (e) {

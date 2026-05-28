@@ -643,6 +643,346 @@ describe('generateTestCases — LLM path', () => {
   });
 });
 
+// ── Phase 20 — library-mode extraction ─────────────────────────────────────
+
+describe('extractAllTargets — Phase 20 library mode', () => {
+  it('falls back to library mode when no endpoints found and lib/ has non-trivial functions', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'lib/model.js',
+        [
+          `function saveDocument(doc) {`,
+          `  if (!doc) throw new Error('missing');`,
+          `  if (doc.dirty) {`,
+          `    doc.dirty = false;`,
+          `    return persist(doc);`,
+          `  }`,
+          `  return doc;`,
+          `}`,
+          `module.exports.saveDocument = saveDocument;`,
+          // also a properly-exported one with `export` so AST analyzer picks it up
+          `export function processBatch(items) {`,
+          `  if (!Array.isArray(items)) throw new TypeError('items');`,
+          `  const out = [];`,
+          `  for (const x of items) out.push(transform(x));`,
+          `  return out;`,
+          `}`,
+        ].join('\n'),
+      );
+      const targets = extractAllTargets(cwd);
+      const fns = targets.filter((t) => t.type === 'function');
+      expect(fns.length).toBeGreaterThanOrEqual(1);
+      const processBatch = fns.find((t) => t.name === 'fn:processBatch');
+      expect(processBatch).toBeTruthy();
+      expect(processBatch?.libraryMode).toBe(true);
+      expect(processBatch?.branchCount).toBeGreaterThanOrEqual(1);
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('does NOT enable library mode when endpoints exist (endpoints take priority)', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'src/server.ts',
+        `app.post('/api/login', async (req, res) => { res.json({}); });`,
+      );
+      await writeFile(
+        cwd,
+        'lib/util.ts',
+        [
+          `export function complexThing(x: number) {`,
+          `  if (x < 0) return -x;`,
+          `  if (x > 100) return 100;`,
+          `  return x * 2;`,
+          `}`,
+        ].join('\n'),
+      );
+      const targets = extractAllTargets(cwd);
+      const endpoints = targets.filter((t) => t.type === 'endpoint');
+      const fns = targets.filter((t) => t.type === 'function');
+      expect(endpoints.length).toBe(1);
+      // library functions allowed to top up (no libraryMode disable), but
+      // endpoints kept their priority — endpoint is present and not the
+      // library-mode flag.
+      expect(endpoints[0]?.libraryMode).toBeFalsy();
+      // The lib function still gets pulled in topped-up.
+      const complexThing = fns.find((t) => t.name === 'fn:complexThing');
+      expect(complexThing?.libraryMode).toBe(true);
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('skips trivial functions (1-liner, no branches, not async)', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'lib/trivial.ts',
+        `export function identity(x: number): number { return x; }`,
+      );
+      const targets = extractAllTargets(cwd);
+      const fns = targets.filter((t) => t.type === 'function');
+      expect(fns).toHaveLength(0);
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('skips type-only files (only export type / interface declarations)', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'lib/types.ts',
+        [
+          `export type UserId = string;`,
+          `export interface User {`,
+          `  id: UserId;`,
+          `  name: string;`,
+          `}`,
+        ].join('\n'),
+      );
+      const targets = extractAllTargets(cwd);
+      const fns = targets.filter((t) => t.type === 'function');
+      expect(fns).toHaveLength(0);
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('skips barrel re-export files', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'lib/index.ts',
+        [
+          `export { foo } from './foo';`,
+          `export * from './bar';`,
+        ].join('\n'),
+      );
+      const targets = extractAllTargets(cwd);
+      const fns = targets.filter((t) => t.type === 'function');
+      expect(fns).toHaveLength(0);
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('skips test files in library mode (walkSources already filters)', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'lib/foo.test.ts',
+        [
+          `export function helperUsedInTest(x: number) {`,
+          `  if (x > 0) return x;`,
+          `  if (x < 0) return -x;`,
+          `  return 0;`,
+          `}`,
+        ].join('\n'),
+      );
+      const targets = extractAllTargets(cwd);
+      const fns = targets.filter((t) => t.type === 'function');
+      expect(fns).toHaveLength(0);
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('library prompt focuses on correctness (edge cases / boundaries / async pitfalls)', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'lib/calc.ts',
+        [
+          `export function divide(a: number, b: number): number {`,
+          `  if (b === 0) throw new Error('div by zero');`,
+          `  return a / b;`,
+          `}`,
+        ].join('\n'),
+      );
+      let capturedSystem = '';
+      let capturedUser = '';
+      const llm: TestGenLlmFn = async ({ systemPrompt, userPrompt }) => {
+        capturedSystem = systemPrompt;
+        capturedUser = userPrompt;
+        return { ok: true, raw: '', parsed: [] };
+      };
+      await generateTestCases({
+        cwd,
+        profile: baseProfile,
+        logger: makeLogger(cwd),
+        criticConfig: fakeCriticConfig,
+        criticApiKey: 'sk-test',
+        llmCall: llm,
+      });
+      const lower = capturedUser.toLowerCase();
+      expect(lower).toContain('edge cases');
+      expect(lower).toContain('boundary');
+      expect(lower).toContain('async pitfalls');
+      expect(lower).toContain('return value contract');
+      expect(lower).toContain('side effects');
+      // System prompt switched to correctness frame, not security.
+      const lowerSys = capturedSystem.toLowerCase();
+      expect(lowerSys).toContain('correctness');
+      expect(lowerSys).toContain('library');
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('caps at 50 functions even when many non-trivial functions exist', async () => {
+    const cwd = await tmpdir();
+    try {
+      // Generate 80 non-trivial functions across a few files.
+      const fns: string[] = [];
+      for (let i = 0; i < 80; i++) {
+        fns.push(
+          [
+            `export function processItem${i}(x: number) {`,
+            `  if (x < 0) return -1;`,
+            `  if (x > 100) return 100;`,
+            `  return x * 2;`,
+            `}`,
+          ].join('\n'),
+        );
+      }
+      await writeFile(cwd, 'lib/big.ts', fns.join('\n\n'));
+      const targets = extractAllTargets(cwd);
+      const libFns = targets.filter((t) => t.type === 'function' && t.libraryMode);
+      expect(libFns.length).toBeLessThanOrEqual(50);
+      expect(libFns.length).toBe(50);
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('sorts by branchCount descending — complex functions picked first', async () => {
+    const cwd = await tmpdir();
+    try {
+      // Mix: 60 trivial-ish (1 branch), 5 complex (5+ branches). With cap=50
+      // the 5 complex ones MUST appear in the output.
+      const parts: string[] = [];
+      for (let i = 0; i < 60; i++) {
+        parts.push(
+          [
+            `export function simple${i}(x: number) {`,
+            `  if (x < 0) return -1;`,
+            `  return x;`,
+            `}`,
+          ].join('\n'),
+        );
+      }
+      for (let i = 0; i < 5; i++) {
+        parts.push(
+          [
+            `export function complex${i}(x: number) {`,
+            `  if (x < 0) return -1;`,
+            `  if (x > 100) return 100;`,
+            `  if (x === 0) return 0;`,
+            `  if (x % 2 === 0) return x * 2;`,
+            `  if (x % 3 === 0) return x * 3;`,
+            `  return x;`,
+            `}`,
+          ].join('\n'),
+        );
+      }
+      await writeFile(cwd, 'lib/mixed.ts', parts.join('\n\n'));
+      const targets = extractAllTargets(cwd);
+      const libFns = targets.filter((t) => t.type === 'function' && t.libraryMode);
+      expect(libFns.length).toBe(50);
+      // The 5 complex ones (highest branch count) must be present.
+      const complexNames = libFns.filter((t) => t.name.startsWith('fn:complex')).length;
+      expect(complexNames).toBe(5);
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('extracts CommonJS prototype methods + module.exports assignments (BugsJS shape)', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'lib/model.js',
+        [
+          `var assert = require('assert');`,
+          `function Model(doc) {`,
+          `  if (!doc) throw new Error('missing');`,
+          `  this.doc = doc;`,
+          `  this.dirty = false;`,
+          `}`,
+          `Model.prototype.save = function save(cb) {`,
+          `  if (this.dirty) {`,
+          `    this.dirty = false;`,
+          `    return persist(this.doc, cb);`,
+          `  }`,
+          `  return cb(null, this.doc);`,
+          `};`,
+          `Model.prototype.find = function find(query) {`,
+          `  if (!query) return [];`,
+          `  if (typeof query !== 'object') throw new Error('bad query');`,
+          `  return doFind(query);`,
+          `};`,
+          `module.exports.helper = function helper(x) {`,
+          `  if (x < 0) return -1;`,
+          `  if (x > 100) return 100;`,
+          `  return x;`,
+          `};`,
+        ].join('\n'),
+      );
+      const targets = extractAllTargets(cwd);
+      const names = targets.filter((t) => t.libraryMode).map((t) => t.name).sort();
+      expect(names).toContain('fn:Model');
+      expect(names).toContain('fn:save');
+      expect(names).toContain('fn:find');
+      expect(names).toContain('fn:helper');
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('library-mode targets get logic-correctness category in fallback spec', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'lib/work.ts',
+        [
+          `export function processBatch(items: number[]) {`,
+          `  if (items.length === 0) return [];`,
+          `  return items.map((x) => x * 2);`,
+          `}`,
+        ].join('\n'),
+      );
+      const logger = makeLogger(cwd);
+      const specs = await generateTestCases({
+        cwd,
+        profile: baseProfile,
+        logger,
+        criticConfig: null,
+        criticApiKey: null,
+      });
+      await logger.flush();
+      expect(specs.length).toBe(1);
+      expect(specs[0]!.category).toBe('logic-correctness');
+      expect(specs[0]!.scope.type).toBe('function');
+      expect(specs[0]!.scope.target).toBe('fn:processBatch');
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+});
+
 describe('generateTestCases — Phase 9 Lite-2 adversarial generator', () => {
   it('system prompt uses red-team adversarial framing', async () => {
     const cwd = await tmpdir();

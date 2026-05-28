@@ -119,8 +119,46 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 // between generator and judge), same-model blind spots cause both calls to
 // agree on bugs neither catches. Adversarial framing + information isolation
 // is the documented best practice for LLM-as-judge (Zheng et al. 2023).
+// Phase 20 — bug-hunting upgrade. We expand the adversarial framing from
+// "check rule compliance" to "actively hunt for bugs". The judge must now
+// consider three modes of failure (security/rule violation, logic bug,
+// correctness gap) and explicitly walk through edge cases that the spec
+// did not enumerate. This lifts BugsJS-style logic-bug recall without
+// regressing security recall.
+//
+// evidence.line semantics mirror OpenTelemetry's `code.line.number`
+// (semconv 1.33.0): the EXACT line of the operation the trace describes,
+// never the wrapping declaration. Downstream graders match against this
+// with ±20 line tolerance, so wide-line citations silently fail.
 const SYSTEM_PROMPT =
-  'You are an ADVERSARIAL code reviewer. Your job is to find any reason the code FAILS the given test assertion. Default verdict = fail. Pass only when you can quote the exact code lines that obviously satisfy the assertion. Bias toward skepticism. When citing evidence.line, name the EXACT line where the bug MANIFESTS (the dangerous call, the unsafe assignment, the missing-guard sink) — NOT the wrapping `function`, `if`, `try`, or `catch` line. Output JSON only — no markdown fence, no preamble.';
+  [
+    'You are an adversarial code reviewer hunting for bugs. Your job is to find ANY reason the code FAILS the given test assertion.',
+    '',
+    'Three modes of failure you must consider:',
+    '1. Security/rule violation: code has a known dangerous pattern (sql concat, missing auth, XSS sink, hard-coded secret).',
+    '2. Logic bug: code does the wrong thing under some input (off-by-one, wrong operator, missing case, wrong type coercion).',
+    '3. Correctness gap: code\'s documented behavior diverges from what the spec implies.',
+    '',
+    'Default verdict = fail. Pass only when:',
+    '- You can quote the exact code lines that obviously satisfy the assertion',
+    '- AND you\'ve considered at least 3 edge cases (null/undefined input, boundary values, error path) and verified the code handles them.',
+    '',
+    'For logic bugs specifically, look for:',
+    '- `<=` where `<` is intended (or vice versa) near array index / loop bounds',
+    '- `==` where `===` matters (especially `== null` / `== \'\'` distinctions)',
+    '- `||` defaulting where `??` is correct (0 / false / empty-string edge cases)',
+    '- Missing await, missing return, missing break',
+    '- Off-by-one in indexing or loop bounds',
+    '- Wrong sign or wrong direction in comparisons',
+    '- Type-coercion surprises (`parseInt` without radix; `Number(\'\')` returns 0; `+x` on non-numeric)',
+    '- `.find()` / `.match()` / `.exec()` returning undefined; code accesses `.property` without check',
+    '- Switch falling through without `break`',
+    '- Async errors swallowed by try/catch that returns a default',
+    '',
+    'When citing evidence.line, name the EXACT line where the bug MANIFESTS (the dangerous call, the unsafe assignment, the buggy operator) — NOT the wrapping `function`, `if`, `try`, or `catch` line.',
+    '',
+    'Output JSON only — no markdown fence, no preamble.',
+  ].join('\n');
 
 // ── Single test case ─────────────────────────────────────────────────────────
 
@@ -419,9 +457,10 @@ function buildUserPrompt(spec: TestCaseSpec, ctx: ContextWindow, authShape?: Aut
   //   - spec.reasoning (the generator's internal "why this test matters" — the
   //     judge must reach its own conclusion from the raw assertion + code)
   const lines: string[] = [
-    'TASK: Find reasons the source code FAILS the assertion below.',
+    'TASK: Hunt for bugs in the source code that would make it FAIL the assertion below.',
     'DEFAULT VERDICT: fail. Only return pass if you can quote the specific code',
-    'line(s) that obviously satisfy the assertion. Be skeptical.',
+    'line(s) that obviously satisfy the assertion AND you have walked at least',
+    '3 edge cases without finding a divergence. Be skeptical.',
     '',
     'Assertion:',
     `- Given: ${spec.given}`,
@@ -432,6 +471,25 @@ function buildUserPrompt(spec: TestCaseSpec, ctx: ContextWindow, authShape?: Aut
     `Source code (lines ${ctx.lineStart}-${ctx.lineEnd}):`,
     ctx.snippet || '(source file could not be read)',
     '',
+    'HUNT MODE:',
+    'For each edge case below, predict what this code does. If any produces',
+    'wrong output, that is a FAIL and `evidence.line` MUST be the line of the',
+    'specific buggy operation (operator, call, assignment) — not the function',
+    'declaration.',
+    ' - Input is null',
+    ' - Input is undefined',
+    ' - Input is empty string \'\'',
+    ' - Input is 0',
+    ' - Input is negative',
+    ' - Input has unicode / special chars',
+    ' - Input is the boundary value (max/min the function should handle)',
+    ' - Input causes the async/error path (rejected promise, thrown exception)',
+    '',
+    'When you can mentally execute the code on one of these inputs and the',
+    'observable result violates `then`, that is sufficient evidence for `fail`.',
+    'Quote the buggy expression in `evidence.snippet` and explain the divergence',
+    'in `actualBehavior`.',
+    '',
     'Output strict JSON only:',
     '{',
     '  "status": "pass"|"fail"|"inconclusive",',
@@ -441,28 +499,34 @@ function buildUserPrompt(spec: TestCaseSpec, ctx: ContextWindow, authShape?: Aut
     '    "line": <EXACT line number where the bug actually MANIFESTS — see rules below>,',
     '    "snippet": "<the specific code line(s) you base your verdict on>",',
     '    "expectedBehavior": "<from `then`>",',
-    '    "actualBehavior": "<what the code actually does>"',
+    '    "actualBehavior": "<what the code actually does, including the edge-case input that triggers the bug>"',
     '  }',
     '}',
     '',
-    'LINE-PRECISION RULES (downstream graders use ±20 line tolerance — be exact):',
-    ' - Cite the line where the dangerous CALL / ASSIGNMENT / READ happens,',
-    '   NOT the line of the wrapping `function`, `if`, `try`, `for`, or `catch`.',
-    ' - For SQL/template-string injection: the line of the interpolated `${user}`',
-    '   inside the query, not the line where the query string is declared.',
-    ' - For XSS sinks (innerHTML, dangerouslySetInnerHTML, res.send, eval):',
-    '   the line of the SINK call, not the line of the upstream variable.',
-    ' - For missing auth/authz: the line of the unauthorized data access',
-    '   (`db.query(...)`, `findUserById(...)`), not the line of the route export.',
-    ' - For floating promises / unawaited async: the line of the async CALL,',
-    '   not the line of the surrounding function declaration.',
+    'LINE PRECISION (downstream graders match against this with ±20 line tolerance):',
+    ' - evidence.line MUST be the EXACT line where the dangerous OPERATION happens.',
+    ' - For comparisons: line of the `==` / `===` / `<=` / `<` / `>=` / `>` operator.',
+    ' - For type coercions: line of the `parseInt(` / `Number(` / `+x` / `String(` call.',
+    ' - For missing awaits: line of the async CALL (the one that should have been awaited),',
+    '   not the surrounding function declaration.',
+    ' - For SQL/template-string injection: the line of the interpolated `${user}` inside',
+    '   the query, not the line where the query string is declared.',
+    ' - For XSS sinks (innerHTML, dangerouslySetInnerHTML, res.send, eval): the line of',
+    '   the SINK call, not the line of the upstream variable.',
+    ' - For missing auth/authz: the line of the unauthorized data access (`db.query(...)`,',
+    '   `findUserById(...)`), not the line of the route export.',
+    ' - For off-by-one / loop bounds: the line of the loop CONDITION or the index',
+    '   expression — never the `for` keyword line if the bound is on a different line.',
     ' - For multi-line constructs, pick the LAST line that contributes to the bug.',
-    ' - If the bug is the ABSENCE of a guard (e.g. missing `if (!user) return 401`):',
-    '   cite the line of the first dangerous operation that should have been guarded.',
+    ' - If the bug is the ABSENCE of a guard, cite the line of the first dangerous',
+    '   operation that should have been guarded.',
+    ' - NEVER cite the function declaration line, the `try` line, or the `import` line.',
+    ' - If you cannot be specific to a line, return `inconclusive` not `fail`.',
     '',
     "Use 'inconclusive' only when the relevant code is genuinely not visible",
     '(e.g., the assertion targets a function declared elsewhere that is not in',
-    'the shown window). Do not use inconclusive as a way to avoid judgement.',
+    'the shown window) OR you cannot localize a bug to a specific line. Do not',
+    'use inconclusive as a way to avoid judgement.',
   ];
   // Phase 11.3: surface auth context so the judge stops marking
   // "endpoint queries DB without auth check" when the gate is one helper away.
