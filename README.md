@@ -1,119 +1,178 @@
-# ZeroU — demo to product
+# ZeroU — production-readiness for vibe-coded apps
 
-> 把 demo 推到 product 的本地工具（原代号 d2p；仓库、CLI 命令、内部代号沿用 d2p）。
-> 你给一个 demo 文件夹 + 一段自然语言 vision，ZeroU 派 Claude Code 子进程
-> 自动补 auth / tests / 错误处理 / 部署配置 / docs / 监控 等"产品级肌肉"，
-> 自动 commit、自动 merge，直到 preset 清单 + vision 双绿才停。
+> Run `zerou audit` on any local web app → get a structured proof of which
+> functions/branches were exercised, what's broken, and what ZeroU can fix.
+> Run `zerou enhance` to land structured logging, a health endpoint, sentry,
+> and mechanical bug fixes on a separate git branch you review before merge.
 
-**Repo**: https://github.com/Upp-Ljl/d2p
+**Repo**: https://github.com/Upp-Ljl/d2p (internal name still `d2p`)
+**Status**: alpha. 961 tests across `cli/` + `ui/`. Dogfooded on a real
+Next.js + Drizzle + Supabase project. No public release yet.
 
-**状态**：原始产品目标已完整实现。71 单测全绿、端到端 smoke 用 fake-claude 跑通。
-真 cc 实跑需要你的机器有 `claude` 登录态。
+## What ZeroU does (扫 + 修 + 验 + 追溯)
 
-## 为什么是本地工具，不是 SaaS
+1. **扫 (scan)** — TypeScript AST walks every function and branch; static
+   preset checks across 11 hardening categories (auth, authz, secrets,
+   security-headers, db hygiene, observability, error handling, tests, perf,
+   GDPR, deploy-incident, llm-cost).
+2. **测 (test)** — LLM generates Vitest spec files per endpoint / function;
+   an adversarial LLM-judge evaluates each spec against the actual source
+   with information isolation (no leaking spec name / category / reasoning).
+   Auth-aware: Supabase-SSR + NextAuth mocks emitted automatically.
+3. **修 (fix)** — `zerou enhance` injects a production-grade pino logger,
+   a `/health` endpoint, the Sentry SDK, missing `.env.example` vars, and
+   mechanical bug patches (escapeXml, encodeURIComponent, missing-await,
+   silent-catch). All on a worktree, behind regex-hardening that respects
+   shebangs / directives / BOMs / JSX / template literals.
+4. **验 (verify)** — re-runs `npm install` + `tsc --noEmit` + your existing
+   test suite + `npm run build`. Refuses to ship a worktree if any step
+   breaks. Verify chip-grid in the report shows per-step status.
+5. **追溯 (trace)** — every AST branch gets a stable `branch_id`; runs emit
+   a hash-chained `.zerou/branch-trace.jsonl` in OpenTelemetry wide-event
+   form. `cat | jq '.branch_id' | sort -u | wc -l` proves the AST coverage
+   number without any UI.
 
-ZeroU 必须在你的机器上跑，因为它要：
-
-- 读写你硬盘上的 git 仓库（worktree、commit、merge）
-- 长进程 spawn `claude` CLI 子进程，**用你已经付的 Claude Code 订阅，不烧 API key**
-- 常驻 daemon、SSE 长连接、本地 SQLite
-
-→ 这些 Vercel / serverless 都跑不了。**别想着把 ZeroU 部署上线，它就是你 IDE 旁边的小帮手。**
-
-## 它做什么
-
-给一个本地仓库 + 一段 vision，ZeroU：
-
-1. 多轮对话问你"这个 demo 想做成啥样"，存成 markdown
-2. 看仓库猜项目类型（saas-web / api-service / cli-tool / library / static-site / ...）
-3. 派 differ 找差距，produce gap 队列
-4. 每个 gap 进 git worktree → spawn implementer → 4 层 reviewer
-   pipeline（Static Gate → Alignment → Behavioral → 高敏 gap 加 Adversarial
-   + 跨引擎二审）→ merge `fix/<slug>` 回 main
-5. 用户可随时 pause；改 `vision.md` / `preset-overrides.yaml` 触发 watcher，loop 自动 re-diff
-6. preset 全绿 + vision verdict yes（双绿）才宣告 DONE
-
-## 快速开始
-
-需要 Node 24+ + Git，以及任一种 LLM 后端（见下）。
+## Quick start
 
 ```bash
-git clone https://github.com/Upp-Ljl/d2p.git
-cd d2p
+# 1. audit — scan + LLM-judge + emit vitest + branch-coverage
+zerou audit ./my-next-app
+
+# 2. enhance — suggest fixes on a worktree branch (NEVER auto-merges)
+zerou enhance ./my-next-app
+
+# 3. review — React Mission Control UI, local-only, SSE live updates
+zerou review ./my-next-app --serve
+# → http://127.0.0.1:7777
+
+# 4. coverage — CI gate, exits non-zero if coverage < threshold
+zerou coverage ./my-next-app --threshold 80
+
+# 5. trace — grep events by trace id or path
+zerou trace --last --path ./my-next-app
+```
+
+The default LLM engine is OpenAI-compat (MiniMax / DeepSeek / OpenRouter
+etc.); pass `--config <path>` to point at a config that sets your key. No
+credentials are stored server-side; ZeroU runs entirely on your machine.
+
+## The differentiator: log stream IS the proof
+
+Most coverage tools report a percentage and ask you to trust them. ZeroU
+emits `.zerou/branch-trace.jsonl` — one JSONL line per AST branch, with
+OpenTelemetry semantic fields (`trace_id`, `code.function`,
+`code.file.path`, `code.line.number`), the four signals (AST × spec ×
+LLM-judge × runtime; a fifth log-emit signal is planned), the verdict,
+and a SHA-256 hash chain (`seq` / `prev_hash` / `hash`) that makes the
+file tamper-evident.
+
+A third party can verify ZeroU's published coverage by running the same
+workflow on the same fixture, byte-compare the `branch_id` set, and
+recompute the hash chain with `zerou coverage --verify-chain`.
+
+**Honest caveat**: a v1 benchmark proposal was reviewed by a hostile
+reviewer and rejected (see `docs/reviews/2026-05-27-zerou-benchmark-critique-v1.md`).
+Real benchmark numbers are deferred until multi-project data and a
+defect-correlation study exist. The log schema is the part that shipped.
+
+## Commands
+
+| Command | What it does | Phase plan |
+|---|---|---|
+| `zerou audit <path>` | scan + LLM-judge + emit vitest + branch-coverage + branch-trace | Phase 4-8, 11.1, 11.3, 11.5, 13 |
+| `zerou enhance <path>` | inject logger + health + sentry + .env + bug fixes on a worktree | Phase 10, 10.5, 10.6, 11.3 |
+| `zerou review <path>` | open static HTML report in browser | Phase 11.2, 11.4 |
+| `zerou review <path> --serve` | local HTTP + React Mission Control UI + SSE | Phase 12, 14, 14.5, 14C |
+| `zerou coverage <path>` | proof-of-coverage gate, reads `branch-trace.jsonl` | Phase 13.2 |
+| `zerou trace [id]` | filter structured log events by trace id / path | earlier |
+
+Subcommand details and option lists live in `cli/src/zerou-cli.ts` and the
+per-command source files.
+
+## Safety model
+
+- All `zerou enhance` changes go to `.worktrees/zerou-enhance-<ts>/` on a
+  separate branch.
+- ZeroU **never** auto-merges and **never** pushes to your remote. You
+  review the diff (`git diff main..HEAD` from inside the worktree, or
+  through the React UI) and merge yourself.
+- `zerou review --serve` binds 127.0.0.1 only; no auth, no TLS, but also
+  no exposure beyond `localhost`.
+- The verify harness refuses to declare a run successful if your existing
+  test suite breaks after the worktree changes.
+
+## What's NOT done
+
+- **Benchmark v1**: deferred (hostile-reviewer NEEDS-MAJOR-REVISION; awaits
+  multi-project data + defect-correlation study + 9 patches from the
+  critique).
+- **`zerou pr`**: design only — pushing the enhance branch to a remote and
+  opening a GitHub PR is a planned follow-up. Today `zerou enhance` stops
+  at a local worktree commit.
+- **Runtime-level instrumentation** of user code: not done. ZeroU uses
+  c8/istanbul ranges as the run signal; we don't hook `require` / ESM
+  loaders. Per `docs/reviews/2026-05-27-auto-instrument-prior-art.md`, the
+  industry pattern is build-time wrappers + runtime hooks; ZeroU's
+  source-rewriting is scoped to bootstrap files + bug-patch sites.
+- **Language coverage**: Node + TypeScript (Next.js / Express); Supabase-SSR
+  + NextAuth auth shapes. Other ecosystems (Python / Go / Rust / Ruby) are
+  not implemented.
+- **Streaming responses**: LLM calls are still wait-for-complete; concurrent
+  via `p-limit` pool, not streamed.
+
+## Architecture (high-level)
+
+ZeroU is a 2-workspace monorepo:
+
+- `cli/` — Node + TypeScript. The `audit` / `enhance` / `coverage` /
+  `review` / `trace` commands.
+- `ui/` — Vite + React + Tailwind. Served via `zerou review --serve` over
+  a `node:http` server bound to 127.0.0.1.
+- LLM layer is provider-agnostic (`anthropic-api` / `openai-compat`); used
+  for spec generation + adversarial judge + bug-patch proposals. No
+  credentials are bundled; the user's `--config` file or env vars carry
+  them. Claude Code CLI (`claude-cli`) is still supported as an engine, but
+  the dogfood loop uses MiniMax openai-compat by default.
+- Optional `daemon/` directory contains the v0.7 demo-→-product loop
+  (referred to as **advanced mode** in `CONTEXT.md`); kept runnable, not
+  the public-facing default.
+
+See `CONTEXT.md` for the domain glossary and `docs/plans/` for the
+phase-by-phase plan history.
+
+## Build + test
+
+```bash
 npm install
 npm run build
-npm link --workspaces            # 把 d2p 命令挂到全局
-d2p start                        # 起 daemon + UI；浏览器开 http://localhost:5173
-                                 # → UI 右上角「⚙ 设置」配置 LLM 引擎
+npm test --workspace cli              # 734 pass / 1 fail (pre-existing) / 1 skip
+npm test --workspace ui               # 227 pass
 ```
 
-UI 打开后：⚙ 设置 → 选引擎 + 填 key（或用默认 claude-cli）→ 选 demo 文件夹 → 确认项目类型 →
-多轮回答 vision →（可选）切到 GitHub PR 模式 → 启动主循环 → 看它干活。
+The one pre-existing CLI fail (`src/agent/runtime/index.test.ts > runRuntimeTests >
+returns inconclusive results when launch fails`) is a port-binding flake on
+local Windows and tracked but not yet quarantined.
 
-## LLM 引擎（三选一）
+## Repo layout
 
-ZeroU 的 LLM 调用走「引擎抽象」，每种都在 UI 设置页可视化配置（或直接编辑
-`~/.d2p/config.json`）。
-
-| 引擎 | 适合 | 配置 |
-|---|---|---|
-| **`claude-cli`**（默认） | 已经付了 Claude Code 订阅，想免烧 API 费 | `claude login` 即可 |
-| **`openai-compat`** | OpenRouter / DeepSeek / Z.ai (智谱 GLM) / Moonshot (Kimi) / Qwen / OpenAI / vLLM / LM Studio / 等 | baseUrl + API key + 模型名映射；UI 自带 6 种预设 |
-| **`anthropic-api`** | 直接持 Anthropic key，绕过 cc | API key + 模型名映射 |
-
-切换引擎在 UI 设置页点保存即生效，下一次 agent 调用就走新引擎。
-
-## 迭代模式（两选一）
-
-| 模式 | 行为 |
+| Path | Contents |
 |---|---|
-| **`local-merge`**（默认） | 每个 fix 在本地 worktree 干完，fast-forward merge 进 `main`。零远程依赖。 |
-| **`github-pr`** | 每个 fix push 到 origin 的 `fix/<slug>` 分支，调 GitHub REST 开 PR；**不**自动 merge（你在 GitHub 上点 merge）。需设置页填 GitHub PAT (`repo` scope)。 |
+| `cli/src/` | `audit.ts` / `enhance.ts` / `review.ts` / `coverage.ts` / `trace.ts` + `agent/` + `enhance/` |
+| `cli/src/agent/` | project-detector, checklist-builder, ast-analyzer, test-emitter, vitest-orchestrator, branch-coverage, branch-trace + stream |
+| `cli/src/enhance/` | log-planner / log-executor / bug-patcher / health-gen / sentry-installer / env-completer / verify / report / html-report / html-diff |
+| `ui/src/pages/` | `ZerouReview.tsx` (5-stage pipeline) |
+| `ui/src/components/` | `ZerouStage*` + `ZerouBranchTreeLog` + `ZerouHeatStrip` + `ZerouLogEventDrawer` |
+| `presets/` | 13 markdown preset checks (auth / authz / security / db / obs / errors / tests / perf / llm-cost / gdpr / deploy / secrets-leak / supabase-rls) |
+| `docs/plans/` | Dated phase plans (Phase 2 / 4 / 5 / 6-7 / 8 / 9-lite / 10 / 11.1-11.5 / 12 / 13 / 14) |
+| `docs/details/` | SPEC-SPLIT artifacts (spec / public-surface / tests / comparison) |
+| `docs/reviews/` | Prior-art investigations + hostile critiques |
+| `docs/adr/` | Architecture decision records |
+| `daemon/` | v0.7 demo-→-product loop (advanced mode, retained) |
+| `fixtures/` | small demos for smokes |
 
-### 装成系统服务（开机自启，可选）
+## Status + license
 
-```bash
-d2p install-service              # 生成 ~/.d2p/service/ 下的安装脚本
-                                 # Windows: 管理员跑 install.cmd
-                                 # macOS:   launchctl bootstrap ...plist
-                                 # Linux:   systemctl --user enable --now d2p-daemon
-```
-
-详细步骤在生成时打印出来。
-
-## 验证
-
-```bash
-npm run typecheck                # 三个 workspace 全过
-npm test --workspace daemon      # 71 单测，~5s
-npm run smoke                    # 端到端跑通（用 fake-claude shim，不烧 cc）
-npm run build                    # daemon tsc + UI vite + cli tsc
-```
-
-## 仓库布局
-
-| 路径 | 内容 |
-|---|---|
-| `daemon/` | Hono server `:5174`，编排 + agents + 状态 + SQLite |
-| `ui/` | Vite + React + Tailwind `:5173`，4 页面 + SSE 实时日志 |
-| `cli/` | `d2p start | stop | status | open | doctor | install-service` |
-| `presets/` | 6 套内置验收清单（saas-web / api-service / cli-tool / library / static-site / unknown） |
-| `scripts/` | dev runner / 端到端 smoke / fake-claude shim |
-| `fixtures/` | smoke 用的最小 demo |
-| `docs/` | `DEV-DOC.md` + 10 份 details + 计划 |
-
-## 给 ZeroU 添加新 preset
-
-在 `presets/` 加一个 `<your-type>.md`，frontmatter 写 `type / name / version`，body 用
-`- [ ] slug: description` 列条目。然后在 detector 输出枚举里加上这个类型名。
-重新 `npm run build && d2p start`，UI 的"类型确认"列表里就有了。
-
-## 开发
-
-工作流规则在 `CLAUDE.md`。完整设计在 `docs/DEV-DOC.md`。计划落地节奏在
-`docs/plans/`。所有 commit 走 conventional commits（`feat / fix / chore /
-docs / test / refactor / perf`）。
-
-## License
-
-TBD — 看你打算开源还是闭源再放。
+Alpha. Don't run on production code without a clean git tree. ZeroU never
+auto-merges, but a half-applied worktree can still leave noise in your
+working dir if you Ctrl-C mid-run. License: TBD (decide before any public
+push to npm).
