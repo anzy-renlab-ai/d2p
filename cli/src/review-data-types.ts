@@ -219,7 +219,13 @@ export interface ReviewBundle {
   audit: ReviewAudit | null;
 }
 
-/** Subset of BranchTraceEvent we ship to the UI (skip heavy fields like hash chain). */
+/**
+ * Subset of BranchTraceEvent we ship to the UI (skip heavy fields like hash
+ * chain). Phase 14D — `state` / `category` / `retry` / `spec_id` / `reason`
+ * are emitted by the live stream (branch-trace.jsonl); they're absent from
+ * the manifest (branch-manifest.jsonl) which only carries the terminal
+ * verdict.
+ */
 export interface BranchTraceEventLite {
   ts: string;
   trace_id: string;
@@ -235,6 +241,22 @@ export interface BranchTraceEventLite {
   'code.line.number': number;
   signals: { ast: true; spec: boolean; judge: boolean; run: boolean | null };
   verdict: string;
+  /** Live state — set by BranchTraceStream events (Phase 14C+). */
+  state?:
+    | 'pending'
+    | 'evaluating'
+    | 'covered'
+    | 'mechanical-red'
+    | 'business-red'
+    | 'retrying';
+  /** Live red category — set when state ∈ {mechanical-red, business-red}. */
+  category?: 'mechanical' | 'business';
+  /** Live retry counter — set when state === 'retrying'. */
+  retry?: { attempt: number; max: number };
+  /** Live spec id that drove this transition. */
+  spec_id?: string;
+  /** Live human-readable reason (final patcher verdicts). */
+  reason?: string;
   evidence?: { spec_ids?: string[]; runtime_hits?: number };
   seq: number;
 }

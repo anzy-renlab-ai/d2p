@@ -449,6 +449,58 @@ describe('zerou coverage', () => {
     expect(parsed.coverage_pct).toBe(100);
   });
 
+  // Phase 14D — coverage accepts either trace (live, numerator) or
+  // manifest (full AST snapshot, denominator) as the JSONL source.
+  it('20. coverage works when only branch-manifest.jsonl exists (no trace)', async () => {
+    fx.writeReport(report([fnCov('a.ts', 'f', 1, ['x', 'y'])]));
+    // Write to branch-manifest.jsonl instead of branch-trace.jsonl.
+    const text =
+      JSON.stringify({ branch_id: 'a.ts:f@1:x', verdict: 'covered' }) + '\n';
+    fs.mkdirSync(path.join(fx.cwd, '.zerou'), { recursive: true });
+    fs.writeFileSync(
+      path.join(fx.cwd, '.zerou', 'branch-manifest.jsonl'),
+      text,
+    );
+    const { promise, out } = runWith(fx.cwd, ['--json']);
+    const code = await promise;
+    expect(code).toBe(0);
+    const parsed = JSON.parse(out.value);
+    expect(parsed.unique_seen).toBe(1);
+    expect(parsed.total).toBe(2);
+    expect(parsed.coverage_pct).toBe(50);
+  });
+
+  it('21. trace wins over manifest when both exist (trace is live, fresher)', async () => {
+    fx.writeReport(report([fnCov('a.ts', 'f', 1, ['x', 'y'])]));
+    // Manifest says nothing covered; trace says one covered.
+    fs.mkdirSync(path.join(fx.cwd, '.zerou'), { recursive: true });
+    fs.writeFileSync(
+      path.join(fx.cwd, '.zerou', 'branch-manifest.jsonl'),
+      [
+        JSON.stringify({ branch_id: 'a.ts:f@1:x', verdict: 'untested' }),
+        JSON.stringify({ branch_id: 'a.ts:f@1:y', verdict: 'untested' }),
+      ].join('\n') + '\n',
+    );
+    fx.writeTrace(
+      traceJsonl([{ branch_id: 'a.ts:f@1:x', verdict: 'covered' }]),
+    );
+    const { promise, out } = runWith(fx.cwd, ['--json']);
+    expect(await promise).toBe(0);
+    const parsed = JSON.parse(out.value);
+    // Numerator from trace = 1; denominator from branch-coverage.json = 2.
+    expect(parsed.unique_seen).toBe(1);
+    expect(parsed.total).toBe(2);
+  });
+
+  it('22. exits 4 when neither branch-trace.jsonl nor branch-manifest.jsonl exist', async () => {
+    fx.writeReport(report([fnCov('a.ts', 'f', 1, ['x'])]));
+    // Neither file written.
+    const { promise, err } = runWith(fx.cwd, []);
+    const code = await promise;
+    expect(code).toBe(4);
+    expect(err.value).toMatch(/missing.*branch-trace\.jsonl/);
+  });
+
   it('19. malformed JSONL lines are skipped, valid lines still count', async () => {
     fx.writeReport(report([fnCov('a.ts', 'f', 1, ['x', 'y'])]));
     const text =

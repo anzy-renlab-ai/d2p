@@ -129,8 +129,27 @@ export type PartialBranchTraceEvent = Omit<
 export interface BranchTraceStreamOpts {
   cwd: string;
   runTs?: string;
-  /** Default true — preserve any existing file and resume hash chain. */
+  /**
+   * Default true — preserve any existing file and resume hash chain.
+   * When false (explicitly opted out), the file is deleted at open().
+   *
+   * Phase 14D note: prefer `truncateOnOpen` semantics; this flag is kept
+   * for backward compat.
+   */
   append?: boolean;
+  /**
+   * Phase 14D — when true (default), delete any pre-existing
+   * `branch-trace.jsonl` at `open()` so the live stream starts FRESH each
+   * `zerou audit` run. Previously the stream re-resumed from a prior run's
+   * tail, which mixed stale `state='evaluating'` events into a new run and
+   * polluted the live UI feed.
+   *
+   * Tests that need to resume across re-open should pass `false`.
+   *
+   * Takes precedence over `append`: when `truncateOnOpen: true`, the file
+   * is wiped regardless of `append`.
+   */
+  truncateOnOpen?: boolean;
   logger: TrackLogger;
 }
 
@@ -188,12 +207,17 @@ export class BranchTraceStream {
   private _count = 0;
   private _writeQueue: Promise<void> = Promise.resolve();
   private readonly _append: boolean;
+  private readonly _truncateOnOpen: boolean;
 
   constructor(opts: BranchTraceStreamOpts) {
     this.cwd = opts.cwd;
     this.runTs = opts.runTs;
     this.logger = opts.logger;
     this._append = opts.append !== false;
+    // Phase 14D: default truncateOnOpen=true to avoid stale events from a
+    // prior `zerou audit` mixing into a fresh run. Tests that exercise
+    // resume-from-tail behavior must pass `truncateOnOpen: false`.
+    this._truncateOnOpen = opts.truncateOnOpen !== false;
     const zerouDir = path.join(this.cwd, '.zerou');
     this.path = path.join(zerouDir, 'branch-trace.jsonl');
     this.archivePath = opts.runTs
@@ -225,7 +249,19 @@ export class BranchTraceStream {
       await fsp.mkdir(path.dirname(this.archivePath), { recursive: true });
     }
 
-    if (this._append && fs.existsSync(this.path)) {
+    // Phase 14D: truncateOnOpen wins over append. Default behavior is
+    // "fresh per audit run" so the live `state` history isn't polluted
+    // by a prior run's tail.
+    if (this._truncateOnOpen && fs.existsSync(this.path)) {
+      await fsp.rm(this.path, { force: true });
+      if (this.archivePath && fs.existsSync(this.archivePath)) {
+        await fsp.rm(this.archivePath, { force: true });
+      }
+      logBranch(this.logger, 'agent.branch-trace.stream.open', {
+        decision: 'truncate-on-open',
+        path: this.path,
+      });
+    } else if (this._append && fs.existsSync(this.path)) {
       const tail = await this._readTail();
       if (tail) {
         this._seq = tail.seq;

@@ -814,6 +814,55 @@ describe('GET /api/branch-trace', () => {
   });
 });
 
+// Phase 14D — branch-manifest endpoint mirrors branch-trace but reads the
+// full AST snapshot file. Same security rails, separate underlying file.
+describe('GET /api/branch-manifest', () => {
+  it('M1. returns the full manifest file as ndjson', async () => {
+    const parent = await mkScratch();
+    const ui = await seedUiDist(parent);
+    const cwd = await mkScratch();
+    const zerouDir = path.join(cwd, '.zerou');
+    await fs.mkdir(zerouDir, { recursive: true });
+    const body =
+      [
+        JSON.stringify({ branch_id: 'a', seq: 1, verdict: 'untested' }),
+        JSON.stringify({ branch_id: 'b', seq: 2, verdict: 'covered' }),
+      ].join('\n') + '\n';
+    await fs.writeFile(path.join(zerouDir, 'branch-manifest.jsonl'), body, 'utf8');
+    const h = await bootStreamingServer({ cwd, uiDistDir: ui });
+    const r = await fetch(`${h.url}/api/branch-manifest`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get('content-type')).toMatch(/x-ndjson/);
+    const text = await r.text();
+    expect(text).toBe(body);
+  });
+
+  it('M2. returns 404 when branch-manifest.jsonl missing', async () => {
+    const parent = await mkScratch();
+    const ui = await seedUiDist(parent);
+    const cwd = await mkScratch();
+    const h = await bootStreamingServer({ cwd, uiDistDir: ui });
+    const r = await fetch(`${h.url}/api/branch-manifest`);
+    expect(r.status).toBe(404);
+  });
+
+  it('M3. ?run=<ts> reads archived manifest', async () => {
+    const parent = await mkScratch();
+    const ui = await seedUiDist(parent);
+    const cwd = await mkScratch();
+    const ts = '20260528-100000';
+    const archDir = path.join(cwd, '.zerou', 'runs', ts);
+    await fs.mkdir(archDir, { recursive: true });
+    const body = `${JSON.stringify({ branch_id: 'archived-manifest', seq: 1 })}\n`;
+    await fs.writeFile(path.join(archDir, 'branch-manifest.jsonl'), body, 'utf8');
+    const h = await bootStreamingServer({ cwd, uiDistDir: ui });
+    const r = await fetch(`${h.url}/api/branch-manifest?run=${ts}`);
+    expect(r.status).toBe(200);
+    const text = await r.text();
+    expect(text).toContain('archived-manifest');
+  });
+});
+
 describe('GET /api/logs/tail', () => {
   async function seedLog(
     cwd: string,

@@ -174,10 +174,17 @@ function helpText(): string {
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 interface ResolvedPaths {
-  /** Directory containing branch-coverage.json + branch-trace.jsonl. */
+  /** Directory containing branch-coverage.json + branch-{trace,manifest}.jsonl. */
   dir: string;
   reportPath: string;
+  /** Live stream — numerator source (verdict ∉ {untested, unknown}). */
   tracePath: string;
+  /**
+   * Full AST snapshot — denominator source. Phase 14D split.
+   * Backward compat: when manifest is absent but legacy trace exists, the
+   * trace serves both roles (numerator + denominator).
+   */
+  manifestPath: string;
 }
 
 export function resolveArtifactPaths(cwd: string, runId?: string): ResolvedPaths {
@@ -187,6 +194,7 @@ export function resolveArtifactPaths(cwd: string, runId?: string): ResolvedPaths
     dir,
     reportPath: path.join(dir, 'branch-coverage.json'),
     tracePath: path.join(dir, 'branch-trace.jsonl'),
+    manifestPath: path.join(dir, 'branch-manifest.jsonl'),
   };
 }
 
@@ -458,7 +466,7 @@ export async function runCoverage(opts: CoverageOpts): Promise<number> {
     return 2;
   }
 
-  const { dir, reportPath, tracePath } = resolveArtifactPaths(cwd, parsed.runId);
+  const { dir, reportPath, tracePath, manifestPath } = resolveArtifactPaths(cwd, parsed.runId);
 
   if (!fs.existsSync(reportPath)) {
     writeErr(
@@ -467,9 +475,12 @@ export async function runCoverage(opts: CoverageOpts): Promise<number> {
     );
     return 4;
   }
-  if (!fs.existsSync(tracePath)) {
+  // Phase 14D — accept either branch-trace.jsonl (live stream) or
+  // branch-manifest.jsonl (AST snapshot). Both files were a single
+  // `branch-trace.jsonl` before 14D, so backward compat is automatic.
+  if (!fs.existsSync(tracePath) && !fs.existsSync(manifestPath)) {
     writeErr(
-      `zerou coverage: missing ${tracePath}. ` +
+      `zerou coverage: missing ${tracePath} (and ${manifestPath}). ` +
         `Run \`zerou audit\` with branch instrumentation enabled.\n`,
     );
     return 4;
@@ -489,17 +500,35 @@ export async function runCoverage(opts: CoverageOpts): Promise<number> {
   const total = report.summary?.branchesTotal ?? 0;
   const branchIndex = flattenBranches(report);
 
-  // Stream numerator.
+  // Phase 14D: numerator source precedence
+  //   1. If branch-trace.jsonl exists (live stream), use it — gives `state`
+  //      transitions AND verdicts, fresh per-run.
+  //   2. Else if branch-manifest.jsonl exists, fall back to manifest (terminal
+  //      verdicts). This covers the case where the live stream wasn't opened
+  //      (e.g. no test specs generated) but manifest was still written.
+  //   3. Else fall back to whichever exists (backward compat for pre-14D
+  //      single-file layout).
+  // The denominator comes from branch-coverage.json's branchesTotal — that
+  // remains the AST source of truth.
+  let numeratorSource: string;
+  if (fs.existsSync(tracePath)) {
+    numeratorSource = tracePath;
+  } else if (fs.existsSync(manifestPath)) {
+    numeratorSource = manifestPath;
+  } else {
+    numeratorSource = tracePath; // exists() check above already failed; preserve old error msg
+  }
+
   let streamResult: TraceStreamResult;
   try {
     streamResult = await streamTrace({
-      tracePath,
+      tracePath: numeratorSource,
       strict: parsed.strict,
       verifyChain: parsed.verifyChain,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    writeErr(`zerou coverage: error streaming ${tracePath}: ${msg}\n`);
+    writeErr(`zerou coverage: error streaming ${numeratorSource}: ${msg}\n`);
     return 4;
   }
 

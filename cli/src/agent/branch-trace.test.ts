@@ -1,5 +1,5 @@
 /**
- * Tests for branch-trace.jsonl writer (Phase 13.1).
+ * Tests for branch-manifest.jsonl writer (Phase 13.1).
  *
  * The promise this artifact makes: `jq -r '.branch_id' | sort -u | wc -l`
  * is the coverage numerator. These tests pin the schema, the ordering, the
@@ -16,7 +16,7 @@ import {
   buildBranchTraceEvents,
   formatBranchEvent,
   makeBranchId,
-  writeBranchTrace,
+  writeBranchManifest,
   type BranchTraceEvent,
 } from './branch-trace.js';
 import type {
@@ -79,12 +79,12 @@ function sha256Hex(s: string): string {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('writeBranchTrace', () => {
+describe('writeBranchManifest', () => {
   it('1. empty report → empty file (0 lines)', async () => {
     const dir = await tmpdir();
     const r = report({ functions: [] });
-    const out = writeBranchTrace(dir, r);
-    expect(out).toBe(path.join(dir, '.zerou', 'branch-trace.jsonl'));
+    const out = writeBranchManifest(dir, r);
+    expect(out).toBe(path.join(dir, '.zerou', 'branch-manifest.jsonl'));
     expect(fs.readFileSync(out, 'utf8')).toBe('');
   });
 
@@ -94,7 +94,7 @@ describe('writeBranchTrace', () => {
     const r = report({
       functions: [fn({ file: 'src/a.ts', name: 'doThing', line: 5, root })],
     });
-    const out = writeBranchTrace(dir, r);
+    const out = writeBranchManifest(dir, r);
     const text = fs.readFileSync(out, 'utf8');
     const lines = text.split('\n').filter((l) => l.length > 0);
     expect(lines.length).toBe(1);
@@ -111,7 +111,7 @@ describe('writeBranchTrace', () => {
     const r = report({
       functions: [fn({ file: 'src/a.ts', name: 'foo', line: 8, root })],
     });
-    const out = writeBranchTrace(dir, r);
+    const out = writeBranchManifest(dir, r);
     const lines = fs.readFileSync(out, 'utf8').trim().split('\n');
     expect(lines.length).toBe(2);
     const e1 = JSON.parse(lines[0]!) as BranchTraceEvent;
@@ -211,10 +211,10 @@ describe('writeBranchTrace', () => {
         fn({ file: 'src/a.ts', name: 'foo', line: 7, root: node({ id: 'entry', kind: 'entry', lineStart: 7, lineEnd: 7 }) }),
       ],
     });
-    writeBranchTrace(a, mk());
-    writeBranchTrace(b, mk());
-    const ta = fs.readFileSync(path.join(a, '.zerou', 'branch-trace.jsonl'), 'utf8');
-    const tb = fs.readFileSync(path.join(b, '.zerou', 'branch-trace.jsonl'), 'utf8');
+    writeBranchManifest(a, mk());
+    writeBranchManifest(b, mk());
+    const ta = fs.readFileSync(path.join(a, '.zerou', 'branch-manifest.jsonl'), 'utf8');
+    const tb = fs.readFileSync(path.join(b, '.zerou', 'branch-manifest.jsonl'), 'utf8');
     expect(ta).toBe(tb);
     // Files should appear in alphabetical order: src/a.ts before src/b.ts
     const first = JSON.parse(ta.split('\n')[0]!) as BranchTraceEvent;
@@ -237,7 +237,7 @@ describe('writeBranchTrace', () => {
         }),
       ],
     });
-    const out = writeBranchTrace(dir, r);
+    const out = writeBranchManifest(dir, r);
     const lines = fs.readFileSync(out, 'utf8').trim().split('\n');
     let prev = '0'.repeat(64);
     for (const line of lines) {
@@ -257,7 +257,7 @@ describe('writeBranchTrace', () => {
         fn({ file: 's.ts', name: 'f', line: 1, root: node({ id: 'entry', kind: 'entry', lineStart: 1, lineEnd: 1 }) }),
       ],
     });
-    const out = writeBranchTrace(dir, r);
+    const out = writeBranchManifest(dir, r);
     const text = fs.readFileSync(out, 'utf8');
     expect(text.startsWith('[')).toBe(false);
     expect(text.startsWith('{')).toBe(true);
@@ -325,9 +325,9 @@ describe('writeBranchTrace', () => {
         }),
       ],
     });
-    const p1 = writeBranchTrace(dir, r);
+    const p1 = writeBranchManifest(dir, r);
     const t1 = fs.readFileSync(p1, 'utf8');
-    const p2 = writeBranchTrace(dir, r);
+    const p2 = writeBranchManifest(dir, r);
     const t2 = fs.readFileSync(p2, 'utf8');
     expect(p1).toBe(p2);
     expect(t1).toBe(t2);
@@ -336,9 +336,9 @@ describe('writeBranchTrace', () => {
   it('14. returns absolute path under <cwd>/.zerou/', async () => {
     const dir = await tmpdir();
     const r = report({ functions: [] });
-    const out = writeBranchTrace(dir, r);
+    const out = writeBranchManifest(dir, r);
     expect(path.isAbsolute(out)).toBe(true);
-    expect(out).toBe(path.join(dir, '.zerou', 'branch-trace.jsonl'));
+    expect(out).toBe(path.join(dir, '.zerou', 'branch-manifest.jsonl'));
   });
 
   it('15. archived copy is written when runTs is supplied', async () => {
@@ -349,10 +349,10 @@ describe('writeBranchTrace', () => {
           root: node({ id: 'entry', kind: 'entry', lineStart: 1, lineEnd: 1 }) }),
       ],
     });
-    writeBranchTrace(dir, r, '20260527-103000');
-    const archived = path.join(dir, '.zerou', 'runs', '20260527-103000', 'branch-trace.jsonl');
+    writeBranchManifest(dir, r, '20260527-103000');
+    const archived = path.join(dir, '.zerou', 'runs', '20260527-103000', 'branch-manifest.jsonl');
     expect(fs.existsSync(archived)).toBe(true);
-    const stable = fs.readFileSync(path.join(dir, '.zerou', 'branch-trace.jsonl'), 'utf8');
+    const stable = fs.readFileSync(path.join(dir, '.zerou', 'branch-manifest.jsonl'), 'utf8');
     expect(fs.readFileSync(archived, 'utf8')).toBe(stable);
   });
 

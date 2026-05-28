@@ -493,6 +493,133 @@ _Module did not run._
     expect(__internals.parseDuration('bogus')).toBe(0);
   });
 
+  // Phase 14D — branch manifest + trace merge semantics.
+  it('17. branchTraceEvents merges manifest (denominator) with stream (numerator)', async () => {
+    writeFile(path.join(tmp, '.zerou', 'enhance-report.md'), SAMPLE_REPORT_MD);
+    // Manifest: 3 branches, all untested.
+    const manifestLines = [
+      JSON.stringify({
+        ts: '2026-05-28T00:00:00.000Z',
+        trace_id: 'T',
+        event: 'branch.evidence',
+        branch_id: 'a.ts:f@1:if-true-line5-true#1',
+        branch_kind: 'if-true',
+        branch_label: 'auth check',
+        line_start: 5,
+        line_end: 7,
+        'code.function': 'f',
+        'code.file.path': 'a.ts',
+        'code.line.number': 1,
+        signals: { ast: true, spec: false, judge: false, run: null },
+        verdict: 'untested',
+        evidence: { spec_ids: [] },
+        seq: 1,
+      }),
+      JSON.stringify({
+        ts: '2026-05-28T00:00:00.000Z',
+        trace_id: 'T',
+        event: 'branch.evidence',
+        branch_id: 'a.ts:f@1:if-false-line5-false#2',
+        branch_kind: 'if-false',
+        branch_label: 'else',
+        line_start: 8,
+        line_end: 10,
+        'code.function': 'f',
+        'code.file.path': 'a.ts',
+        'code.line.number': 1,
+        signals: { ast: true, spec: false, judge: false, run: null },
+        verdict: 'untested',
+        evidence: { spec_ids: [] },
+        seq: 2,
+      }),
+      JSON.stringify({
+        ts: '2026-05-28T00:00:00.000Z',
+        trace_id: 'T',
+        event: 'branch.evidence',
+        branch_id: 'a.ts:f@1:if-true-line20-true#3',
+        branch_kind: 'if-true',
+        branch_label: 'inner',
+        line_start: 20,
+        line_end: 22,
+        'code.function': 'f',
+        'code.file.path': 'a.ts',
+        'code.line.number': 1,
+        signals: { ast: true, spec: false, judge: false, run: null },
+        verdict: 'untested',
+        evidence: { spec_ids: [] },
+        seq: 3,
+      }),
+    ].join('\n') + '\n';
+    writeFile(path.join(tmp, '.zerou', 'branch-manifest.jsonl'), manifestLines);
+    // Stream: only branch 1 has live state.
+    const streamLines = [
+      JSON.stringify({
+        ts: '2026-05-28T00:01:00.000Z',
+        trace_id: 'T',
+        event: 'branch.evidence',
+        branch_id: 'a.ts:f@1:if-true-line5-true#1',
+        branch_kind: 'if-true',
+        branch_label: 'auth check',
+        line_start: 5,
+        line_end: 7,
+        'code.function': 'f',
+        'code.file.path': 'a.ts',
+        'code.line.number': 1,
+        signals: { ast: true, spec: true, judge: true, run: null },
+        verdict: 'covered',
+        state: 'covered',
+        evidence: { spec_ids: ['s-1'] },
+        seq: 1,
+      }),
+    ].join('\n') + '\n';
+    writeFile(path.join(tmp, '.zerou', 'branch-trace.jsonl'), streamLines);
+    const b = await buildReviewBundle(tmp, { diffFetcher: async () => [] });
+    expect(b.branchTraceEvents).toBeDefined();
+    // 3 unique branches.
+    expect(b.branchTraceEvents!.length).toBe(3);
+    // The branch with live state has state='covered' AND verdict='covered'.
+    const covered = b.branchTraceEvents!.find(
+      (e) => e.branch_id === 'a.ts:f@1:if-true-line5-true#1',
+    );
+    expect(covered!.state).toBe('covered');
+    expect(covered!.verdict).toBe('covered');
+    // Untouched branches still show verdict='untested' and no state.
+    const untouched = b.branchTraceEvents!.find(
+      (e) => e.branch_id === 'a.ts:f@1:if-false-line5-false#2',
+    );
+    expect(untouched!.verdict).toBe('untested');
+    expect(untouched!.state).toBeUndefined();
+  });
+
+  it('18. branchTraceEvents falls back to single file (pre-14D layout)', async () => {
+    writeFile(path.join(tmp, '.zerou', 'enhance-report.md'), SAMPLE_REPORT_MD);
+    // Only the legacy branch-trace.jsonl (no manifest).
+    const legacyLines = [
+      JSON.stringify({
+        ts: '2026-05-27T00:00:00.000Z',
+        trace_id: 'T',
+        event: 'branch.evidence',
+        branch_id: 'a.ts:f@1:legacy#1',
+        branch_kind: 'if-true',
+        branch_label: 'legacy',
+        line_start: 5,
+        line_end: 5,
+        'code.function': 'f',
+        'code.file.path': 'a.ts',
+        'code.line.number': 1,
+        signals: { ast: true, spec: false, judge: false, run: null },
+        verdict: 'untested',
+        evidence: { spec_ids: [] },
+        seq: 1,
+      }),
+    ].join('\n') + '\n';
+    writeFile(path.join(tmp, '.zerou', 'branch-trace.jsonl'), legacyLines);
+    const b = await buildReviewBundle(tmp, { diffFetcher: async () => [] });
+    expect(b.branchTraceEvents).toBeDefined();
+    expect(b.branchTraceEvents!.length).toBe(1);
+    expect(b.branchTraceEvents![0]!.branch_id).toBe('a.ts:f@1:legacy#1');
+  });
+
   it('16. patcher status maps to finding status correctly', async () => {
     writeFile(path.join(tmp, '.zerou', 'enhance-report.md'), SAMPLE_REPORT_MD);
     const b = await buildReviewBundle(tmp, { diffFetcher: async () => [] });

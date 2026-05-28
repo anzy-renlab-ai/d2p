@@ -672,6 +672,17 @@ class StreamHub {
         await this.emitFromTail(p);
         continue;
       }
+      // Phase 14D — manifest is written terminally (atomic rename), so
+      // fire a bundle.refresh + a one-shot branch-trace.append batch for
+      // any new lines (best-effort; the atomic rename usually shows up
+      // as a single big diff).
+      if (p.endsWith('branch-manifest.jsonl')) {
+        this.publish('bundle.refresh', {
+          reason: 'branch-manifest.jsonl written',
+          ts: new Date().toISOString(),
+        });
+        continue;
+      }
       if (p.endsWith('.jsonl') && p.includes(`${path.sep}logs${path.sep}`)) {
         // Derive track from the segment two levels up (.zerou/logs/<track>/<date>/<file>).
         const parts = p.split(path.sep);
@@ -772,6 +783,7 @@ async function streamBranchTrace(
   res: http.ServerResponse,
   cwd: string,
   search: string,
+  fileName: 'branch-trace.jsonl' | 'branch-manifest.jsonl' = 'branch-trace.jsonl',
 ): Promise<void> {
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
   const runTs = params.get('run');
@@ -781,20 +793,20 @@ async function streamBranchTrace(
       sendJson(res, 404, { error: `bad run: ${runTs}` });
       return;
     }
-    filePath = path.join(cwd, '.zerou', 'runs', runTs, 'branch-trace.jsonl');
+    filePath = path.join(cwd, '.zerou', 'runs', runTs, fileName);
     const runsRoot = path.join(cwd, '.zerou', 'runs');
     if (!isInside(runsRoot, filePath)) {
       sendJson(res, 404, { error: 'bad run' });
       return;
     }
   } else {
-    filePath = path.join(cwd, '.zerou', 'branch-trace.jsonl');
+    filePath = path.join(cwd, '.zerou', fileName);
   }
   let stat: fs.Stats;
   try {
     stat = await fsp.stat(filePath);
   } catch {
-    sendJson(res, 404, { error: 'branch-trace.jsonl not found' });
+    sendJson(res, 404, { error: `${fileName} not found` });
     return;
   }
   if (!stat.isFile()) {
@@ -803,7 +815,7 @@ async function streamBranchTrace(
   }
   if (stat.size > MAX_FILE_BYTES) {
     res.writeHead(413, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('branch-trace.jsonl too large');
+    res.end(`${fileName} too large`);
     return;
   }
   const sinceRaw = params.get('since');
@@ -993,7 +1005,13 @@ async function handleRequest(
   }
 
   if (pathname === '/api/branch-trace') {
-    await streamBranchTrace(res, ctx.cwd, search);
+    await streamBranchTrace(res, ctx.cwd, search, 'branch-trace.jsonl');
+    return;
+  }
+
+  // Phase 14D — full AST snapshot (denominator). See branch-trace.ts.
+  if (pathname === '/api/branch-manifest') {
+    await streamBranchTrace(res, ctx.cwd, search, 'branch-manifest.jsonl');
     return;
   }
 

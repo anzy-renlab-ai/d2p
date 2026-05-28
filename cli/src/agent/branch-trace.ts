@@ -1,31 +1,34 @@
 /**
- * Phase 13.1 — branch-trace.jsonl writer.
+ * Phase 13.1 / 14D — branch-manifest.jsonl writer (full AST snapshot).
  *
  * Emits a line-oriented OpenTelemetry-shaped wide-event stream that IS the
- * proof of branch coverage. Each line is one `branch.evidence` event, fully
- * self-describing, with a sha256 hash chain so the file is tamper-evident.
+ * proof of branch coverage DENOMINATOR. Each line is one `branch.evidence`
+ * event, fully self-describing, with a sha256 hash chain so the file is
+ * tamper-evident.
  *
  * The product property this unlocks:
  *
- *   cat .zerou/branch-trace.jsonl | jq -r '.branch_id' | sort -u | wc -l
+ *   cat .zerou/branch-manifest.jsonl | jq -r '.branch_id' | sort -u | wc -l
  *
  * == BranchCoverageReport.summary.branchesTotal. Anyone with `jq` + `sort`
- * + `wc` can verify coverage without trusting any UI / report / screenshot.
+ * + `wc` can verify the denominator without trusting any UI / report.
  *
- * Schema is locked — see docs/reviews/2026-05-27-log-as-proof-prior-art.md
- * §6. Worker 13.2 (coverage CLI) consumes the same shape.
+ * Schema is locked — see docs/reviews/2026-05-27-log-as-proof-prior-art.md §6.
  *
- * Phase 14C — relationship with `BranchTraceStream`:
+ * Phase 14D — split from live stream (was branch-trace.jsonl).
+ *
+ *   - This module emits the FINAL canonical snapshot to
+ *     `.zerou/branch-manifest.jsonl` — every AST branch, terminal verdict,
+ *     hash chain rooted at ZERO. Atomic rename, idempotent on rerun.
+ *     This file is the proof-of-coverage DENOMINATOR.
  *   - `BranchTraceStream` (branch-trace-stream.ts) emits incremental events
- *     DURING audit (state='evaluating' / state='covered' / state='retrying' /
- *     state='mechanical-red' / state='business-red') so the SSE relay can
- *     push them to the UI in real time.
- *   - This module emits the FINAL canonical snapshot — every AST branch,
- *     terminal verdict, hash chain rooted at ZERO. It overwrites whatever
- *     the live stream left on disk (atomic rename), which is intentional:
- *     the final file is the proof-of-coverage artifact that `jq | sort -u
- *     | wc -l` must match `branchesTotal`. The live stream only ever
- *     covers a subset (branches that had specs / patcher attempts).
+ *     DURING audit to a SEPARATE file `.zerou/branch-trace.jsonl`. Each
+ *     event carries a live `state` field (evaluating / covered / retrying /
+ *     mechanical-red / business-red). That file is the live event LOG and
+ *     the coverage NUMERATOR (verdict ∉ {untested, unknown}).
+ *   - Pre-14D consumers wrote both writers to the same file, and the
+ *     terminal writer's atomic rename destroyed the live `state` history.
+ *     Splitting the files fixes that data loss.
  *   - Both writers produce byte-identical events for the same BranchNode
  *     (canonical field order + sha256 over the no-hash form), so any
  *     consumer can verify a single line without knowing which writer
@@ -105,7 +108,8 @@ const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Write the branch-trace.jsonl artifact.
+ * Write the branch-manifest.jsonl artifact (Phase 14D — renamed from
+ * `writeBranchTrace`/`branch-trace.jsonl`).
  *
  * Same `report` → byte-identical file output (modulo the optional archived
  * copy, which uses an independent hash chain rooted at the same seed).
@@ -113,10 +117,10 @@ const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
  * @param cwd  the audited project root
  * @param report the cross-referenced branch coverage report
  * @param runTs optional run timestamp; when supplied an archived copy is
- *   written under `<cwd>/.zerou/runs/<runTs>/branch-trace.jsonl`
+ *   written under `<cwd>/.zerou/runs/<runTs>/branch-manifest.jsonl`
  * @returns absolute path of the stable copy
  */
-export function writeBranchTrace(
+export function writeBranchManifest(
   cwd: string,
   report: BranchCoverageReport,
   runTs?: string,
@@ -128,7 +132,7 @@ export function writeBranchTrace(
   const body = events.map((e) => JSON.stringify(e)).join('\n');
   const fileBody = events.length > 0 ? `${body}\n` : '';
 
-  const stable = path.join(zerouDir, 'branch-trace.jsonl');
+  const stable = path.join(zerouDir, 'branch-manifest.jsonl');
   const tmp = `${stable}.tmp.${process.pid}.${Date.now()}`;
   fs.writeFileSync(tmp, fileBody, 'utf8');
   fs.renameSync(tmp, stable);
@@ -136,11 +140,18 @@ export function writeBranchTrace(
   if (runTs) {
     const archDir = path.join(zerouDir, 'runs', runTs);
     fs.mkdirSync(archDir, { recursive: true });
-    fs.writeFileSync(path.join(archDir, 'branch-trace.jsonl'), fileBody, 'utf8');
+    fs.writeFileSync(path.join(archDir, 'branch-manifest.jsonl'), fileBody, 'utf8');
   }
 
   return stable;
 }
+
+/**
+ * @deprecated Phase 14D — use {@link writeBranchManifest}. This alias remains
+ * for any in-flight callers; it writes to the SAME `branch-manifest.jsonl` path.
+ * Will be removed in a future phase.
+ */
+export const writeBranchTrace = writeBranchManifest;
 
 /**
  * Build the full ordered event list from a coverage report. Pure — exported

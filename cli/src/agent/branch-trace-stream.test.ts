@@ -118,10 +118,14 @@ describe('BranchTraceStream — basics', () => {
     await s.close();
   });
 
-  it('2. open() on existing file resumes seq + prev_hash from tail', async () => {
+  it('2. open() on existing file (truncateOnOpen=false) resumes seq + prev_hash from tail', async () => {
     const cwd = await tmpdir();
-    // First session.
-    const s1 = new BranchTraceStream({ cwd, logger: silentLogger() });
+    // First session — opt out of truncate so we can test resume.
+    const s1 = new BranchTraceStream({
+      cwd,
+      logger: silentLogger(),
+      truncateOnOpen: false,
+    });
     await s1.open();
     const a = await s1.append({ ...baseInput });
     const b = await s1.append({
@@ -132,8 +136,12 @@ describe('BranchTraceStream — basics', () => {
     expect(b.prev_hash).toBe(a.hash);
     await s1.close();
 
-    // Reopen.
-    const s2 = new BranchTraceStream({ cwd, logger: silentLogger() });
+    // Reopen — same opt-out for the resume contract.
+    const s2 = new BranchTraceStream({
+      cwd,
+      logger: silentLogger(),
+      truncateOnOpen: false,
+    });
     await s2.open();
     const c = await s2.append({
       ...baseInput,
@@ -142,6 +150,71 @@ describe('BranchTraceStream — basics', () => {
     expect(c.seq).toBe(3);
     expect(c.prev_hash).toBe(b.hash);
     await s2.close();
+  });
+
+  it('2b. open() with truncateOnOpen=true (default) wipes pre-existing file', async () => {
+    const cwd = await tmpdir();
+    // Seed a stale file.
+    const stale = new BranchTraceStream({
+      cwd,
+      logger: silentLogger(),
+      truncateOnOpen: false,
+    });
+    await stale.open();
+    await stale.append({ ...baseInput, branch_id: 'stale-1' });
+    await stale.append({ ...baseInput, branch_id: 'stale-2' });
+    await stale.close();
+    const stalePath = stale.path;
+    expect(fs.existsSync(stalePath)).toBe(true);
+
+    // Default open — should truncate and start fresh.
+    const fresh = new BranchTraceStream({ cwd, logger: silentLogger() });
+    await fresh.open();
+    const ev = await fresh.append({ ...baseInput, branch_id: 'fresh-1' });
+    expect(ev.seq).toBe(1);
+    expect(ev.prev_hash).toBe('0'.repeat(64));
+    await fresh.close();
+
+    // File should contain ONLY the fresh event.
+    const lines = fs
+      .readFileSync(stalePath, 'utf8')
+      .split('\n')
+      .filter((l) => l.length > 0);
+    expect(lines.length).toBe(1);
+    const parsed = JSON.parse(lines[0]!);
+    expect(parsed.branch_id).toBe('fresh-1');
+  });
+
+  it('2c. truncateOnOpen also wipes the archived mirror when runTs is set', async () => {
+    const cwd = await tmpdir();
+    const runTs = '20260528-010101';
+    // Seed both stable + archived.
+    const stale = new BranchTraceStream({
+      cwd,
+      runTs,
+      logger: silentLogger(),
+      truncateOnOpen: false,
+    });
+    await stale.open();
+    await stale.append({ ...baseInput, branch_id: 'stale-1' });
+    await stale.close();
+    expect(fs.existsSync(stale.archivePath!)).toBe(true);
+
+    const fresh = new BranchTraceStream({
+      cwd,
+      runTs,
+      logger: silentLogger(),
+    });
+    await fresh.open();
+    await fresh.append({ ...baseInput, branch_id: 'fresh-1' });
+    await fresh.close();
+
+    const archiveLines = fs
+      .readFileSync(fresh.archivePath!, 'utf8')
+      .split('\n')
+      .filter((l) => l.length > 0);
+    expect(archiveLines.length).toBe(1);
+    expect(JSON.parse(archiveLines[0]!).branch_id).toBe('fresh-1');
   });
 
   it('3. append() emits well-formed event with monotonic seq + hash chain', async () => {

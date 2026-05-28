@@ -158,35 +158,71 @@ export async function buildReviewBundle(
   };
 }
 
-/** Read .zerou/branch-trace.jsonl into a UI-ready array. */
+/**
+ * Phase 14D — read .zerou/branch-manifest.jsonl (AST snapshot, denominator)
+ * AND .zerou/branch-trace.jsonl (live stream with `state` field) and merge
+ * them into a single UI-ready array.
+ *
+ * Merge semantics:
+ *   - Every entry from manifest is included (so the UI sees ALL branches).
+ *   - Entries from stream override the manifest entry by branch_id — the
+ *     stream's verdict + `state` field is fresher and richer.
+ *   - Backward compat: if only branch-trace.jsonl exists (pre-14D layout),
+ *     treat it as the manifest (its events were terminal-verdict events).
+ *   - hash / prev_hash dropped to keep bundle small.
+ */
 function loadBranchTraceEvents(
   zerouDir: string,
   onWarn: (event: string, detail?: unknown) => void,
 ): import('./review-data-types.js').BranchTraceEventLite[] | undefined {
-  const p = path.join(zerouDir, 'branch-trace.jsonl');
-  if (!fs.existsSync(p)) return undefined;
-  try {
-    const text = fs.readFileSync(p, 'utf8');
-    const out: import('./review-data-types.js').BranchTraceEventLite[] = [];
-    for (const line of text.split(/\r?\n/)) {
-      const t = line.trim();
-      if (!t) continue;
-      try {
-        const evt = JSON.parse(t);
-        if (evt && typeof evt.branch_id === 'string') {
-          // Drop hash + prev_hash to keep bundle small; UI doesn't need them.
-          const { hash: _h, prev_hash: _ph, ...lite } = evt;
-          out.push(lite);
+  type Lite = import('./review-data-types.js').BranchTraceEventLite;
+  const manifestPath = path.join(zerouDir, 'branch-manifest.jsonl');
+  const tracePath = path.join(zerouDir, 'branch-trace.jsonl');
+  const manifestExists = fs.existsSync(manifestPath);
+  const traceExists = fs.existsSync(tracePath);
+  if (!manifestExists && !traceExists) return undefined;
+
+  const readLines = (p: string): Lite[] => {
+    const out: Lite[] = [];
+    try {
+      const text = fs.readFileSync(p, 'utf8');
+      for (const line of text.split(/\r?\n/)) {
+        const t = line.trim();
+        if (!t) continue;
+        try {
+          const evt = JSON.parse(t);
+          if (evt && typeof evt.branch_id === 'string') {
+            const { hash: _h, prev_hash: _ph, ...lite } = evt;
+            out.push(lite as Lite);
+          }
+        } catch {
+          /* skip malformed */
         }
-      } catch {
-        /* skip malformed */
       }
+    } catch (e) {
+      onWarn('review-data.branch-trace-read-failed', {
+        path: p,
+        error: (e as Error).message,
+      });
     }
     return out;
-  } catch (e) {
-    onWarn('review-data.branch-trace-read-failed', { error: (e as Error).message });
-    return undefined;
-  }
+  };
+
+  // Backward compat: if only one file exists, return its events as-is.
+  if (manifestExists && !traceExists) return readLines(manifestPath);
+  if (!manifestExists && traceExists) return readLines(tracePath);
+
+  // Both files exist — merge.
+  const manifestEvents = readLines(manifestPath);
+  const streamEvents = readLines(tracePath);
+  // Index manifest by branch_id; stream entries override.
+  const byId = new Map<string, Lite>();
+  for (const ev of manifestEvents) byId.set(ev.branch_id, ev);
+  // Stream is append-only and may contain multiple events per branch_id
+  // (evaluating → covered). Latest event wins so the UI sees the most
+  // recent state. (Insertion order in JSONL == chronological order.)
+  for (const ev of streamEvents) byId.set(ev.branch_id, ev);
+  return [...byId.values()];
 }
 
 /**

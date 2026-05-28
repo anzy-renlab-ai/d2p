@@ -716,16 +716,18 @@ async function doAudit(
         path: branchPath,
       });
 
-      // Phase 13.1: emit branch-trace.jsonl — line-oriented OTel-shaped
-      // wide-event stream whose `branch_id`s are the proof of coverage.
-      // `cat branch-trace.jsonl | jq -r '.branch_id' | sort -u | wc -l`
-      // == branchReport.summary.branchesTotal.
-      const { writeBranchTrace } = await import('./agent/branch-trace.js');
-      const tracePath = writeBranchTrace(repoInfo.cwd, branchReport);
-      logBranch(testLogger, 'agent.branch-trace.persist', {
+      // Phase 14D: emit branch-manifest.jsonl — line-oriented OTel-shaped
+      // wide-event stream whose `branch_id`s are the proof-of-coverage
+      // DENOMINATOR. Split from branch-trace.jsonl so the live stream's
+      // `state` history (the NUMERATOR) is not destroyed by the terminal
+      // writer's atomic rename. `cat branch-manifest.jsonl | jq -r
+      // '.branch_id' | sort -u | wc -l` == branchReport.summary.branchesTotal.
+      const { writeBranchManifest } = await import('./agent/branch-trace.js');
+      const manifestPath = writeBranchManifest(repoInfo.cwd, branchReport);
+      logBranch(testLogger, 'agent.branch-manifest.persist', {
         decision: 'written',
         reasoning: `${branchReport.summary.branchesTotal} branch events`,
-        path: tracePath,
+        path: manifestPath,
       });
     } catch (e) {
       logCatch(testLogger, 'agent.branch-coverage.error', e);
