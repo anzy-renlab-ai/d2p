@@ -36,14 +36,61 @@ export interface ChecklistOptions {
 }
 
 /**
- * v1 preset-id → AuditCategory mapping. Hard-coded; expand when new
- * presets ship. Any category not present here has no preset coverage.
+ * Preset-id → AuditCategory mapping. Used to classify each loaded preset into
+ * one of the 12 canonical audit categories for checklist output. Presets with
+ * IDs not present here default to `'secrets'` for legacy preset families
+ * matching that pattern, otherwise are bucketed into the closest category
+ * inferred from the id.
+ *
+ * Phase 16: expanded so every rule-bearing preset (after Workers B/C/D) gets
+ * a category. The categorisation is informational — actual *inclusion* decision
+ * is `appliesTo` + ProjectProfile based via `presetAppliesToProfile`.
  */
 const PRESET_TO_CATEGORY: Record<string, AuditCategory> = {
   'secrets-leak': 'secrets',
   'no-hardcoded-llm-keys': 'secrets',
   'supabase-rls': 'db',
+  'supabase-rls-missing': 'db',
+  'db-injection': 'db',
+  'auth-weakness': 'auth',
+  'authz-bola': 'authz',
+  'security-cors-csp': 'security',
+  'xss-injection': 'security',
+  'ssrf-path-traversal': 'security',
+  'command-injection': 'security',
+  'crypto-misuse': 'security',
+  'observability-missing': 'observability',
+  'error-handling': 'error-handling',
+  'async-pitfalls': 'error-handling',
+  'type-safety-holes': 'error-handling',
+  'tests-missing': 'tests',
+  'perf-issues': 'perf',
+  'llm-cost-uncapped': 'llm-cost',
+  'gdpr-compliance': 'gdpr',
+  'deploy-incident': 'deploy-incident',
 };
+
+/** Best-effort inference for a preset id we don't know about. */
+function inferCategory(presetId: string): AuditCategory {
+  const id = presetId.toLowerCase();
+  if (id.includes('secret') || id.includes('key')) return 'secrets';
+  if (id.includes('auth') && !id.includes('authz')) return 'auth';
+  if (id.includes('authz') || id.includes('bola') || id.includes('idor')) return 'authz';
+  if (id.includes('sql') || id.includes('db') || id.includes('supabase')) return 'db';
+  if (id.includes('cors') || id.includes('xss') || id.includes('ssrf') || id.includes('crypto') || id.includes('inject')) return 'security';
+  if (id.includes('observ') || id.includes('log') || id.includes('monitor')) return 'observability';
+  if (id.includes('error') || id.includes('async') || id.includes('type')) return 'error-handling';
+  if (id.includes('test')) return 'tests';
+  if (id.includes('perf')) return 'perf';
+  if (id.includes('llm') || id.includes('cost')) return 'llm-cost';
+  if (id.includes('gdpr') || id.includes('privacy')) return 'gdpr';
+  if (id.includes('deploy') || id.includes('incident')) return 'deploy-incident';
+  return 'security';
+}
+
+function categoryForPreset(presetId: string): AuditCategory {
+  return PRESET_TO_CATEGORY[presetId] ?? inferCategory(presetId);
+}
 
 function categoryToPresetIds(
   category: AuditCategory,
@@ -51,54 +98,154 @@ function categoryToPresetIds(
 ): string[] {
   const ids: string[] = [];
   for (const p of available) {
-    const mapped = PRESET_TO_CATEGORY[p.manifest.id];
-    if (mapped === category) ids.push(p.manifest.id);
+    if (categoryForPreset(p.manifest.id) === category) ids.push(p.manifest.id);
   }
   return ids;
 }
 
+/**
+ * Decides whether a preset applies to the given project profile.
+ *
+ * - Empty `appliesTo` array → "applies to all" — always true.
+ * - Non-empty array → at least one entry must match the profile via
+ *   `profileMatches`.
+ * - If the profile is fully unknown (no framework signal AND no backend AND
+ *   no language detected), be permissive: we don't know enough to filter, so
+ *   dispatch all presets rather than dropping every one. This keeps the
+ *   useful-by-default behavior intact for the fallback detector and for repos
+ *   we couldn't classify (audit value > false-negative risk).
+ */
+export function presetAppliesToProfile(
+  preset: LoadedPreset,
+  profile: ProjectProfile,
+): boolean {
+  const targets = preset.manifest.appliesTo ?? [];
+  if (targets.length === 0) return true;
+  if (isProfileFullyUnknown(profile)) return true;
+  return targets.some((t) => profileMatches(profile, t));
+}
+
+function isProfileFullyUnknown(profile: ProjectProfile): boolean {
+  const fw = (profile.framework ?? '').toLowerCase();
+  const langs = (profile.language ?? []).map((l) => l.toLowerCase());
+  return (
+    (fw === 'unknown' || fw === '') &&
+    !profile.backend &&
+    (langs.length === 0 || (langs.length === 1 && langs[0] === 'unknown'))
+  );
+}
+
+/**
+ * Maps a ProjectProfile to one of the project-type buckets used in `appliesTo`
+ * arrays: 'saas-web' | 'api-service' | 'cli-tool' | 'library' | 'static-site' |
+ * 'unknown'.
+ *
+ * Heuristics:
+ *   - next.js / vite / nuxt + a backend → saas-web (browser + server present)
+ *   - express / fastify / koa / nest / hono → api-service
+ *   - has bin field (we approximate via framework='cli'-ish) → cli-tool
+ *   - library = none of the above + no backend
+ *   - static-site = vite/eleventy/astro without backend
+ */
+export function profileMatches(profile: ProjectProfile, target: string): boolean {
+  const fw = (profile.framework ?? '').toLowerCase();
+  const backend = (profile.backend ?? '').toLowerCase();
+  const hasBackend =
+    backend.length > 0 ||
+    fw === 'express' ||
+    fw === 'fastify' ||
+    fw === 'koa' ||
+    fw === 'nest' ||
+    fw === 'hono';
+
+  switch (target) {
+    case 'saas-web':
+      // Browser-rendering framework + some kind of server / backend.
+      if (fw === 'next.js' || fw === 'nuxt' || fw === 'remix' || fw === 'sveltekit') return true;
+      if ((fw === 'vite' || fw === 'astro') && hasBackend) return true;
+      return false;
+    case 'api-service':
+      if (fw === 'express' || fw === 'fastify' || fw === 'koa' || fw === 'nest' || fw === 'hono') return true;
+      // Next.js with API routes also acts as an API service.
+      if (fw === 'next.js') return true;
+      if (backend === 'custom-express' || backend === 'supabase' || backend === 'firebase') return true;
+      return false;
+    case 'cli-tool':
+      // Heuristic: framework is "cli" or evidence flags a bin entry. We don't
+      // (yet) probe package.json.bin in detectProject, so this is best-effort.
+      if (fw === 'cli' || fw === 'cli-tool') return true;
+      if (profile.evidence && 'bin' in profile.evidence) return true;
+      return false;
+    case 'library':
+      // No framework, no backend, no app endpoints — likely a library / SDK.
+      if (fw === 'unknown' && !hasBackend) return true;
+      return false;
+    case 'static-site':
+      if ((fw === 'vite' || fw === 'astro' || fw === 'eleventy' || fw === 'hugo' || fw === 'jekyll') && !hasBackend) return true;
+      return false;
+    case 'unknown':
+      return fw === 'unknown';
+    default:
+      // Unknown target string — be permissive (don't accidentally drop a preset).
+      return true;
+  }
+}
+
 // ── Deterministic fallback ─────────────────────────────────────────────────
 
+/**
+ * Build a deterministic checklist by including every loaded preset whose
+ * `appliesTo` array either matches the project profile or is empty
+ * ("applies to all"). Each preset gets bucketed into one of the 12 canonical
+ * categories for reporting purposes via `categoryForPreset`.
+ *
+ * Phase 16 change: previously this only mapped 3 preset IDs to categories,
+ * causing 16 of the 19 on-disk presets to be dropped before dispatch. Now we
+ * include every preset whose appliesTo matches.
+ */
 function deterministicChecklist(
   profile: ProjectProfile,
   availablePresets: LoadedPreset[],
 ): ChecklistItem[] {
+  // Step 1: bucket presets into categories based on appliesTo + profile match.
+  const byCategory = new Map<AuditCategory, string[]>();
+  for (const p of availablePresets) {
+    if (!presetAppliesToProfile(p, profile)) continue;
+    const cat = categoryForPreset(p.manifest.id);
+    const existing = byCategory.get(cat) ?? [];
+    existing.push(p.manifest.id);
+    byCategory.set(cat, existing);
+  }
+
+  // Step 2: emit one ChecklistItem per canonical category. Categories with at
+  // least one included preset are dispatched; others are skipped.
   const items: ChecklistItem[] = [];
   for (const category of ALL_AUDIT_CATEGORIES) {
-    const presetIds = categoryToPresetIds(category, availablePresets);
+    const presetIds = byCategory.get(category) ?? [];
     if (presetIds.length === 0) {
-      items.push({
-        category,
-        priority: 'skip',
-        reasoning: 'no-preset-coverage-v1',
-        presetIds: [],
-      });
-      continue;
-    }
-    // Special-case the 'db' category: only include if backend looks DB-shaped.
-    if (category === 'db') {
-      if (profile.backend === 'supabase' || profile.backend === 'firebase') {
+      // Was a category that previously had presets but they were filtered out?
+      const allForCategory = categoryToPresetIds(category, availablePresets);
+      if (allForCategory.length === 0) {
         items.push({
           category,
-          priority: 'high',
-          reasoning: `backend=${profile.backend}; ${presetIds.join(',')} preset applies`,
-          presetIds,
+          priority: 'skip',
+          reasoning: 'no-preset-coverage',
+          presetIds: [],
         });
       } else {
         items.push({
           category,
           priority: 'skip',
-          reasoning: `backend=${profile.backend ?? 'none'}; no DB preset applicable`,
+          reasoning: `presets ${allForCategory.join(',')} appliesTo did not match profile (framework=${profile.framework}, backend=${profile.backend ?? 'none'})`,
           presetIds: [],
         });
       }
       continue;
     }
-    // Otherwise include with medium priority.
     items.push({
       category,
       priority: 'medium',
-      reasoning: `${presetIds.join(',')} preset covers ${category} for this project`,
+      reasoning: `${presetIds.join(',')} preset(s) cover ${category} for this project`,
       presetIds,
     });
   }

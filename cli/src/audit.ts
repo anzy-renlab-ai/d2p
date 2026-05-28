@@ -1156,8 +1156,21 @@ async function resolvePresets(
         break;
       }
     }
+    // Phase 16 dedupe (per docs/reviews/2026-05-28-preset-coverage-gap.md §3):
+    // When the markdown preset `secrets-leak` is loaded, drop the built-in
+    // HARDCODED_KEY_PRESET — both fire on the same lines, producing duplicate
+    // findings the scorer counts as false positives. The markdown preset
+    // covers the same ground with stable `presetId.ruleId` keys the
+    // ground-truth uses.
+    const hasMarkdownSecretsLeak = markdownPresets.some(
+      (p) => p.manifest.id === 'secrets-leak',
+    );
     const hardcodedIds = new Set([HARDCODED_KEY_PRESET.manifest.id]);
     const newFromMd = markdownPresets.filter((p) => !hardcodedIds.has(p.manifest.id));
+    if (hasMarkdownSecretsLeak) {
+      // Built-in shadowed by markdown — only markdown presets dispatch.
+      return newFromMd;
+    }
     return [HARDCODED_KEY_PRESET, ...newFromMd];
   }
   const out: LoadedPreset[] = [];

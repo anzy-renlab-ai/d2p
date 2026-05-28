@@ -69,12 +69,77 @@ rules:
       kind: llm-only
       command: "echo 'manual remediation: emit logger.info({ userId, action, payload }) at the top of every mutating handler. Use a structured logger, not console.'"
       verifyCommand: "echo 'manual review required'"
+  - ruleId: request-no-logger
+    label: Express / Fastify / Koa app bootstrap with no request logger middleware
+    severity: P2
+    mechanism: llm-judgment
+    source: observability-missing/v2
+    rationale: "Without `pino-http` / `morgan` / `@fastify/request-logger` / `koa-pino-logger`, no per-request log line is emitted. Operators cannot tell which requests arrived, how long they took, or what status they returned. The LLM verifies an app instance exists and no logger middleware was attached."
+    detection:
+      pattern: (express|fastify|koa|hono|nestFactory)\s*\(
+      filePattern: src/**/*.{ts,tsx,js,jsx,mjs,cjs}
+    fix:
+      kind: llm-only
+      command: "echo 'manual remediation: install pino-http and app.use(pinoHttp({ logger })); each request will now log method/url/status/latency as JSON'"
+      verifyCommand: "grep -rE 'pino-http|pinoHttp|morgan|@fastify/request-logger|koa-pino-logger' src/"
+  - ruleId: no-correlation-id
+    label: No request / correlation ID propagation in handlers
+    severity: P3
+    mechanism: llm-judgment
+    source: observability-missing/v2
+    rationale: "Without an `X-Request-Id` (or `traceparent`) propagated through logs and outbound calls, debugging a single failing request requires manual log grep across services. Generate / accept a correlation ID at the edge, store on `req.id`, include in every log line and every outbound fetch header."
+    detection:
+      pattern: (x-request-id|X-Request-Id|requestId|correlationId|traceparent|trace-id)
+      filePattern: src/**/*.{ts,tsx,js,jsx,mjs,cjs}
+    fix:
+      kind: llm-only
+      command: "echo 'manual remediation: install express-request-id (or hand-rolled middleware); attach req.id; include in logger.child({reqId}) and outbound fetch headers'"
+      verifyCommand: "echo 'manual review required'"
+  - ruleId: metric-instrumentation-missing
+    label: No metrics SDK (prom-client / OpenTelemetry / Datadog APM) referenced anywhere
+    severity: P3
+    mechanism: llm-judgment
+    source: observability-missing/v2
+    rationale: "Logs answer 'what happened to this one request'; metrics answer 'what is the current 99th percentile latency'. Without a metrics SDK (prom-client, @opentelemetry/api, dd-trace, statsd) operators cannot alert on regressions before users notice. Pick one and expose `/metrics` or auto-export to a backend."
+    detection:
+      pattern: (prom-client|@opentelemetry|dd-trace|statsd|@datadog/datadog-ci|@newrelic)
+      filePattern: package.json
+    fix:
+      kind: llm-only
+      command: "echo 'manual remediation: install prom-client (self-hosted Prometheus) or @opentelemetry/sdk-node + auto-instrumentations (vendor-neutral). Expose GET /metrics for Prometheus scraping.'"
+      verifyCommand: "grep -E 'prom-client|@opentelemetry|dd-trace|statsd' package.json"
+  - ruleId: stdout-not-stderr-for-errors
+    label: Error-level log routed to console.log instead of console.error
+    severity: P3
+    mechanism: static-grep
+    source: observability-missing/v2
+    rationale: "`console.log` writes to stdout; `console.error` writes to stderr. Many log shippers (journald, Docker, k8s logging drivers) tag stream as `stdout`/`stderr` and severity defaults follow. Sending errors to stdout means alerting rules that filter on stream lose them. Use the structured logger; failing that, route errors to `console.error`."
+    detection:
+      pattern: console\.log\s*\(\s*['"`][^'"`]*(error|fail|exception|crash|panic|fatal)
+      filePattern: src/**/*.{ts,tsx,js,jsx,mjs,cjs}
+    fix:
+      kind: template
+      command: "echo 'manual remediation: route errors via logger.error(...) (structured) or at minimum console.error(...)'"
+      verifyCommand: "! grep -riE 'console\\.log\\s*\\(\\s*[\\`'\\''\"][^\\`'\\''\"]*(error|fail|exception|crash|panic|fatal)' src/"
+  - ruleId: stack-trace-in-prod-response
+    label: res.send(error.stack) — stack trace echoed to client
+    severity: P1
+    mechanism: static-grep
+    source: observability-missing/v2
+    rationale: "`res.send(err.stack)` (or `res.write(err.stack)`) shows the client every file path, library version, and function name in the call chain. In production this is an information disclosure that aids attackers fingerprinting your stack and finding internal endpoints. Log server-side, return a generic envelope."
+    detection:
+      pattern: res\.(send|write|end|json)\s*\([^)]*\.stack\b
+      filePattern: src/**/*.{ts,tsx,js,jsx,mjs,cjs}
+    fix:
+      kind: template
+      command: "echo 'manual remediation: logger.error({err}, \"handler failed\"); res.status(500).json({error: \"internal_error\", requestId})'"
+      verifyCommand: "! grep -rE 'res\\.(send|write|end|json)\\s*\\([^)]*\\.stack\\b' src/"
 ---
 
 # Observability gap check
 
-Silent failures are the worst failures. This preset finds five common
-observability gaps that turn debuggable incidents into multi-hour outages:
+Silent failures are the worst failures. This preset finds the observability
+gaps that turn debuggable incidents into multi-hour outages:
 
 1. **`silent-catch-block`** — `catch (e) {}` erases failure signal.
 2. **`console-log-in-prod-paths`** — unstructured logs cannot be queried or
@@ -85,6 +150,16 @@ observability gaps that turn debuggable incidents into multi-hour outages:
    `/health` to route traffic safely.
 5. **`mutating-endpoint-without-log`** — write paths must log so incident
    responders can reconstruct timelines.
+6. **`request-no-logger`** — app bootstrap with no pino-http / morgan; no
+   per-request line means you cannot tell what arrived.
+7. **`no-correlation-id`** — without a request id propagated to logs and
+   outbound calls, single-request debugging requires manual log grep.
+8. **`metric-instrumentation-missing`** — no prom-client / OpenTelemetry
+   / Datadog; you only learn about a regression from a user report.
+9. **`stdout-not-stderr-for-errors`** — error logs on stdout bypass
+   alerting rules that filter by stream.
+10. **`stack-trace-in-prod-response`** — `res.send(e.stack)` fingerprints
+    your stack to the client.
 
 ## Remediation
 

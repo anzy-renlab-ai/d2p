@@ -77,7 +77,11 @@ afterEach(() => {
 });
 
 describe('buildChecklist — deterministic path', () => {
-  it('without critic key, marks secrets/db included and others skip-no-preset (supabase profile)', async () => {
+  it('with saas-web profile, includes every preset whose appliesTo matches', async () => {
+    // Phase 16: deterministic checklist now dispatches every loaded preset
+    // whose appliesTo matches the profile (or is empty). The fake preset()
+    // helper builds presets with appliesTo: ['saas-web']; the saas-web
+    // profile (next.js + supabase) matches both, so both should be included.
     const cwd = await tmpdir();
     try {
       const logger = makeLogger(cwd);
@@ -97,12 +101,11 @@ describe('buildChecklist — deterministic path', () => {
       expect(secrets?.presetIds).toEqual(['secrets-leak']);
 
       const db = items.find((i) => i.category === 'db');
-      expect(db?.priority).toBe('high');
+      expect(db?.priority).toBe('medium');
       expect(db?.presetIds).toEqual(['supabase-rls']);
 
       const auth = items.find((i) => i.category === 'auth');
       expect(auth?.priority).toBe('skip');
-      expect(auth?.reasoning).toBe('no-preset-coverage-v1');
 
       const log = readAgentLog(cwd);
       const events = log.map((e) => e.event);
@@ -118,14 +121,23 @@ describe('buildChecklist — deterministic path', () => {
     }
   });
 
-  it('without supabase backend, db category is skipped even when supabase-rls preset is available', async () => {
+  it('with appliesTo: [] preset, includes preset regardless of profile', async () => {
+    // Phase 16: presets with empty appliesTo apply to all projects. The
+    // markdown loader emits appliesTo: [] for most rule-bearing presets so
+    // they run everywhere.
     const cwd = await tmpdir();
     try {
+      const alwaysOn: LoadedPreset = {
+        manifest: { id: 'db-injection', version: 2, appliesTo: [], rules: [], body: '' },
+        source: 'plugin',
+        resolvedPath: '/fake/db-injection.md',
+        shadowedBy: [],
+      };
       const profile: ProjectProfile = { ...baseProfile, backend: null };
       const logger = makeLogger(cwd);
       const items = await buildChecklist({
         profile,
-        availablePresets: [preset('secrets-leak'), preset('supabase-rls')],
+        availablePresets: [alwaysOn],
         logger,
         criticConfig: null,
         criticApiKey: null,
@@ -133,11 +145,118 @@ describe('buildChecklist — deterministic path', () => {
       await logger.flush();
 
       const db = items.find((i) => i.category === 'db');
-      expect(db?.priority).toBe('skip');
-      expect(db?.presetIds).toEqual([]);
+      expect(db?.priority).toBe('medium');
+      expect(db?.presetIds).toEqual(['db-injection']);
     } finally {
       await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
     }
+  });
+
+  it('with appliesTo: [saas-web], skips preset when profile is cli-only', async () => {
+    // Phase 16: presets with explicit appliesTo are filtered by profile match.
+    const cwd = await tmpdir();
+    try {
+      const saasOnly: LoadedPreset = {
+        manifest: {
+          id: 'auth-weakness',
+          version: 2,
+          appliesTo: ['saas-web', 'api-service'],
+          rules: [],
+          body: '',
+        },
+        source: 'plugin',
+        resolvedPath: '/fake/auth-weakness.md',
+        shadowedBy: [],
+      };
+      const profile: ProjectProfile = {
+        framework: 'cli-tool',
+        backend: null,
+        language: ['typescript'],
+        hasGit: true,
+        hasTests: false,
+        hasEnvFile: false,
+        packageMgr: 'npm',
+        evidence: { bin: 'true' },
+      };
+      const logger = makeLogger(cwd);
+      const items = await buildChecklist({
+        profile,
+        availablePresets: [saasOnly],
+        logger,
+        criticConfig: null,
+        criticApiKey: null,
+      });
+      await logger.flush();
+
+      const auth = items.find((i) => i.category === 'auth');
+      expect(auth?.priority).toBe('skip');
+      expect(auth?.presetIds).toEqual([]);
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+});
+
+describe('profileMatches', () => {
+  it('matches next.js project to saas-web', async () => {
+    const { profileMatches } = await import('./checklist-builder.js');
+    const profile: ProjectProfile = {
+      framework: 'next.js',
+      backend: null,
+      language: ['typescript'],
+      hasGit: true,
+      hasTests: false,
+      hasEnvFile: false,
+      packageMgr: 'npm',
+      evidence: {},
+    };
+    expect(profileMatches(profile, 'saas-web')).toBe(true);
+  });
+
+  it('matches express project to api-service', async () => {
+    const { profileMatches } = await import('./checklist-builder.js');
+    const profile: ProjectProfile = {
+      framework: 'express',
+      backend: 'custom-express',
+      language: ['javascript'],
+      hasGit: true,
+      hasTests: false,
+      hasEnvFile: false,
+      packageMgr: 'npm',
+      evidence: {},
+    };
+    expect(profileMatches(profile, 'api-service')).toBe(true);
+  });
+
+  it('does NOT match cli-only project to saas-web', async () => {
+    const { profileMatches } = await import('./checklist-builder.js');
+    const profile: ProjectProfile = {
+      framework: 'cli-tool',
+      backend: null,
+      language: ['typescript'],
+      hasGit: true,
+      hasTests: false,
+      hasEnvFile: false,
+      packageMgr: 'npm',
+      evidence: { bin: 'true' },
+    };
+    expect(profileMatches(profile, 'saas-web')).toBe(false);
+    expect(profileMatches(profile, 'cli-tool')).toBe(true);
+  });
+
+  it('matches library profile to library target', async () => {
+    const { profileMatches } = await import('./checklist-builder.js');
+    const profile: ProjectProfile = {
+      framework: 'unknown',
+      backend: null,
+      language: ['typescript'],
+      hasGit: true,
+      hasTests: false,
+      hasEnvFile: false,
+      packageMgr: 'npm',
+      evidence: {},
+    };
+    expect(profileMatches(profile, 'library')).toBe(true);
   });
 });
 

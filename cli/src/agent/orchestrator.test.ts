@@ -176,6 +176,40 @@ describe('orchestrator.runOrchestrator', () => {
     expect(HARDCODED_SUPABASE_RLS_PRESET.manifest.rules.length).toBeGreaterThan(0);
   });
 
+  it('dedupes HARDCODED_KEY_PRESET when secrets-leak markdown preset is present', async () => {
+    // Phase 16: when both the built-in HARDCODED_KEY_PRESET and the markdown
+    // secrets-leak preset are passed, the orchestrator drops the built-in
+    // (per docs/reviews/2026-05-28-preset-coverage-gap.md §3) — both fire on
+    // the same lines so keeping both inflates false positives.
+    const logger = createTrackLogger('cli', { silent: true });
+    const stubRun = async () => [] as VerdictedFinding[];
+    const mdSecretsLeak = {
+      manifest: {
+        id: 'secrets-leak',
+        version: 2,
+        appliesTo: [],
+        rules: [],
+        body: '',
+      },
+      source: 'plugin' as const,
+      resolvedPath: '/fake/secrets-leak.md',
+      shadowedBy: [],
+    };
+    const result = await runOrchestrator({
+      cwd: '/tmp',
+      config: { worker, criticPool: [], failOn: 'none' },
+      logger,
+      applyMode: false,
+      presets: [HARDCODED_KEY_PRESET, mdSecretsLeak],
+      deps: {
+        runPresetFn: stubRun as unknown as never,
+      },
+    });
+    const presetIds = result.evidenceBundle.audit.presets.map((p) => p.id);
+    expect(presetIds).toContain('secrets-leak');
+    expect(presetIds).not.toContain(HARDCODED_KEY_PRESET.manifest.id);
+  });
+
   it('uses HARDCODED_KEY_PRESET + HARDCODED_SUPABASE_RLS_PRESET as defaults', async () => {
     const logger = createTrackLogger('cli', { silent: true });
     const stubRun = async () => [] as VerdictedFinding[];

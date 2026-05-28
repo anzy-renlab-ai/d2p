@@ -31,7 +31,8 @@ import {
   runIterationLoop,
   type IterationResult,
 } from './iteration-loop.js';
-import type { ChecklistItem, ProjectProfile } from './types.js';
+import type { ChecklistItem, ProjectProfile, AuditCategory } from './types.js';
+import { presetAppliesToProfile } from './checklist-builder.js';
 
 /** Minimal config slice the orchestrator needs. Track D substitutes ResolvedConfig. */
 export interface OrchestratorConfig {
@@ -138,7 +139,18 @@ async function fallbackDetectProject(args: {
   return profile;
 }
 
-/** Default checklist builder — picks `secrets` + `db` categories. */
+/**
+ * Default checklist builder.
+ *
+ * Phase 16: dispatch EVERY loaded preset whose `appliesTo` matches the detected
+ * project profile (or is empty, meaning "applies to all"). Each preset
+ * contributes one ChecklistItem keyed by the preset id so the iteration loop
+ * runs every matching rule set.
+ *
+ * Previously this only added `no-hardcoded-llm-keys` + `supabase-rls-missing`,
+ * which dropped 16 of 19 on-disk presets before dispatch. See
+ * `docs/reviews/2026-05-28-preset-coverage-gap.md` §4.
+ */
 async function fallbackBuildChecklist(args: {
   profile: ProjectProfile;
   availablePresets: LoadedPreset[];
@@ -150,34 +162,37 @@ async function fallbackBuildChecklist(args: {
   });
 
   const items: ChecklistItem[] = [];
-  // Default high-signal items: secrets always; supabase-rls if preset available.
-  const secretsPreset = args.availablePresets.find(
-    (p) => p.manifest.id === 'no-hardcoded-llm-keys',
-  );
-  if (secretsPreset) {
-    const item: ChecklistItem = {
-      category: 'secrets',
-      priority: 'high',
-      reasoning: 'every project ships with hardcoded-secret risk',
-      presetIds: [secretsPreset.manifest.id],
-    };
-    items.push(item);
-    args.logger.log('info', 'agent.category.included', {
-      category: item.category,
-      priority: item.priority,
-      reasoning: item.reasoning,
+  let skippedCount = 0;
+  for (const p of args.availablePresets) {
+    const id = p.manifest.id;
+    const targets = p.manifest.appliesTo ?? [];
+    if (!presetAppliesToProfile(p, args.profile)) {
+      args.logger.log('info', 'agent.orchestrator.checklist.preset-skipped', {
+        presetId: id,
+        reason: 'appliesTo-no-match',
+        appliesTo: targets,
+        framework: args.profile.framework,
+        backend: args.profile.backend,
+      });
+      skippedCount++;
+      continue;
+    }
+    const matched = targets.length === 0 ? 'always' : targets.join(',');
+    args.logger.log('info', 'agent.orchestrator.checklist.preset-included', {
+      presetId: id,
+      matched,
     });
-  }
-
-  const rlsPreset = args.availablePresets.find(
-    (p) => p.manifest.id === 'supabase-rls-missing',
-  );
-  if (rlsPreset) {
+    const category: AuditCategory =
+      id === 'no-hardcoded-llm-keys' || id === 'secrets-leak'
+        ? 'secrets'
+        : id.startsWith('supabase-rls') || id === 'db-injection'
+          ? 'db'
+          : 'security';
     const item: ChecklistItem = {
-      category: 'db',
-      priority: 'medium',
-      reasoning: 'supabase-rls-missing preset is available',
-      presetIds: [rlsPreset.manifest.id],
+      category,
+      priority: targets.length === 0 ? 'medium' : 'high',
+      reasoning: `preset ${id} matched (${matched})`,
+      presetIds: [id],
     };
     items.push(item);
     args.logger.log('info', 'agent.category.included', {
@@ -189,7 +204,7 @@ async function fallbackBuildChecklist(args: {
 
   args.logger.log('info', 'agent.checklist.complete', {
     includedCount: items.length,
-    skippedCount: 0,
+    skippedCount,
   });
   return items;
 }
@@ -221,10 +236,25 @@ export async function runOrchestrator(
   }
 
   // Presets — default to the two hardcoded ones for v1.
-  const presets = opts.presets ?? [
+  const rawPresets = opts.presets ?? [
     HARDCODED_KEY_PRESET,
     HARDCODED_SUPABASE_RLS_PRESET,
   ];
+  // Phase 16 dedupe: when the markdown preset `secrets-leak` is in the list,
+  // drop the built-in HARDCODED_KEY_PRESET. Both fire on the same lines.
+  const hasMdSecretsLeak = rawPresets.some(
+    (p) => p.manifest.id === 'secrets-leak',
+  );
+  const presets = hasMdSecretsLeak
+    ? rawPresets.filter((p) => p.manifest.id !== HARDCODED_KEY_PRESET.manifest.id)
+    : rawPresets;
+  if (hasMdSecretsLeak && rawPresets.length !== presets.length) {
+    agentLogger.log('info', 'agent.orchestrator.preset-dedupe', {
+      decision: 'drop-builtin-hardcoded-key-preset',
+      reason: 'markdown secrets-leak preset present; built-in shadowed',
+      droppedPresetId: HARDCODED_KEY_PRESET.manifest.id,
+    });
+  }
 
   // 1. Detect project
   const detectFn = deps.detectProject ?? fallbackDetectProject;
