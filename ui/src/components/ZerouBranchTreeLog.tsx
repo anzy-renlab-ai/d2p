@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { BranchTraceEvent, BranchNode } from '../types-zerou.js';
 import { ZerouLogEventDrawer } from './ZerouLogEventDrawer.js';
+import {
+  deriveBranchState,
+  STATE_GLYPH,
+  STATE_TONE,
+  STATE_ANIM,
+  STATE_OVERLAY,
+  STATE_LABEL,
+  compareStates,
+  type BranchState,
+  type BranchTraceEventLite,
+} from '../lib/branchState.js';
 
 /**
  * The centerpiece of stage ⑤ — project tree on the left, branch-trace log
@@ -27,19 +38,26 @@ export interface ZerouBranchTreeLogProps {
   /** Optional baseline length — events at index >= this count are "live".
    *  Live events animate when they appear; static events do not. */
   staticEventCount?: number;
+  /** When set (changes), the tree scrolls to + expands the matching file.
+   *  Driven by ZerouHeatStrip clicks. The value is a {path, token} pair so
+   *  repeated clicks on the same path still re-fire the scroll. */
+  scrollToFile?: { path: string; token: number } | null;
 }
 
 interface TreeFn {
   fn: string;
   fnLine: number;
-  events: BranchTraceEvent[]; // events for this function, in seq order
+  events: BranchTraceEventLite[]; // events for this function, in seq order
   worst: BranchTraceEvent['verdict']; // worst leaf verdict (drives glyph)
+  worstState: BranchState; // worst leaf state — drives Phase 14.5 glyph
 }
 
 interface TreeFile {
-  file: string;
+  file: string;       // file name only, after dir extraction
+  fullPath: string;   // full path as it appears in events
   fns: TreeFn[];
   worst: BranchTraceEvent['verdict'];
+  worstState: BranchState;
 }
 
 interface TreeDir {
@@ -48,6 +66,7 @@ interface TreeDir {
   files: TreeFile[];
   subdirs: TreeDir[];
   worst: BranchTraceEvent['verdict'];
+  worstState: BranchState;
 }
 
 const VERDICT_RANK: Record<BranchTraceEvent['verdict'], number> = {
@@ -81,9 +100,14 @@ function worstOf(a: BranchTraceEvent['verdict'], b: BranchTraceEvent['verdict'])
   return VERDICT_RANK[a] >= VERDICT_RANK[b] ? a : b;
 }
 
-function buildTree(events: BranchTraceEvent[]): TreeDir {
+function worstStateOf(a: BranchState, b: BranchState): BranchState {
+  // compareStates returns < 0 when a is more attention-needing than b.
+  return compareStates(a, b) <= 0 ? a : b;
+}
+
+function buildTree(events: BranchTraceEventLite[]): TreeDir {
   // Group events: file → fn → leaves
-  const fileMap = new Map<string, Map<string, { fnLine: number; events: BranchTraceEvent[] }>>();
+  const fileMap = new Map<string, Map<string, { fnLine: number; events: BranchTraceEventLite[] }>>();
   for (const ev of events) {
     const file = ev['code.file.path'];
     const fn = ev['code.function'];
@@ -99,19 +123,27 @@ function buildTree(events: BranchTraceEvent[]): TreeDir {
   for (const [file, fns] of fileMap.entries()) {
     const treeFns: TreeFn[] = [];
     let fileWorst: BranchTraceEvent['verdict'] = 'covered';
+    let fileWorstState: BranchState = 'covered';
     for (const [fnName, group] of fns.entries()) {
       let worst: BranchTraceEvent['verdict'] = 'covered';
-      for (const ev of group.events) worst = worstOf(worst, ev.verdict);
+      let worstState: BranchState = 'covered';
+      for (const ev of group.events) {
+        worst = worstOf(worst, ev.verdict);
+        worstState = worstStateOf(worstState, deriveBranchState(ev));
+      }
       fileWorst = worstOf(fileWorst, worst);
-      treeFns.push({ fn: fnName, fnLine: group.fnLine, events: group.events, worst });
+      fileWorstState = worstStateOf(fileWorstState, worstState);
+      treeFns.push({ fn: fnName, fnLine: group.fnLine, events: group.events, worst, worstState });
     }
     treeFns.sort((a, b) => a.fnLine - b.fnLine || a.fn.localeCompare(b.fn));
-    fileNodes.push({ file, fns: treeFns, worst: fileWorst });
+    fileNodes.push({ file, fullPath: file, fns: treeFns, worst: fileWorst, worstState: fileWorstState });
   }
   fileNodes.sort((a, b) => a.file.localeCompare(b.file));
 
   // Build directory tree from file paths.
-  const root: TreeDir = { name: '', fullPath: '', files: [], subdirs: [], worst: 'covered' };
+  const root: TreeDir = {
+    name: '', fullPath: '', files: [], subdirs: [], worst: 'covered', worstState: 'covered',
+  };
   for (const fileNode of fileNodes) {
     const segs = fileNode.file.split(/[\\/]/);
     const fileName = segs.pop()!;
@@ -121,27 +153,31 @@ function buildTree(events: BranchTraceEvent[]): TreeDir {
       acc = acc ? `${acc}/${seg}` : seg;
       let sub = cursor.subdirs.find((s) => s.name === seg);
       if (!sub) {
-        sub = { name: seg, fullPath: acc, files: [], subdirs: [], worst: 'covered' };
+        sub = {
+          name: seg, fullPath: acc, files: [], subdirs: [],
+          worst: 'covered', worstState: 'covered',
+        };
         cursor.subdirs.push(sub);
       }
       cursor = sub;
     }
+    // Keep fullPath as it appeared in the event (needed for scroll-to-file).
     cursor.files.push({ ...fileNode, file: fileName });
-    // bubble worst up
-    let walk: TreeDir | null = cursor;
-    while (walk) {
-      walk.worst = worstOf(walk.worst, fileNode.worst);
-      walk = null; // root has no parent ref — single-pass bubble done above isn't enough; we'll fix below.
-    }
   }
 
-  // Second pass — bubble worst from leaves up properly.
-  const bubble = (d: TreeDir): BranchTraceEvent['verdict'] => {
+  // Bubble worst from leaves up properly (both verdict + state axes).
+  const bubble = (d: TreeDir): { v: BranchTraceEvent['verdict']; s: BranchState } => {
     let w: BranchTraceEvent['verdict'] = 'covered';
-    for (const f of d.files) w = worstOf(w, f.worst);
-    for (const s of d.subdirs) w = worstOf(w, bubble(s));
+    let ws: BranchState = 'covered';
+    for (const f of d.files) { w = worstOf(w, f.worst); ws = worstStateOf(ws, f.worstState); }
+    for (const s of d.subdirs) {
+      const child = bubble(s);
+      w = worstOf(w, child.v);
+      ws = worstStateOf(ws, child.s);
+    }
     d.worst = w;
-    return w;
+    d.worstState = ws;
+    return { v: w, s: ws };
   };
   bubble(root);
 
@@ -152,6 +188,7 @@ export function ZerouBranchTreeLog({
   events,
   liveConnected,
   staticEventCount,
+  scrollToFile,
 }: ZerouBranchTreeLogProps) {
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all');
   const [search, setSearch] = useState('');
@@ -256,6 +293,54 @@ export function ZerouBranchTreeLog({
     el.scrollTop = el.scrollHeight;
   }, [filteredEvents.length, liveConnected]);
 
+  // Live aria-live announcement when worst-state of the whole tree changes
+  // (e.g. a new business-red leaf appeared). Restricted to one summary line
+  // so screen readers aren't deafened by every state transition.
+  const liveAnnounceRef = useRef<string>('');
+  const liveAnnouncement = useMemo(() => {
+    const summary = `tree state: ${STATE_LABEL[tree.worstState]}`;
+    if (summary === liveAnnounceRef.current) return liveAnnounceRef.current;
+    liveAnnounceRef.current = summary;
+    return summary;
+  }, [tree.worstState]);
+
+  // External "jump to file" — fired by ZerouHeatStrip. Expand the file's
+  // ancestor dirs + the file itself, then scroll the file row into view.
+  const fileRowRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const registerFileRow = (fullPath: string, el: HTMLElement | null) => {
+    if (el) fileRowRefs.current.set(fullPath, el);
+    else fileRowRefs.current.delete(fullPath);
+  };
+  useEffect(() => {
+    if (!scrollToFile) return;
+    const { path } = scrollToFile;
+    // Expand every ancestor dir (e.g. "app/api/login" → also "app", "app/api").
+    const segs = path.split(/[\\/]/);
+    const fileName = segs.pop()!;
+    const dirAcc: string[] = [''];
+    let acc = '';
+    for (const s of segs) {
+      acc = acc ? `${acc}/${s}` : s;
+      dirAcc.push(acc);
+    }
+    const dirPath = acc;
+    const fileKey = `${dirPath}::${fileName}`;
+    setOpenPath((prev) => {
+      const next = new Set(prev);
+      for (const d of dirAcc) next.add(d);
+      next.add(fileKey);
+      return next;
+    });
+    // Defer scroll until after the open-state has flushed.
+    const t = setTimeout(() => {
+      const el = fileRowRefs.current.get(path);
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 50);
+    return () => clearTimeout(t);
+  }, [scrollToFile]);
+
   return (
     <div
       className="bg-paper border border-warmline rounded-lg overflow-hidden"
@@ -315,6 +400,13 @@ export function ZerouBranchTreeLog({
           className="max-h-[640px] overflow-y-auto px-3 py-2 font-mono text-[12px] leading-relaxed"
           data-testid="zerou-tree-log-tree"
         >
+          <span
+            data-testid="zerou-tree-log-aria-live"
+            aria-live="polite"
+            className="sr-only"
+          >
+            {liveAnnouncement}
+          </span>
           {tree.subdirs.length === 0 && tree.files.length === 0 ? (
             <div className="text-xs text-muted italic py-4 text-center">no branch-trace events</div>
           ) : (
@@ -326,6 +418,7 @@ export function ZerouBranchTreeLog({
               focusOnBranches={focusOnBranches}
               activeBranchIds={activeBranchIds}
               pulsing={pulsing}
+              registerFileRow={registerFileRow}
             />
           )}
         </div>
@@ -390,6 +483,25 @@ export function ZerouBranchTreeLog({
   );
 }
 
+function StateGlyph({ state, className }: { state: BranchState; className?: string }) {
+  const overlay = STATE_OVERLAY[state];
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 ${className ?? ''}`}
+      aria-label={STATE_LABEL[state]}
+    >
+      {overlay && (
+        <span aria-hidden="true" className="text-[10px] leading-none">
+          {overlay}
+        </span>
+      )}
+      <span className={`${STATE_TONE[state]} ${STATE_ANIM[state]}`} aria-hidden="true">
+        {STATE_GLYPH[state]}
+      </span>
+    </span>
+  );
+}
+
 function TreeView({
   dir,
   indent,
@@ -398,6 +510,7 @@ function TreeView({
   focusOnBranches,
   activeBranchIds,
   pulsing,
+  registerFileRow,
 }: {
   dir: TreeDir;
   indent: string;
@@ -406,6 +519,7 @@ function TreeView({
   focusOnBranches: (ids: string[], label: string) => void;
   activeBranchIds: Set<string> | null;
   pulsing: Set<string>;
+  registerFileRow: (path: string, el: HTMLElement | null) => void;
 }) {
   // Render this dir's children (subdirs first, then files). Indent uses
   // box-drawing characters for the ASCII-art feel.
@@ -446,12 +560,10 @@ function TreeView({
                 >
                   {item.d.name}/
                 </button>
-                <span
-                  className={`text-[10px] ${VERDICT_TONE[item.d.worst]} flex-shrink-0 ml-1`}
-                  aria-label={item.d.worst}
-                >
-                  {VERDICT_GLYPH[item.d.worst]}
-                </span>
+                <StateGlyph
+                  state={item.d.worstState}
+                  className="text-[10px] flex-shrink-0 ml-1"
+                />
               </div>
               {isOpen && (
                 <TreeView
@@ -462,6 +574,7 @@ function TreeView({
                   focusOnBranches={focusOnBranches}
                   activeBranchIds={activeBranchIds}
                   pulsing={pulsing}
+                  registerFileRow={registerFileRow}
                 />
               )}
             </li>
@@ -475,8 +588,10 @@ function TreeView({
         return (
           <li key={fileKey}>
             <div
+              ref={(el) => registerFileRow(f.fullPath, el)}
               className="flex items-baseline gap-1 hover:bg-cream rounded px-1 cursor-pointer"
               data-testid={`zerou-tree-log-file-${f.file.replace(/[\\/.]/g, '-')}`}
+              data-file-path={f.fullPath}
             >
               <span className="text-muted/70 whitespace-pre">{indent}{glyph} </span>
               <button
@@ -493,12 +608,10 @@ function TreeView({
               >
                 {f.file}
               </button>
-              <span
-                className={`text-[10px] ${VERDICT_TONE[f.worst]} flex-shrink-0 ml-1`}
-                aria-label={f.worst}
-              >
-                {VERDICT_GLYPH[f.worst]}
-              </span>
+              <StateGlyph
+                state={f.worstState}
+                className="text-[10px] flex-shrink-0 ml-1"
+              />
             </div>
             {fileIsOpen && (
               <ul className="list-none">
@@ -528,12 +641,10 @@ function TreeView({
                         >
                           {fn.fn}@{fn.fnLine}()
                         </button>
-                        <span
-                          className={`text-[10px] ${VERDICT_TONE[fn.worst]} flex-shrink-0 ml-1`}
-                          aria-label={fn.worst}
-                        >
-                          {VERDICT_GLYPH[fn.worst]}
-                        </span>
+                        <StateGlyph
+                          state={fn.worstState}
+                          className="text-[10px] flex-shrink-0 ml-1"
+                        />
                       </div>
                       {fnOpen && (
                         <ul className="list-none">
@@ -542,6 +653,8 @@ function TreeView({
                             const evGlyph = lastEv ? '└─' : '├─';
                             const isActive = activeBranchIds?.has(ev.branch_id);
                             const isPulsing = pulsing.has(ev.branch_id);
+                            const state = deriveBranchState(ev);
+                            const retry = ev.retry;
                             return (
                               <li
                                 key={`ev-${ev.seq}`}
@@ -549,22 +662,29 @@ function TreeView({
                                   isActive ? 'bg-coralsoft/40' : ''
                                 } ${isPulsing ? 'anim-pulse-green' : ''}`}
                                 data-testid={`zerou-tree-log-leaf-${ev.seq}`}
+                                data-branch-state={state}
                               >
                                 <span className="text-muted/70 whitespace-pre">{fnChildIndent}{evGlyph} </span>
                                 <button
                                   type="button"
                                   onClick={() => focusOnBranches([ev.branch_id], ev.branch_label)}
-                                  className={`text-left flex-1 truncate ${VERDICT_TONE[ev.verdict]} hover:underline`}
-                                  title={ev.branch_id}
+                                  className={`text-left flex-1 truncate ${STATE_TONE[state]} hover:underline`}
+                                  title={`${ev.branch_id} — ${STATE_LABEL[state]}`}
                                 >
                                   {ev.branch_label}
                                 </button>
-                                <span
-                                  className={`text-[10px] ${VERDICT_TONE[ev.verdict]} flex-shrink-0`}
-                                  aria-label={ev.verdict}
-                                >
-                                  {VERDICT_GLYPH[ev.verdict]}
-                                </span>
+                                {state === 'retrying' && retry && (
+                                  <span
+                                    className="text-[10px] text-coral font-mono flex-shrink-0"
+                                    data-testid={`zerou-tree-log-leaf-${ev.seq}-retry`}
+                                  >
+                                    retry {retry.attempt}/{retry.max}
+                                  </span>
+                                )}
+                                <StateGlyph
+                                  state={state}
+                                  className="text-[10px] flex-shrink-0"
+                                />
                               </li>
                             );
                           })}

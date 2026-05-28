@@ -130,4 +130,161 @@ describe('ZerouBranchTreeLog', () => {
     // The placeholder appears in both panes.
     expect(screen.getAllByText(/no branch-trace events/).length).toBeGreaterThan(0);
   });
+
+  // ── Phase 14.5: state-machine glyphs + retry counter + heat-strip jump ───
+  //
+  // Each test below crafts a single synthetic event under `app/api/...` so
+  // the default openPath set already shows the file row; we then click the
+  // file + fn toggles to expand the leaf.
+
+  // Strip synth state/category/retry from a base event so a test override
+  // isn't shadowed by whatever the mock bundle's syntheticStateFor() set.
+  function freshBase(): BranchTraceEvent {
+    return {
+      ...events[0]!,
+      state: undefined,
+      category: undefined,
+      retry: undefined,
+    };
+  }
+
+  function expandToLeaf(filePath: string, fnName: string) {
+    const fileTestId = `zerou-tree-log-file-${filePath.split('/').pop()!.replace(/[\\/.]/g, '-')}`;
+    const fileRow = screen.getByTestId(fileTestId);
+    // First button inside the row is the chevron toggle.
+    const fileToggle = fileRow.querySelector('button');
+    if (fileToggle) fireEvent.click(fileToggle);
+    const fnRow = screen.getByTestId(`zerou-tree-log-fn-${fnName}`);
+    const fnToggle = fnRow.querySelector('button');
+    if (fnToggle) fireEvent.click(fnToggle);
+  }
+
+  it('leaf with state=evaluating renders the spin-arrow animation', () => {
+    const ev: BranchTraceEvent = {
+      ...freshBase(),
+      seq: 9001,
+      branch_id: 'state-eval-id',
+      'code.file.path': 'app/api/eval-state.ts',
+      'code.function': 'evalFn',
+      'code.line.number': 7,
+      state: 'evaluating',
+    };
+    render(<ZerouBranchTreeLog events={[ev]} />);
+    expandToLeaf('app/api/eval-state.ts', 'evalFn');
+    const leaf = screen.getByTestId('zerou-tree-log-leaf-9001');
+    expect(leaf.getAttribute('data-branch-state')).toBe('evaluating');
+    expect(leaf.querySelector('.anim-spin-arrow')).not.toBeNull();
+  });
+
+  it('leaf with state=retrying displays retry counter "retry 2/3"', () => {
+    const ev: BranchTraceEvent = {
+      ...freshBase(),
+      seq: 9002,
+      branch_id: 'state-retry-id',
+      'code.file.path': 'app/api/retry-state.ts',
+      'code.function': 'retryFn',
+      'code.line.number': 8,
+      state: 'retrying',
+      retry: { attempt: 2, max: 3 },
+    };
+    render(<ZerouBranchTreeLog events={[ev]} />);
+    expandToLeaf('app/api/retry-state.ts', 'retryFn');
+    const retryBadge = screen.getByTestId('zerou-tree-log-leaf-9002-retry');
+    expect(retryBadge.textContent).toMatch(/retry 2\/3/);
+  });
+
+  it('leaf with mechanical-red shows wrench overlay glyph', () => {
+    const ev: BranchTraceEvent = {
+      ...freshBase(),
+      seq: 9003,
+      branch_id: 'state-mech-id',
+      'code.file.path': 'app/api/mech-state.ts',
+      'code.function': 'mechFn',
+      'code.line.number': 9,
+      verdict: 'untested',
+      category: 'mechanical',
+    };
+    render(<ZerouBranchTreeLog events={[ev]} />);
+    expandToLeaf('app/api/mech-state.ts', 'mechFn');
+    const leaf = screen.getByTestId('zerou-tree-log-leaf-9003');
+    expect(leaf.getAttribute('data-branch-state')).toBe('mechanical-red');
+    expect(leaf.textContent).toContain('🔧');
+  });
+
+  it('leaf with business-red shows lock overlay glyph', () => {
+    const ev: BranchTraceEvent = {
+      ...freshBase(),
+      seq: 9004,
+      branch_id: 'state-biz-id',
+      'code.file.path': 'app/api/biz-state.ts',
+      'code.function': 'bizFn',
+      'code.line.number': 10,
+      verdict: 'untested',
+      category: 'business',
+    };
+    render(<ZerouBranchTreeLog events={[ev]} />);
+    expandToLeaf('app/api/biz-state.ts', 'bizFn');
+    const leaf = screen.getByTestId('zerou-tree-log-leaf-9004');
+    expect(leaf.getAttribute('data-branch-state')).toBe('business-red');
+    expect(leaf.textContent).toContain('🔒');
+  });
+
+  it('re-rendering with new state updates the glyph (covered → business-red)', () => {
+    const evCovered: BranchTraceEvent = {
+      ...freshBase(),
+      seq: 9005,
+      branch_id: 'state-transition-id',
+      'code.file.path': 'app/api/trans-state.ts',
+      'code.function': 'transFn',
+      'code.line.number': 11,
+      verdict: 'covered',
+    };
+    const { rerender } = render(<ZerouBranchTreeLog events={[evCovered]} />);
+    expandToLeaf('app/api/trans-state.ts', 'transFn');
+    let leaf = screen.getByTestId('zerou-tree-log-leaf-9005');
+    expect(leaf.getAttribute('data-branch-state')).toBe('covered');
+
+    const evBiz: BranchTraceEvent = { ...evCovered, verdict: 'untested', category: 'business' };
+    rerender(<ZerouBranchTreeLog events={[evBiz]} />);
+    leaf = screen.getByTestId('zerou-tree-log-leaf-9005');
+    expect(leaf.getAttribute('data-branch-state')).toBe('business-red');
+  });
+
+  it('scrollToFile prop registers the file row with the expected data-file-path', () => {
+    const ev: BranchTraceEvent = {
+      ...freshBase(),
+      seq: 9006,
+      branch_id: 'jump-test-id',
+      'code.file.path': 'app/api/jump-target.ts',
+      'code.function': 'jumpFn',
+      'code.line.number': 12,
+      verdict: 'covered',
+    };
+    render(
+      <ZerouBranchTreeLog
+        events={[ev]}
+        scrollToFile={{ path: 'app/api/jump-target.ts', token: 1 }}
+      />,
+    );
+    const fileRow = document.querySelector(
+      '[data-file-path="app/api/jump-target.ts"]',
+    );
+    expect(fileRow).not.toBeNull();
+  });
+
+  it('aria-live region announces the tree worst-state', () => {
+    const evBiz: BranchTraceEvent = {
+      ...freshBase(),
+      seq: 9007,
+      branch_id: 'aria-test-id',
+      'code.file.path': 'app/api/aria-state.ts',
+      'code.function': 'ariaFn',
+      'code.line.number': 13,
+      verdict: 'untested',
+      category: 'business',
+    };
+    render(<ZerouBranchTreeLog events={[evBiz]} />);
+    const live = screen.getByTestId('zerou-tree-log-aria-live');
+    expect(live.textContent).toMatch(/business red/i);
+  });
 });

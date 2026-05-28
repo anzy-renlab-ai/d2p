@@ -397,6 +397,32 @@ function collectLeavesForEvents(node: BranchNode, out: BranchNode[]): void {
   for (const c of node.children) collectLeavesForEvents(c, out);
 }
 
+// Phase 14.5 — synthetic state/category distribution for preview mode.
+//
+// Backend doesn't emit `state` or `category` yet, but the heat-strip + tree
+// state machine UI needs all 5 states to be visible in preview so reviewers
+// can see what each one looks like without booting a daemon. Distribute:
+//   - 60% covered     (verdict-derived; we leave these alone)
+//   - 5%  evaluating  (state=evaluating)
+//   - 5%  retrying    (state=retrying + retry counter)
+//   - 15% mechanical-red (category=mechanical OR catch-block heuristic)
+//   - 15% business-red   (category=business via auth keyword label)
+//
+// Selection uses seq parity so the mix is deterministic across reloads.
+function syntheticStateFor(seq: number): {
+  state?: BranchTraceEvent['state'];
+  category?: BranchTraceEvent['category'];
+  retry?: BranchTraceEvent['retry'];
+} {
+  // 20-buckets distribution: 12 covered, 1 evaluating, 1 retrying, 3 mech, 3 biz
+  const bucket = seq % 20;
+  if (bucket === 0) return { state: 'evaluating' };
+  if (bucket === 1) return { state: 'retrying', retry: { attempt: 2, max: 3 } };
+  if (bucket === 2 || bucket === 3 || bucket === 4) return { category: 'mechanical' };
+  if (bucket === 5 || bucket === 6 || bucket === 7) return { category: 'business' };
+  return {};
+}
+
 function buildMockBranchTraceEvents(): BranchTraceEvent[] {
   const events: BranchTraceEvent[] = [];
   let seq = 1;
@@ -422,6 +448,17 @@ function buildMockBranchTraceEvents(): BranchTraceEvent[] {
       }#${seq % 7}`;
 
       const hash = fakeHash(`${prevHash}${branchId}${seq}`);
+      // Phase 14.5 — overlay synthetic state/category for preview demo.
+      // For business-red bucket, also nudge the branch_label so the
+      // heuristic (in lib/branchState.ts) picks 'business-red' even when
+      // backend hasn't set `category` (covers the realistic case where the
+      // backend stays silent).
+      const synth = syntheticStateFor(seq);
+      const labelForBucket = synth.category === 'business'
+        ? `if (req.user?.role === 'admin')`
+        : synth.category === 'mechanical' && node.kind !== 'catch'
+        ? `missing encodeURIComponent on path`
+        : node.label;
       const event: BranchTraceEvent = {
         ts,
         trace_id: TRACE_ID,
@@ -429,7 +466,7 @@ function buildMockBranchTraceEvents(): BranchTraceEvent[] {
         event: 'branch.evidence',
         branch_id: branchId,
         branch_kind: node.kind,
-        branch_label: node.label,
+        branch_label: labelForBucket,
         line_start: node.lineStart,
         line_end: node.lineEnd,
         'code.function': fn.name,
@@ -451,6 +488,9 @@ function buildMockBranchTraceEvents(): BranchTraceEvent[] {
         seq,
         prev_hash: prevHash,
         hash,
+        ...(synth.state ? { state: synth.state } : {}),
+        ...(synth.category ? { category: synth.category } : {}),
+        ...(synth.retry ? { retry: synth.retry } : {}),
       };
       events.push(event);
       prevHash = hash;

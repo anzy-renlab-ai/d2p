@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { ReviewBundle, StageStatus, BranchTraceEvent } from '../types-zerou.js';
 import { ZerouStageCard } from './ZerouStageCard.js';
 import { ZerouBranchTreeLog } from './ZerouBranchTreeLog.js';
+import { ZerouHeatStrip } from './ZerouHeatStrip.js';
 
 /**
  * Stage ⑤ — Trace view (the centerpiece).
@@ -38,6 +39,10 @@ export function ZerouStageTrace({
     // Merge by seq — live events are append-only past the static count.
     return [...staticEvents, ...liveEvents];
   }, [staticEvents, liveEvents]);
+
+  // Heat-strip → tree jump token. Bumped each click so the tree useEffect
+  // re-fires even if the user clicks the same square twice.
+  const [jumpToken, setJumpToken] = useState<{ path: string; token: number } | null>(null);
 
   const total = allEvents.length;
   const branch = bundle.branchCoverage;
@@ -97,10 +102,16 @@ export function ZerouStageTrace({
           <Stat label="UNTESTED" value={untestedCount.toString()} tone="text-rust" />
         </div>
 
+        <ZerouHeatStrip
+          events={allEvents}
+          onJumpToFile={(path) => setJumpToken({ path, token: Date.now() })}
+        />
+
         <ZerouBranchTreeLog
           events={allEvents}
           liveConnected={liveConnected}
           staticEventCount={staticEvents.length}
+          scrollToFile={jumpToken}
         />
 
         <div className="text-[10px] text-muted/70 font-serif italic pt-1 border-t border-warmline/60">

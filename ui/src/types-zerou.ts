@@ -73,6 +73,24 @@ export interface BranchTraceEvent {
   seq: number;
   prev_hash: string;
   hash: string;
+  /** Optional UI-only override of the derived branch state (Phase 14.5).
+   *  Backend does not emit this yet; it's set by the mock bundle for
+   *  preview, and reserved for future cli/agent emission. Lives here so
+   *  the wire contract stays a single source of truth even when the field
+   *  is forward-compatibly populated. See lib/branchState.ts for
+   *  BranchState type + derivation rules. */
+  state?:
+    | 'pending'
+    | 'evaluating'
+    | 'covered'
+    | 'mechanical-red'
+    | 'business-red'
+    | 'retrying';
+  /** Optional UI-only categorisation of red branches. Backend doesn't emit
+   *  this yet; UI falls back to heuristic in lib/branchState.ts. */
+  category?: 'mechanical' | 'business';
+  /** Optional retry counter — only meaningful when state === 'retrying'. */
+  retry?: { attempt: number; max: number };
 }
 
 // Pipeline stage status — drives stage card status glyph + ring colour.

@@ -190,6 +190,28 @@
   animation: breathe-dot 1.8s ease-in-out infinite;
 }
 
+/* Spin-arrow — used on the "evaluating" leaf glyph (yellow rotating ↻).
+   Linear rotation, 1.2s loop. Disabled when prefers-reduced-motion. */
+@keyframes spin-arrow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.anim-spin-arrow {
+  display: inline-block;
+  animation: spin-arrow 1.2s linear infinite;
+}
+
+/* Retry-pulse — used on the "retrying" leaf glyph + heat-strip square.
+   Opacity + slight scale (capped at 1.05 per style guide). */
+@keyframes retry-pulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50%      { opacity: 1;   transform: scale(1.05); }
+}
+.anim-retry-pulse {
+  display: inline-block;
+  animation: retry-pulse 1s ease-in-out infinite;
+}
+
 /* Stagger helper — apply with an inline --i: 0, 1, 2, ... so each child
    delays in turn. Caps at 8 to avoid long initial blank states. */
 .anim-stagger {
@@ -214,7 +236,9 @@
   .anim-breathe-dot,
   .anim-stagger,
   .anim-pulse-green,
-  .anim-tick {
+  .anim-tick,
+  .anim-spin-arrow,
+  .anim-retry-pulse {
     animation: none !important;
   }
   .lift-on-hover {
