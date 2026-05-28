@@ -35,11 +35,20 @@ const POLL_INTERVAL_MS = 500;
 const LINE_LOG_TRUNCATE = 200;
 const SIGTERM_GRACE_MS = 2000;
 
+/** Optional override for the listen port. When set, we use this instead of
+ * detected.expectedPort AND set `PORT=<n>` in the child env so fixtures honor
+ * it. Used by tests to avoid port 3000 collisions with the user's dev server. */
+export interface LaunchOptionsExtras {
+  portOverride?: number;
+}
+
 export interface LaunchOptions {
   cwd: string;
   logger?: TrackLogger | null;
   /** Override readyTimeoutMs (otherwise uses detected.readyTimeoutMs). */
   readyTimeoutMs?: number;
+  /** Override listen port. Sets PORT env on child + polls this port. */
+  portOverride?: number;
   /** Override polling cadence — used by tests. */
   pollIntervalMs?: number;
 }
@@ -51,7 +60,7 @@ export async function launchRuntime(
   const { cwd, logger } = opts;
   const readyTimeout = opts.readyTimeoutMs ?? detected.readyTimeoutMs;
   const pollInterval = opts.pollIntervalMs ?? POLL_INTERVAL_MS;
-  const port = detected.expectedPort;
+  const port = opts.portOverride ?? detected.expectedPort;
 
   if (logger) {
     logger.log('info', 'agent.runtime.launch.start', {
@@ -69,7 +78,11 @@ export async function launchRuntime(
   const isWindows = process.platform === 'win32';
   const child: ChildProcess = spawn(detected.command, detected.args, {
     cwd,
-    env: { ...process.env, ...detected.envVars },
+    env: {
+      ...process.env,
+      ...detected.envVars,
+      ...(opts.portOverride !== undefined ? { PORT: String(opts.portOverride) } : {}),
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: !isWindows,
     shell: isWindows,
@@ -206,7 +219,10 @@ export async function launchRuntime(
       pollIntervalMs: pollInterval,
       timeoutMs: readyTimeout,
       logger,
-      isCrashed: () => crashed,
+      // Also check child.exitCode — on Windows, npm.cmd → cmd.exe → node
+      // chains can delay the 'exit' event by several hundred ms, but
+      // exitCode is set synchronously by Node once the process is gone.
+      isCrashed: () => crashed || child.exitCode !== null,
     });
     if (!ok) {
       if (crashed) {
@@ -276,7 +292,18 @@ async function pollPortUntilReady(opts: PollOpts): Promise<boolean> {
         attempt,
       });
     }
-    if (open) return true;
+    if (open) {
+      // Race guard: if a different process is squatting on this port
+      // (e.g. user has Next.js dev server on 3000), tryConnect can succeed
+      // while OUR child is in the process of crashing. Poll isCrashed for
+      // up to 500ms after a successful connect — slow exit propagation
+      // on Windows (npm.cmd → cmd.exe → node) can take a few hundred ms.
+      for (let i = 0; i < 10; i++) {
+        await sleep(50);
+        if (opts.isCrashed()) return false;
+      }
+      return true;
+    }
     await sleep(opts.pollIntervalMs);
   }
   return false;

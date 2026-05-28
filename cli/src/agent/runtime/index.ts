@@ -33,6 +33,9 @@ export interface RunRuntimeTestsOptions {
   pollIntervalMs?: number;
   /** Per-HTTP-call timeout (default 5s). */
   httpTimeoutMs?: number;
+  /** Override listen port; set PORT env on child + poll this port instead of
+   * the detected default (3000). Used by tests to avoid collisions. */
+  portOverride?: number;
 }
 
 export interface RuntimeRunOutput {
@@ -75,6 +78,7 @@ export async function runRuntimeTests(
       logger,
       ...(opts.readyTimeoutMs !== undefined ? { readyTimeoutMs: opts.readyTimeoutMs } : {}),
       ...(opts.pollIntervalMs !== undefined ? { pollIntervalMs: opts.pollIntervalMs } : {}),
+      ...(opts.portOverride !== undefined ? { portOverride: opts.portOverride } : {}),
     });
   } catch (err) {
     logCatch(logger, 'agent.runtime.run.launch-failure', err, { cwd });

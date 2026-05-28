@@ -9,6 +9,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { runRuntimeTests } from './index.js';
+import { getFreePort } from './__fixtures__/get-port.js';
 import type { TestCaseSpec } from '../types.js';
 import {
   __resetMetaLoggersForTests,
@@ -62,11 +63,13 @@ describe('runRuntimeTests', () => {
       // GET /healthz → 200 expected (heuristic should pull 200 out of `then`).
       makeSpec('health-ok', 'GET /healthz', 'returns 200'),
     ];
+    const port = await getFreePort();
     const r = await runRuntimeTests(specs, FIXTURE, {
       criticConfig: null,
       criticApiKey: null,
       readyTimeoutMs: 8000,
       pollIntervalMs: 100,
+      portOverride: port,
     });
     expect(r.results).toHaveLength(2);
     // Both should pass — fixture handles both cases.
@@ -81,11 +84,13 @@ describe('runRuntimeTests', () => {
     // Build a fake fixture dir with a crashing script.
     const crashDir = path.join(here, '__fixtures__', 'node-crash');
     const specs: TestCaseSpec[] = [makeSpec('s1', 'GET /x', 'returns 200')];
+    const port = await getFreePort();
     const r = await runRuntimeTests(specs, crashDir, {
       criticConfig: null,
       criticApiKey: null,
       readyTimeoutMs: 4000,
       pollIntervalMs: 100,
+      portOverride: port,
     });
     expect(r.runtime).toBeNull();
     expect(r.results).toHaveLength(1);
