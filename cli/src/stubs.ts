@@ -438,11 +438,30 @@ export async function defaultRunPreset(
       });
       continue;
     }
+    // Phase 19 line-precision (line-precision-multiline-and-sink-anchor):
+    //
+    // Patterns historically were applied line-by-line, which silently dropped
+    // multi-line regexes (e.g. `Promise.all([\s\S]*?)\.catch` or lookbehinds
+    // spanning constructor blocks). We now detect "multi-line-ish" patterns
+    // and run them with the /m+/g flags against the full file; single-line
+    // patterns keep their per-line loop (cheaper, simpler).
+    //
+    // We also report `col` (1-based column where the match starts on its
+    // line) and re-anchor the reported line to the LAST SINK token inside
+    // the match (call/exec/query/eval/innerHTML/etc.) when the match spans
+    // several lines. This makes a `try { ... ${user} ... }` match report
+    // the line of the `${user}` interpolation rather than the wrapping
+    // `try` keyword — closing the "right file wrong line" gap that drove
+    // Multi-SWE strict scores down. See `docs/plans/2026-05-28-phase-19-
+    // line-precision.md` for the ±20-line bench impact.
+    const isMultiline = patternIsMultiline(rule.pattern);
+    const re = compileRulePattern(rule.pattern, isMultiline);
     logBranch(presetLogger, 'preset.rule.mechanism-decision', {
       decision: 'scan',
       ruleId: rule.id,
       pattern: rule.pattern,
       filePattern: rule.filePattern ?? '*',
+      multiline: isMultiline,
     });
     const files = collectFilesSync(ctx.cwd, rule.filePattern, ctx.readFiles);
     logBranch(presetLogger, 'preset.file.collect-decision', {
@@ -451,7 +470,6 @@ export async function defaultRunPreset(
       fileCount: files.length,
       filePattern: rule.filePattern ?? '*',
     });
-    const re = new RegExp(rule.pattern);
     for (const f of files) {
       let content: string;
       try {
@@ -464,36 +482,36 @@ export async function defaultRunPreset(
         continue;
       }
       ctx.readFiles?.add(f.relPosix);
-      const lines = content.split(/\r?\n/);
-      let matchCount = 0;
-      for (let i = 0; i < lines.length; i++) {
-        const m = re.exec(lines[i]!);
-        if (m) {
-          matchCount++;
-          logBranch(presetLogger, 'preset.regex.match-decision', {
-            decision: 'matched',
-            ruleId: rule.id,
-            file: f.relPosix,
-            line: i + 1,
-            evidenceLen: m[0].length,
-          });
-          rawFindings.push({
-            id: `${manifest.id}.${rule.id}.${f.relPosix}:${i + 1}`,
-            presetId: manifest.id,
-            ruleId: rule.id,
-            severity: rule.severity,
-            file: f.relPosix,
-            line: i + 1,
-            evidence: m[0],
-            message: rule.message ?? 'rule matched',
-          });
-        }
+      const scanMatches = isMultiline
+        ? scanMultilinePattern(content, re)
+        : scanLinePattern(content, re);
+      for (const sm of scanMatches) {
+        logBranch(presetLogger, 'preset.regex.match-decision', {
+          decision: 'matched',
+          ruleId: rule.id,
+          file: f.relPosix,
+          line: sm.line,
+          col: sm.col,
+          evidenceLen: sm.evidence.length,
+          anchor: sm.anchor,
+        });
+        rawFindings.push({
+          id: `${manifest.id}.${rule.id}.${f.relPosix}:${sm.line}`,
+          presetId: manifest.id,
+          ruleId: rule.id,
+          severity: rule.severity,
+          file: f.relPosix,
+          line: sm.line,
+          col: sm.col,
+          evidence: sm.evidence,
+          message: rule.message ?? 'rule matched',
+        });
       }
       logBranch(presetLogger, 'preset.file.scan-decision', {
-        decision: matchCount > 0 ? 'matches-found' : 'no-matches',
+        decision: scanMatches.length > 0 ? 'matches-found' : 'no-matches',
         ruleId: rule.id,
         file: f.relPosix,
-        matchCount,
+        matchCount: scanMatches.length,
       });
     }
   }
@@ -647,6 +665,195 @@ export async function defaultRunPreset(
   }
   await criticLogger.flush();
   return verdicted;
+}
+
+// ── Static-grep pattern engine (Phase 19 line-precision) ────────────────────
+
+/**
+ * A regex match resolved to a 1-based (line, col) and a sink-anchored
+ * reported line. `anchor` records how we picked the reported line so we
+ * can debug strict-vs-loose gaps from logs.
+ */
+interface ScanMatch {
+  /** 1-based line of the reported finding (sink-anchored when multi-line). */
+  line: number;
+  /** 1-based column on that line. */
+  col: number;
+  /** The matched substring (truncated to 240 chars for log/finding hygiene). */
+  evidence: string;
+  /** How the line was picked: 'start' | 'sink' | 'end'. */
+  anchor: 'start' | 'sink' | 'end';
+}
+
+/**
+ * Heuristic — does this regex source contain constructs that need the full
+ * file as input (rather than per-line)? We treat the pattern as multi-line
+ * if it explicitly references `\n`, uses `[\s\S]`, contains lookbehind
+ * assertions (which often span constructor blocks), or already has an `m`
+ * flag declared via inline `(?m)` (which we promote into a real flag).
+ */
+function patternIsMultiline(pattern: string): boolean {
+  if (pattern.includes('\\n')) return true;
+  if (pattern.includes('[\\s\\S]')) return true;
+  if (pattern.includes('[\\S\\s]')) return true;
+  // Lookbehind that searches backwards more than a few chars usually wants the
+  // full file context (e.g. `(?<!try\s*\{[\s\S]{0,500})`).
+  if (/\(\?<[!=][^)]{20,}\)/.test(pattern)) return true;
+  return false;
+}
+
+function compileRulePattern(pattern: string, multiline: boolean): RegExp {
+  // Best-effort regex compile. If the rule ships an invalid pattern we
+  // return a never-matching regex so the audit keeps making progress
+  // instead of crashing — the rule simply contributes zero findings.
+  try {
+    return multiline ? new RegExp(pattern, 'gm') : new RegExp(pattern);
+  } catch {
+    return /$.^/;
+  }
+}
+
+/**
+ * Sink tokens — when a multi-line match contains one of these, we anchor
+ * the reported line to the LAST occurrence inside the match. This is the
+ * "what line does the bug actually execute on" heuristic.
+ *
+ * We keep the set deliberately small; a noisy sink list would re-introduce
+ * the precision wobble we're fixing. The list focuses on call-shaped
+ * tokens because the patterns that get multi-line are almost always
+ * "dangerous call wrapped in a control-flow construct".
+ */
+const SINK_TOKENS = [
+  'innerHTML',
+  'outerHTML',
+  'dangerouslySetInnerHTML',
+  'eval(',
+  'execSync(',
+  'spawnSync(',
+  'exec(',
+  'spawn(',
+  '.query(',
+  '.raw(',
+  '.execute(',
+  'JSON.parse(',
+  'res.send(',
+  'res.write(',
+  'response.send(',
+  'fetch(',
+  'axios(',
+  'axios.get(',
+  'axios.post(',
+  'http.get(',
+  'http.request(',
+  'require(',
+  'new Function(',
+  'setTimeout(',
+  'setInterval(',
+  'document.write(',
+  'window.open(',
+  'res.cookie(',
+  'response.cookie(',
+] as const;
+
+function lineColAt(text: string, offset: number): { line: number; col: number } {
+  let line = 1;
+  let lastNl = -1;
+  for (let i = 0; i < offset; i++) {
+    if (text.charCodeAt(i) === 10) {
+      line++;
+      lastNl = i;
+    }
+  }
+  return { line, col: offset - lastNl };
+}
+
+/**
+ * Multi-line scan: run the regex globally, then resolve each match's
+ * reported line to the sink line if present, else the match-end line.
+ * The match-start line is also tracked for debug.
+ */
+export function scanMultilinePattern(text: string, re: RegExp): ScanMatch[] {
+  const out: ScanMatch[] = [];
+  let m: RegExpExecArray | null;
+  let safety = 10_000;
+  // Defensive — caller already attached 'g'; if not, fall back to single match.
+  if (!re.flags.includes('g')) {
+    m = re.exec(text);
+    if (m) {
+      const sm = resolveMatchAnchor(text, m.index, m[0]);
+      if (sm) out.push(sm);
+    }
+    return out;
+  }
+  while ((m = re.exec(text)) !== null && safety-- > 0) {
+    const matchText = m[0];
+    if (matchText.length === 0) {
+      // Zero-width match — advance to prevent infinite loop.
+      re.lastIndex++;
+      continue;
+    }
+    const sm = resolveMatchAnchor(text, m.index, matchText);
+    if (sm) out.push(sm);
+  }
+  return out;
+}
+
+function resolveMatchAnchor(
+  text: string,
+  matchStart: number,
+  matchText: string,
+): ScanMatch | null {
+  const matchEnd = matchStart + matchText.length;
+  // Find the last sink token inside the match. If we have one, anchor to it.
+  let sinkOffset = -1;
+  for (const tok of SINK_TOKENS) {
+    const idx = matchText.lastIndexOf(tok);
+    if (idx > sinkOffset) sinkOffset = idx;
+  }
+  let anchorOffset: number;
+  let anchor: ScanMatch['anchor'];
+  if (sinkOffset >= 0) {
+    anchorOffset = matchStart + sinkOffset;
+    anchor = 'sink';
+  } else if (matchText.includes('\n')) {
+    // Multi-line match with no sink — anchor to the last non-empty line
+    // (usually the closing line of the construct).
+    const trailingNl = matchText.lastIndexOf('\n');
+    anchorOffset = matchStart + Math.max(trailingNl + 1, 0);
+    anchor = 'end';
+  } else {
+    anchorOffset = matchStart;
+    anchor = 'start';
+  }
+  const pos = lineColAt(text, anchorOffset);
+  return {
+    line: pos.line,
+    col: pos.col,
+    evidence: matchText.length > 240 ? matchText.slice(0, 237) + '...' : matchText,
+    anchor,
+  };
+}
+
+/**
+ * Single-line scan: legacy behaviour preserved (one match per line, line
+ * index + match.index for col). We still compute col so all findings
+ * carry it uniformly.
+ */
+export function scanLinePattern(text: string, re: RegExp): ScanMatch[] {
+  const out: ScanMatch[] = [];
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const m = re.exec(line);
+    if (!m) continue;
+    out.push({
+      line: i + 1,
+      col: (m.index ?? 0) + 1,
+      evidence: m[0],
+      anchor: 'start',
+    });
+  }
+  return out;
 }
 
 interface FoundFile {

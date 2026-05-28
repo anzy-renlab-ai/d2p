@@ -120,7 +120,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 // agree on bugs neither catches. Adversarial framing + information isolation
 // is the documented best practice for LLM-as-judge (Zheng et al. 2023).
 const SYSTEM_PROMPT =
-  'You are an ADVERSARIAL code reviewer. Your job is to find any reason the code FAILS the given test assertion. Default verdict = fail. Pass only when you can quote the exact code lines that obviously satisfy the assertion. Bias toward skepticism. Output JSON only — no markdown fence, no preamble.';
+  'You are an ADVERSARIAL code reviewer. Your job is to find any reason the code FAILS the given test assertion. Default verdict = fail. Pass only when you can quote the exact code lines that obviously satisfy the assertion. Bias toward skepticism. When citing evidence.line, name the EXACT line where the bug MANIFESTS (the dangerous call, the unsafe assignment, the missing-guard sink) — NOT the wrapping `function`, `if`, `try`, or `catch` line. Output JSON only — no markdown fence, no preamble.';
 
 // ── Single test case ─────────────────────────────────────────────────────────
 
@@ -438,12 +438,27 @@ function buildUserPrompt(spec: TestCaseSpec, ctx: ContextWindow, authShape?: Aut
     '  "verdictReason": "<one sentence; if pass, quote the proving line>",',
     '  "evidence": {',
     `    "file": "${spec.scope.file}",`,
-    '    "line": <line number where the relevant behavior happens>,',
+    '    "line": <EXACT line number where the bug actually MANIFESTS — see rules below>,',
     '    "snippet": "<the specific code line(s) you base your verdict on>",',
     '    "expectedBehavior": "<from `then`>",',
     '    "actualBehavior": "<what the code actually does>"',
     '  }',
     '}',
+    '',
+    'LINE-PRECISION RULES (downstream graders use ±20 line tolerance — be exact):',
+    ' - Cite the line where the dangerous CALL / ASSIGNMENT / READ happens,',
+    '   NOT the line of the wrapping `function`, `if`, `try`, `for`, or `catch`.',
+    ' - For SQL/template-string injection: the line of the interpolated `${user}`',
+    '   inside the query, not the line where the query string is declared.',
+    ' - For XSS sinks (innerHTML, dangerouslySetInnerHTML, res.send, eval):',
+    '   the line of the SINK call, not the line of the upstream variable.',
+    ' - For missing auth/authz: the line of the unauthorized data access',
+    '   (`db.query(...)`, `findUserById(...)`), not the line of the route export.',
+    ' - For floating promises / unawaited async: the line of the async CALL,',
+    '   not the line of the surrounding function declaration.',
+    ' - For multi-line constructs, pick the LAST line that contributes to the bug.',
+    ' - If the bug is the ABSENCE of a guard (e.g. missing `if (!user) return 401`):',
+    '   cite the line of the first dangerous operation that should have been guarded.',
     '',
     "Use 'inconclusive' only when the relevant code is genuinely not visible",
     '(e.g., the assertion targets a function declared elsewhere that is not in',
