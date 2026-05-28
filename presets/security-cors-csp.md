@@ -4,12 +4,12 @@ version: 2
 name: CORS / CSP / cookie / security-header check
 appliesTo: []
 rules:
-  - ruleId: cors-allow-origin-star
+  - ruleId: cors-wildcard-with-credentials
     label: CORS Access-Control-Allow-Origin set to wildcard
-    severity: P2
+    severity: P1
     mechanism: static-grep
     source: security-cors-csp/v2
-    rationale: A wildcard `Access-Control-Allow-Origin: *` is dangerous on any authenticated endpoint. If credentials are ever enabled (cookies, Authorization header) the browser will still block the request, but the misconfiguration signals broken intent. Pin to an explicit allow-list.
+    rationale: A wildcard `Access-Control-Allow-Origin: *` is dangerous on any authenticated endpoint. Pair it with `credentials: true` and the browser will still refuse — but the misconfiguration signals broken intent and on some endpoints (legacy proxies, custom XHR wrappers) the protection lapses. Pin to an explicit allow-list.
     detection:
       pattern: Access-Control-Allow-Origin['"]?\s*[,:]\s*['"]\*['"]|cors\s*\(\s*\{[^}]*origin\s*:\s*['"]\*['"]
       filePattern: src/**/*.{ts,tsx,js,jsx,mjs,cjs}
@@ -17,6 +17,24 @@ rules:
       kind: template
       command: "echo 'manual remediation: replace Access-Control-Allow-Origin: * with cors({ origin: [\"https://app.example.com\"], credentials: true })'"
       verifyCommand: "! grep -rE 'Access-Control-Allow-Origin[`\\\"'\\'']?\\s*[,:]\\s*[`\\\"'\\'']\\*[`\\\"'\\'']' src/"
+  - ruleId: cookie-missing-secure-or-httponly
+    label: Session/auth cookie set without both secure and httpOnly flags
+    severity: P1
+    mechanism: static-grep
+    source: security-cors-csp/v2
+    rationale: |
+      `res.cookie('sid', sid, { maxAge: ... })` (or any `res.cookie(...)` call
+      that does not include both `httpOnly` and `secure` on the same line)
+      lets XSS read the cookie via `document.cookie` and allows it to travel
+      over plain HTTP. Session cookies must have BOTH `httpOnly: true` and
+      `secure: true` in production. This rule fires when EITHER flag is missing.
+    detection:
+      pattern: res\.cookie\s*\([^)]*\)(?<!httpOnly[^)]{0,200}\))(?<!secure[^)]{0,200}\))
+      filePattern: src/**/*.{ts,tsx,js,jsx,mjs,cjs}
+    fix:
+      kind: template
+      command: "echo 'manual remediation: res.cookie(name, val, { httpOnly: true, secure: true, sameSite: lax, maxAge: ... }) — both flags are non-negotiable on session cookies'"
+      verifyCommand: 'true'
   - ruleId: cors-no-config
     label: Express bootstrap with no CORS middleware (LLM-judged)
     severity: P3

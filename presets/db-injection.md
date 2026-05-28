@@ -4,19 +4,55 @@ version: 2
 name: Database injection & unsafe query check
 appliesTo: []
 rules:
-  - ruleId: raw-sql-template-literal
+  - ruleId: sql-string-interpolation
     label: SQL query built via template-literal interpolation
     severity: P1
     mechanism: static-grep
     source: db-injection/v2
     rationale: Building SQL by interpolating template literals (e.g. `db.query(\`SELECT * FROM users WHERE id = ${id}\`)`) is the textbook SQL injection vector. The query planner cannot distinguish user input from SQL syntax — switch to parameter binding (`db.query(sql, [id])`).
     detection:
-      pattern: \b(query|execute|raw)\s*\(\s*`[^`]*\$\{
+      pattern: (SELECT|INSERT|UPDATE|DELETE)[^\n`]{0,200}\$\{
       filePattern: src/**/*.{ts,tsx,js,jsx,mjs,cjs}
     fix:
       kind: template
       command: "echo 'manual remediation: replace interpolated SQL with parameterised query (e.g. db.query(sql, [id]))'"
-      verifyCommand: "! grep -rE '\\b(query|execute|raw)\\s*\\(\\s*\\`[^\\`]*\\$\\{' src/"
+      verifyCommand: "! grep -rE '(SELECT|INSERT|UPDATE|DELETE)[^`]{0,200}\\$\\{' src/"
+  - ruleId: req-body-into-query-unparameterised
+    label: req.body / req.params / req.query interpolated directly into a DB call
+    severity: P1
+    mechanism: static-grep
+    source: db-injection/v2
+    rationale: |
+      `db.query(\`... ${req.params.id}\`)` is the most damaging shape — user input
+      is concatenated into a SQL string without binding. This rule complements
+      `sql-string-interpolation` by pinpointing the exact request-source variable
+      so the fix-template / reviewer can quote a parameterised replacement.
+    detection:
+      pattern: (query|execute|raw)\s*\([`'"][^`'"\n]*\$\{req\.(body|params|query)
+      filePattern: src/**/*.{ts,tsx,js,jsx,mjs,cjs}
+    fix:
+      kind: template
+      command: "echo 'manual remediation: replace the interpolated value with a placeholder + binding — db.query(\"SELECT ... WHERE id = $1\", [req.params.id])'"
+      verifyCommand: "! grep -rE '(query|execute|raw)\\s*\\([`\\\"'\\''][^`\\\"'\\''\\n]*\\$\\{req\\.(body|params|query)' src/"
+  - ruleId: orm-raw-interpolation
+    label: ORM raw-SQL helper called with an interpolated template literal
+    severity: P1
+    mechanism: static-grep
+    source: db-injection/v2
+    rationale: |
+      Prisma `$queryRaw(\`...${x}\`)` (call form, NOT tagged-template),
+      Prisma `$executeRaw(\`...${x}\`)`, and `sequelize.query(\`...${x}\`)`
+      all bypass parameter binding when invoked as plain function calls with
+      a template literal argument. The tagged-template form
+      ``prisma.$queryRaw`SELECT ... WHERE id = ${id}` `` auto-parameterises;
+      the call form does not.
+    detection:
+      pattern: (\$queryRaw|\$executeRaw|sequelize\.query)\s*\(\s*`[^`]*\$\{
+      filePattern: src/**/*.{ts,tsx,js,jsx,mjs,cjs}
+    fix:
+      kind: template
+      command: "echo 'manual remediation: switch to tagged-template — prisma.$queryRaw`SELECT ... WHERE id = ${id}` — or pass values as a separate array argument'"
+      verifyCommand: "! grep -rE '(\\$queryRaw|\\$executeRaw|sequelize\\.query)\\s*\\(\\s*`[^`]*\\$\\{' src/"
   - ruleId: raw-sql-string-concat
     label: SQL query built via string concatenation
     severity: P1
@@ -30,7 +66,7 @@ rules:
       kind: template
       command: "echo 'manual remediation: replace string concatenation with parameterised query — db.query(\"SELECT * FROM t WHERE id = $1\", [id])'"
       verifyCommand: "! grep -rE '[\\\"'\\''](SELECT|INSERT|UPDATE|DELETE)\\s[^\\\"'\\'']*[\\\"'\\''][^;]*\\+' src/"
-  - ruleId: mongoose-where-from-input
+  - ruleId: mongo-where-injection
     label: MongoDB $where operator fed from request input
     severity: P1
     mechanism: static-grep

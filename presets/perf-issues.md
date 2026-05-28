@@ -24,7 +24,7 @@ rules:
     source: perf-issues/v2
     rationale: "Synchronous fs calls block the Node.js event loop. Inside an HTTP request handler this starves all concurrent requests on the same process. Use `fs/promises` (`await readFile`) or stream the file."
     detection:
-      pattern: "(readFileSync|writeFileSync|appendFileSync|existsSync)\\s*\\("
+      pattern: (readFileSync|writeFileSync|appendFileSync|existsSync)\s*\(
       filePattern: src/**/*.{ts,tsx,js,jsx,mjs,cjs}
     fix:
       kind: template

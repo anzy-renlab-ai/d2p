@@ -126,9 +126,9 @@ rules:
     severity: P1
     mechanism: static-grep
     source: error-handling/v2
-    rationale: "`res.status(500).json({ err })` or `res.json(error)` leaks message + stack to the client. In dev that is a debug aid; in production it discloses file paths, library versions, env-derived state, and sometimes secrets. Log server-side, return a generic envelope with a request id."
+    rationale: "`res.status(500).json({ err })` or `res.json(error)` leaks message + stack to the client. In dev that is a debug aid; in production it discloses file paths, library versions, env-derived state, and sometimes secrets. Log server-side, return a generic envelope with a request id. Excludes lines that also contain `stack:` since `stack-trace-leak-in-response` is the more specific finding for those."
     detection:
-      pattern: res\.(status\s*\([0-9]+\)\s*\.)?(json|send)\s*\(\s*\{?\s*(err|error|e)\s*[,:}]
+      pattern: ^(?!.*stack\s*:).*res\.(status\s*\([0-9]+\)\s*\.)?(json|send)\s*\(\s*\{?\s*(err|error|e)\s*[,:}]
       filePattern: src/**/*.{ts,tsx,js,jsx,mjs,cjs}
     fix:
       kind: template

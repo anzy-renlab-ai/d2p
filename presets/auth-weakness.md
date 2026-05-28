@@ -113,7 +113,7 @@ rules:
   - ruleId: session-cookie-missing-httponly
     label: Session/auth cookie set without httpOnly
     severity: P2
-    mechanism: static-grep
+    mechanism: llm-judgment
     source: auth-weakness/v2
     rationale: |
       `res.cookie('session', sid, { maxAge: ... })` without `httpOnly: true`
@@ -131,7 +131,7 @@ rules:
   - ruleId: session-cookie-missing-secure
     label: Session/auth cookie set without secure flag
     severity: P2
-    mechanism: static-grep
+    mechanism: llm-judgment
     source: auth-weakness/v2
     rationale: |
       `res.cookie('session', sid, { httpOnly: true })` without `secure: true`
