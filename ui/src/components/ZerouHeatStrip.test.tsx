@@ -28,7 +28,7 @@ function mkEvent(overrides: Partial<BranchTraceEventLite> = {}): BranchTraceEven
 }
 
 describe('ZerouHeatStrip', () => {
-  it('renders one square per distinct file', () => {
+  it('renders one row per distinct file', () => {
     const events = [
       mkEvent({ 'code.file.path': 'a.ts', seq: 1 }),
       mkEvent({ 'code.file.path': 'a.ts', seq: 2 }),
@@ -36,9 +36,9 @@ describe('ZerouHeatStrip', () => {
       mkEvent({ 'code.file.path': 'c.ts', seq: 4 }),
     ];
     render(<ZerouHeatStrip events={events} />);
-    const grid = screen.getByTestId('zerou-heat-strip-grid');
-    const squares = grid.querySelectorAll('[data-testid^="zerou-heat-strip-square-"]');
-    expect(squares.length).toBe(3);
+    const list = screen.getByTestId('zerou-heat-list');
+    const rows = list.querySelectorAll('[data-testid^="zerou-heat-row-"]');
+    expect(rows.length).toBe(3);
   });
 
   it('renders "no data" placeholder when events is empty', () => {
@@ -46,17 +46,17 @@ describe('ZerouHeatStrip', () => {
     expect(screen.getByTestId('zerou-heat-strip')).toHaveTextContent(/no data/i);
   });
 
-  it('file with 100% covered → aggregate=covered', () => {
+  it('file with 100% covered → row data-aggregate=covered', () => {
     const events = [
       mkEvent({ 'code.file.path': 'all-green.ts', verdict: 'covered', seq: 1 }),
       mkEvent({ 'code.file.path': 'all-green.ts', verdict: 'covered', seq: 2 }),
     ];
     render(<ZerouHeatStrip events={events} />);
-    const sq = screen.getByTestId('zerou-heat-strip-square-all-green-ts');
-    expect(sq.getAttribute('data-aggregate')).toBe('covered');
+    const row = screen.getByTestId('zerou-heat-row-all-green-ts');
+    expect(row.getAttribute('data-aggregate')).toBe('covered');
   });
 
-  it('file with mixed states has aggregate=mixed and a gradient background', () => {
+  it('mixed-state file row carries aggregate=mixed', () => {
     const events = [
       mkEvent({ 'code.file.path': 'mixed.ts', verdict: 'covered', seq: 1 }),
       mkEvent({
@@ -74,43 +74,59 @@ describe('ZerouHeatStrip', () => {
       }),
     ];
     render(<ZerouHeatStrip events={events} />);
-    const sq = screen.getByTestId('zerou-heat-strip-square-mixed-ts');
-    expect(sq.getAttribute('data-aggregate')).toBe('mixed');
-    // Mixed files use inline backgroundImage gradient, not bg-* class.
-    const inlineBg = (sq as HTMLElement).style.backgroundImage;
-    expect(inlineBg).toContain('linear-gradient');
+    const row = screen.getByTestId('zerou-heat-row-mixed-ts');
+    expect(row.getAttribute('data-aggregate')).toBe('mixed');
   });
 
-  it('click on a square triggers onJumpToFile with the file path', () => {
+  it('click on a row triggers onJumpToFile with the file path', () => {
     const events = [mkEvent({ 'code.file.path': 'click-me.ts', seq: 1 })];
     const onJump = vi.fn();
     render(<ZerouHeatStrip events={events} onJumpToFile={onJump} />);
-    fireEvent.click(screen.getByTestId('zerou-heat-strip-square-click-me-ts'));
+    fireEvent.click(screen.getByTestId('zerou-heat-row-click-me-ts'));
     expect(onJump).toHaveBeenCalledWith('click-me.ts');
   });
 
-  it('hover on a square shows the tooltip with file path + counts', () => {
+  it('row text contains the full file path', () => {
     const events = [
       mkEvent({ 'code.file.path': 'tooltip.ts', verdict: 'covered', seq: 1 }),
       mkEvent({ 'code.file.path': 'tooltip.ts', verdict: 'untested', seq: 2 }),
     ];
     render(<ZerouHeatStrip events={events} />);
-    fireEvent.mouseEnter(screen.getByTestId('zerou-heat-strip-square-tooltip-ts'));
-    const tt = screen.getByTestId('zerou-heat-strip-tooltip');
-    expect(tt).toHaveTextContent('tooltip.ts');
-    expect(tt).toHaveTextContent('1');
+    const row = screen.getByTestId('zerou-heat-row-tooltip-ts');
+    expect(row).toHaveTextContent('tooltip.ts');
   });
 
-  it('renders a large number of files without crashing', () => {
+  it('renders many files: default shows top 8 + a "show all" button', () => {
     const events: BranchTraceEventLite[] = [];
     for (let i = 0; i < 120; i++) {
-      events.push(mkEvent({ 'code.file.path': `file-${i}.ts`, seq: i }));
+      events.push(
+        mkEvent({
+          'code.file.path': `file-${i}.ts`,
+          verdict: 'untested',
+          branch_label: 'if (auth)',
+          seq: i,
+        }),
+      );
     }
     render(<ZerouHeatStrip events={events} />);
-    const squares = screen
-      .getByTestId('zerou-heat-strip-grid')
-      .querySelectorAll('[data-testid^="zerou-heat-strip-square-"]');
-    expect(squares.length).toBe(120);
+    const visible = screen
+      .getByTestId('zerou-heat-list')
+      .querySelectorAll('[data-testid^="zerou-heat-row-"]');
+    expect(visible.length).toBe(8);
+    expect(screen.getByTestId('zerou-heat-show-all')).toHaveTextContent(/120 files/);
+  });
+
+  it('show-all toggles to render every file', () => {
+    const events: BranchTraceEventLite[] = [];
+    for (let i = 0; i < 30; i++) {
+      events.push(mkEvent({ 'code.file.path': `f${i}.ts`, seq: i, branch_label: 'if (auth)' }));
+    }
+    render(<ZerouHeatStrip events={events} />);
+    fireEvent.click(screen.getByTestId('zerou-heat-show-all'));
+    const rows = screen
+      .getByTestId('zerou-heat-list')
+      .querySelectorAll('[data-testid^="zerou-heat-row-"]');
+    expect(rows.length).toBe(30);
   });
 
   it('business-red files sort before covered files', () => {
@@ -124,10 +140,23 @@ describe('ZerouHeatStrip', () => {
       }),
     ];
     render(<ZerouHeatStrip events={events} />);
-    const grid = screen.getByTestId('zerou-heat-strip-grid');
-    const squares = grid.querySelectorAll('[data-testid^="zerou-heat-strip-square-"]');
-    expect(squares.length).toBe(2);
-    // First square should be biz.ts (business-red, RANK 0).
-    expect(squares[0]?.getAttribute('data-testid')).toBe('zerou-heat-strip-square-biz-ts');
+    const rows = screen
+      .getByTestId('zerou-heat-list')
+      .querySelectorAll('[data-testid^="zerou-heat-row-"]');
+    expect(rows[0]?.getAttribute('data-testid')).toBe('zerou-heat-row-biz-ts');
+  });
+
+  it('renders the project-level overview bar', () => {
+    const events = [
+      mkEvent({ 'code.file.path': 'a.ts', verdict: 'covered', seq: 1 }),
+      mkEvent({
+        'code.file.path': 'b.ts',
+        verdict: 'untested',
+        branch_label: 'if (auth)',
+        seq: 2,
+      }),
+    ];
+    render(<ZerouHeatStrip events={events} />);
+    expect(screen.getByTestId('zerou-heat-overview-bar')).toBeInTheDocument();
   });
 });

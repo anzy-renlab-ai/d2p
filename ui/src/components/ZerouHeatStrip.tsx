@@ -105,9 +105,11 @@ function squareBackground(b: FileStateBreakdown): string | undefined {
   return `linear-gradient(90deg, ${stops.join(', ')})`;
 }
 
+const DEFAULT_TOP_N = 8;
+
 export function ZerouHeatStrip({ events, onJumpToFile }: ZerouHeatStripProps) {
   const squares = useMemo(() => groupByFile(events), [events]);
-  const [hovered, setHovered] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
   if (squares.length === 0) {
     return (
@@ -123,13 +125,26 @@ export function ZerouHeatStrip({ events, onJumpToFile }: ZerouHeatStripProps) {
   const totalFiles = squares.length;
   const totalCovered = squares.reduce((s, sq) => s + sq.breakdown.covered, 0);
   const totalBranches = squares.reduce((s, sq) => s + sq.breakdown.total, 0);
+  const totalBusiness = squares.reduce((s, sq) => s + sq.breakdown.businessRed, 0);
+  const totalMechanical = squares.reduce((s, sq) => s + sq.breakdown.mechanicalRed, 0);
+  const totalEvaluating = squares.reduce((s, sq) => s + sq.breakdown.evaluating, 0);
+  const totalRetrying = squares.reduce((s, sq) => s + sq.breakdown.retrying, 0);
 
-  // Pick the first + middle + last "group anchor" labels for the strip
-  // footer. We don't try to fit every file name underneath; a screenful
-  // of 30+ would just turn into garbage. Three anchors give shape.
-  const anchorIdxs = totalFiles <= 3
-    ? squares.map((_, i) => i)
-    : [0, Math.floor(totalFiles / 2), totalFiles - 1];
+  // Squares are already sorted by attention rank (business-red first).
+  const visible = showAll ? squares : squares.slice(0, DEFAULT_TOP_N);
+  const hidden = squares.length - visible.length;
+
+  // Tiny project-level overview bar at the top (one segment per state class).
+  const overviewSegments: Array<{ key: string; w: number; cls: string; label: string }> = [];
+  const pushSeg = (key: string, n: number, cls: string, label: string) => {
+    if (n <= 0) return;
+    overviewSegments.push({ key, w: (n / totalBranches) * 100, cls, label });
+  };
+  pushSeg('covered', totalCovered, 'bg-forest', 'covered');
+  pushSeg('evaluating', totalEvaluating, 'bg-coral', 'evaluating');
+  pushSeg('retrying', totalRetrying, 'bg-coral/60', 'retrying');
+  pushSeg('mechanical', totalMechanical, 'bg-rust/70', 'mechanical');
+  pushSeg('business', totalBusiness, 'bg-rust', 'business');
 
   return (
     <div
@@ -138,136 +153,134 @@ export function ZerouHeatStrip({ events, onJumpToFile }: ZerouHeatStripProps) {
     >
       <div className="px-4 py-2 bg-cream border-b border-warmline flex items-center justify-between gap-3 flex-wrap">
         <div className="text-xs text-muted font-mono">
-          Project heatmap · <span className="text-ink">{totalFiles}</span> files ·{' '}
+          Project · <span className="text-ink">{totalFiles}</span> files ·{' '}
           <span className="text-forest">{totalCovered}</span> /{' '}
           <span className="text-ink">{totalBranches}</span> covered
+          {' '}({((totalCovered / totalBranches) * 100).toFixed(1)}%)
         </div>
         <div className="text-[10px] text-muted/70 font-sans italic">
-          click a square to jump · hover for details
+          click a row to jump to that file
         </div>
       </div>
 
+      {/* Project-level overview: a single thin bar segmented by state. */}
+      <div className="px-4 pt-3">
+        <div
+          className="flex h-1.5 w-full overflow-hidden rounded-sm bg-muted/15"
+          role="img"
+          aria-label={`overall ${totalCovered}/${totalBranches} covered`}
+          data-testid="zerou-heat-overview-bar"
+        >
+          {overviewSegments.map((s) => (
+            <div
+              key={s.key}
+              className={s.cls}
+              style={{ width: `${s.w}%` }}
+              title={`${s.label}: ${Math.round(s.w * 10) / 10}%`}
+            />
+          ))}
+        </div>
+        <div className="mt-2 flex gap-3 text-[10px] text-muted font-mono flex-wrap">
+          <span><span className="inline-block w-2 h-2 bg-forest rounded-sm mr-1" />covered {totalCovered}</span>
+          {totalEvaluating > 0 && <span><span className="inline-block w-2 h-2 bg-coral rounded-sm mr-1" />evaluating {totalEvaluating}</span>}
+          {totalRetrying > 0 && <span><span className="inline-block w-2 h-2 bg-coral/60 rounded-sm mr-1" />retrying {totalRetrying}</span>}
+          {totalMechanical > 0 && <span><span className="inline-block w-2 h-2 bg-rust/70 rounded-sm mr-1" />🔧 mechanical {totalMechanical}</span>}
+          {totalBusiness > 0 && <span><span className="inline-block w-2 h-2 bg-rust rounded-sm mr-1" />🔒 business {totalBusiness}</span>}
+        </div>
+      </div>
+
+      {/* Ranked attention list — one row per file, sorted by red density. */}
       <div className="px-4 py-3">
-        <div
-          role="list"
-          aria-label="project file coverage heatmap"
-          className="grid gap-[3px]"
-          style={{ gridTemplateColumns: `repeat(${Math.min(totalFiles, 48)}, minmax(0, 1fr))` }}
-          data-testid="zerou-heat-strip-grid"
-        >
-          {squares.map((sq) => {
-            const grad = squareBackground(sq.breakdown);
-            const solidClass = grad ? '' : STATE_BG[sq.breakdown.aggregate as Exclude<typeof sq.breakdown.aggregate, 'mixed'>];
-            const overlay =
-              sq.breakdown.aggregate === 'mechanical-red'
-                ? STATE_OVERLAY['mechanical-red']
-                : sq.breakdown.aggregate === 'business-red'
-                ? STATE_OVERLAY['business-red']
-                : undefined;
-
-            const ariaLabel =
-              `${sq.path} — ${sq.breakdown.covered} of ${sq.breakdown.total} covered, ` +
-              `${sq.breakdown.businessRed + sq.breakdown.mechanicalRed} untested ` +
-              `(state: ${sq.breakdown.aggregate === 'mixed' ? 'mixed' : STATE_LABEL[sq.breakdown.aggregate]})`;
-
-            return (
-              <button
-                type="button"
-                role="listitem"
-                key={sq.path}
-                onClick={() => onJumpToFile?.(sq.path)}
-                onMouseEnter={() => setHovered(sq.path)}
-                onMouseLeave={() =>
-                  setHovered((prev) => (prev === sq.path ? null : prev))
-                }
-                onFocus={() => setHovered(sq.path)}
-                onBlur={() =>
-                  setHovered((prev) => (prev === sq.path ? null : prev))
-                }
-                data-testid={`zerou-heat-strip-square-${sq.path.replace(/[\\/.]/g, '-')}`}
-                data-aggregate={sq.breakdown.aggregate}
-                aria-label={ariaLabel}
-                title={ariaLabel}
-                className={`relative h-6 rounded-[2px] border border-warmline/60 ${
-                  solidClass
-                } ${sq.breakdown.aggregate === 'evaluating' ? 'anim-tick' : ''} ${
-                  sq.breakdown.aggregate === 'retrying' ? 'anim-retry-pulse' : ''
-                } hover:ring-2 hover:ring-coral/60 hover:z-10 focus:outline-none focus:ring-2 focus:ring-coral focus:z-10 transition-shadow`}
-                style={grad ? { backgroundImage: grad } : undefined}
-              >
-                {overlay && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute inset-0 flex items-center justify-center text-[10px] leading-none pointer-events-none"
-                  >
-                    {overlay}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+        <div className="text-[10px] uppercase tracking-widest text-muted/70 font-mono mb-2">
+          most attention needed
         </div>
-
-        {/* Tooltip ALWAYS rendered to avoid layout shift / flicker when
-            hovering between squares. Visibility is opacity-driven. */}
-        <div
-          className={`mt-2 text-[10px] font-mono text-muted truncate min-h-[1.25rem] transition-opacity duration-75 ${
-            hovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
-          }`}
-          data-testid="zerou-heat-strip-tooltip"
-          aria-live="polite"
-        >
-          {(() => {
-            if (!hovered) return <>&nbsp;</>;
-            const sq = squares.find((s) => s.path === hovered);
-            if (!sq) return null;
+        <ul role="list" className="space-y-1" data-testid="zerou-heat-list">
+          {visible.map((sq) => {
             const b = sq.breakdown;
-            return (
-                <>
-                  <span className="text-ink">{sq.path}</span>
-                  <span className="text-muted/40 mx-1">·</span>
-                  <span className="text-forest">{b.covered}</span> /{' '}
-                  <span className="text-ink">{b.total}</span> covered
-                  {b.businessRed > 0 && (
-                    <>
-                      <span className="text-muted/40 mx-1">·</span>
-                      <span className="text-rust">🔒 {b.businessRed} business</span>
-                    </>
-                  )}
-                  {b.mechanicalRed > 0 && (
-                    <>
-                      <span className="text-muted/40 mx-1">·</span>
-                      <span className="text-rust/80">🔧 {b.mechanicalRed} mechanical</span>
-                    </>
-                  )}
-                  {b.retrying > 0 && (
-                    <>
-                      <span className="text-muted/40 mx-1">·</span>
-                      <span className="text-coral">↻ {b.retrying} retrying</span>
-                    </>
-                  )}
-                  {b.evaluating > 0 && (
-                    <>
-                      <span className="text-muted/40 mx-1">·</span>
-                      <span className="text-coral">↻ {b.evaluating} evaluating</span>
-                    </>
-                  )}
-                </>
-              );
-            })()}
-          </div>
+            const redTotal = b.businessRed + b.mechanicalRed;
+            const inProgress = b.evaluating + b.retrying;
+            const glyph =
+              redTotal === 0 && inProgress === 0
+                ? '✓'
+                : b.businessRed > 0
+                ? STATE_OVERLAY['business-red']
+                : b.mechanicalRed > 0
+                ? STATE_OVERLAY['mechanical-red']
+                : '↻';
+            const glyphCls =
+              redTotal === 0 && inProgress === 0
+                ? 'text-forest'
+                : b.businessRed > 0
+                ? 'text-rust'
+                : b.mechanicalRed > 0
+                ? 'text-rust/80'
+                : 'text-coral';
+            const animCls =
+              b.retrying > 0 ? 'anim-retry-pulse' : b.evaluating > 0 ? 'anim-spin-arrow' : '';
 
-        <div className="mt-2 flex justify-between text-[10px] text-muted/70 font-mono">
-          {anchorIdxs.map((idx) => {
-            const sq = squares[idx];
-            if (!sq) return null;
             return (
-              <span key={`anchor-${idx}`} className="truncate max-w-[33%]">
-                {sq.path.length > 28 ? `…${sq.path.slice(-27)}` : sq.path}
-              </span>
+              <li key={sq.path}>
+                <button
+                  type="button"
+                  onClick={() => onJumpToFile?.(sq.path)}
+                  data-testid={`zerou-heat-row-${sq.path.replace(/[\\/.]/g, '-')}`}
+                  data-aggregate={b.aggregate}
+                  className="w-full flex items-center gap-3 px-2 py-1.5 rounded-sm hover:bg-cream focus:outline-none focus:ring-1 focus:ring-coral text-left transition-colors"
+                >
+                  <span className={`text-base inline-block w-5 text-center ${glyphCls} ${animCls}`} aria-hidden="true">
+                    {glyph}
+                  </span>
+                  <span className="font-mono text-xs text-ink truncate flex-1 min-w-0">
+                    {sq.path}
+                  </span>
+                  <span className="font-mono text-[10px] text-muted shrink-0 tabular-nums">
+                    {redTotal > 0 && (
+                      <>
+                        <span className="text-rust">{redTotal}</span>
+                        <span className="text-muted/40"> red</span>
+                      </>
+                    )}
+                    {redTotal > 0 && (b.covered > 0 || inProgress > 0) && <span className="mx-1.5 text-muted/40">·</span>}
+                    {b.covered > 0 && (
+                      <>
+                        <span className="text-forest">{b.covered}</span>
+                        <span className="text-muted/40"> ok</span>
+                      </>
+                    )}
+                    {inProgress > 0 && (
+                      <>
+                        {b.covered > 0 && <span className="mx-1.5 text-muted/40">·</span>}
+                        <span className="text-coral">{inProgress}</span>
+                        <span className="text-muted/40"> {b.retrying > 0 ? 'retrying' : 'evaluating'}</span>
+                      </>
+                    )}
+                  </span>
+                  <span className="text-[10px] text-muted/50 font-mono shrink-0 group-hover:text-coral">→</span>
+                </button>
+              </li>
             );
           })}
-        </div>
+        </ul>
+
+        {hidden > 0 && !showAll && (
+          <button
+            type="button"
+            onClick={() => setShowAll(true)}
+            className="mt-3 text-[10px] text-muted hover:text-coral underline font-mono"
+            data-testid="zerou-heat-show-all"
+          >
+            show all {totalFiles} files ({hidden} more)
+          </button>
+        )}
+        {showAll && totalFiles > DEFAULT_TOP_N && (
+          <button
+            type="button"
+            onClick={() => setShowAll(false)}
+            className="mt-3 text-[10px] text-muted hover:text-coral underline font-mono"
+          >
+            collapse to top {DEFAULT_TOP_N}
+          </button>
+        )}
       </div>
     </div>
   );
