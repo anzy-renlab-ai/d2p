@@ -152,9 +152,41 @@ export async function buildReviewBundle(
     files,
     findings,
     branchCoverage: loadBranchCoverage(zerouDir, onWarn),
+    branchTraceEvents: loadBranchTraceEvents(zerouDir, onWarn),
     verify,
     audit,
   };
+}
+
+/** Read .zerou/branch-trace.jsonl into a UI-ready array. */
+function loadBranchTraceEvents(
+  zerouDir: string,
+  onWarn: (event: string, detail?: unknown) => void,
+): import('./review-data-types.js').BranchTraceEventLite[] | undefined {
+  const p = path.join(zerouDir, 'branch-trace.jsonl');
+  if (!fs.existsSync(p)) return undefined;
+  try {
+    const text = fs.readFileSync(p, 'utf8');
+    const out: import('./review-data-types.js').BranchTraceEventLite[] = [];
+    for (const line of text.split(/\r?\n/)) {
+      const t = line.trim();
+      if (!t) continue;
+      try {
+        const evt = JSON.parse(t);
+        if (evt && typeof evt.branch_id === 'string') {
+          // Drop hash + prev_hash to keep bundle small; UI doesn't need them.
+          const { hash: _h, prev_hash: _ph, ...lite } = evt;
+          out.push(lite);
+        }
+      } catch {
+        /* skip malformed */
+      }
+    }
+    return out;
+  } catch (e) {
+    onWarn('review-data.branch-trace-read-failed', { error: (e as Error).message });
+    return undefined;
+  }
 }
 
 /**

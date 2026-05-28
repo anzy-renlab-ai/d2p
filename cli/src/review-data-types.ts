@@ -213,8 +213,30 @@ export interface ReviewBundle {
   files: ReviewFile[];
   findings: ReviewFinding[];
   branchCoverage: BranchCoverageReport | null;
+  /** Phase 14 — branch-trace.jsonl events for the tree-as-log component. */
+  branchTraceEvents?: BranchTraceEventLite[];
   verify: ReviewVerify;
   audit: ReviewAudit | null;
+}
+
+/** Subset of BranchTraceEvent we ship to the UI (skip heavy fields like hash chain). */
+export interface BranchTraceEventLite {
+  ts: string;
+  trace_id: string;
+  span_id?: string;
+  event: 'branch.evidence';
+  branch_id: string;
+  branch_kind: string;
+  branch_label: string;
+  line_start: number;
+  line_end: number;
+  'code.function': string;
+  'code.file.path': string;
+  'code.line.number': number;
+  signals: { ast: true; spec: boolean; judge: boolean; run: boolean | null };
+  verdict: string;
+  evidence?: { spec_ids?: string[]; runtime_hits?: number };
+  seq: number;
 }
 
 /** Friendly labels for each module id (used by the UI + writer). */
