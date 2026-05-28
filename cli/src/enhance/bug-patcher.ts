@@ -34,6 +34,10 @@ import type {
 } from './types.js';
 import type { EngineConfig } from '../stubs.js';
 import { logBranch, logCatch } from '../log/branch.js';
+import type {
+  BranchTraceStream,
+  FunctionAndNode,
+} from '../agent/branch-trace-stream.js';
 
 const MAX_DIFF_LEN = 4000;
 const CONTEXT_LINES = 20;
@@ -191,6 +195,16 @@ export type TscRunner = (cwd: string) => { ok: true } | { ok: false; firstError:
 export interface PatcherOptsInternal extends PatcherOpts {
   /** @internal — test-only seam for the tsc self-check. */
   runTscFn?: TscRunner;
+  /**
+   * Phase 14C: live branch-trace stream. When set, emits `retrying`
+   * per attempt and a terminal `mechanical-red` / `covered` event after
+   * success / final failure. v1 patcher is single-shot (no retry loop),
+   * so callers will see one `retrying` (attempt:1/1) + one terminal event
+   * per finding.
+   */
+  branchTraceStream?: BranchTraceStream;
+  /** Phase 14C: finding → branch lookup. Same shape as the spec lookup. */
+  branchLookup?: (file: string, line: number) => FunctionAndNode | null;
 }
 
 export async function patchBugs(opts: PatcherOptsInternal): Promise<PatchResult[]> {
@@ -211,6 +225,23 @@ export async function patchBugs(opts: PatcherOptsInternal): Promise<PatchResult[
   let skipped = 0;
   let failed = 0;
 
+  // Phase 14C: helper to emit a live transition without blowing up the
+  // patcher on stream errors. Stream is best-effort.
+  const emitState = async (
+    f: AuditFinding,
+    state: 'retrying' | 'mechanical-red' | 'covered' | 'business-red',
+    extra?: { retry?: { attempt: number; max: number }; reason?: string },
+  ): Promise<void> => {
+    if (!opts.branchTraceStream || !opts.branchLookup) return;
+    const branch = opts.branchLookup(f.file, f.line);
+    if (!branch) return;
+    try {
+      await opts.branchTraceStream.emitTransition(branch.fn, branch.node, state, extra);
+    } catch (err) {
+      logCatch(logger, 'enhance.bug.patcher.stream', err, { findingId: f.id });
+    }
+  };
+
   for (const { f, e } of triaged) {
     if (!e.eligible) {
       logBranch(logger, 'enhance.bug.patcher.finding.skipped', {
@@ -223,6 +254,8 @@ export async function patchBugs(opts: PatcherOptsInternal): Promise<PatchResult[
       skipped++;
       continue;
     }
+    // Live: patcher is starting work on this finding — show "retry 1/1".
+    await emitState(f, 'retrying', { retry: { attempt: 1, max: 1 } });
 
     logger.log?.('info', 'enhance.bug.patcher.finding.start', {
       findingId: f.id,
@@ -435,6 +468,21 @@ export async function patchBugs(opts: PatcherOptsInternal): Promise<PatchResult[
       diff: cleaned,
     });
     applied++;
+  }
+
+  // Phase 14C: emit terminal state per finding once the loop is over.
+  // Patcher is single-shot in v1 (no retry loop), so this is the FINAL
+  // state. `applied` → `covered` (patcher resolved the gap), `failed` /
+  // `skipped` → `mechanical-red` (gap still there but patcher tried).
+  for (const r of results) {
+    if (r.status === 'applied') {
+      await emitState(r.finding, 'covered', { reason: r.reason });
+    } else if (r.status === 'failed') {
+      await emitState(r.finding, 'mechanical-red', { reason: r.reason });
+    }
+    // 'skipped' findings don't get a terminal event — the eligibility
+    // gate ran before any work, so the branch's state is unchanged from
+    // whatever the prior audit emitted.
   }
 
   logger.log?.('info', 'enhance.bug.patcher.complete', {

@@ -34,6 +34,11 @@ import { engineFamily } from '../stubs.js';
 import { fetchLlm } from './llm-fetch.js';
 import { runConcurrent } from './concurrency.js';
 import type { AuthShape } from './auth-detector.js';
+import type {
+  BranchTraceStream,
+  FunctionAndNode,
+} from './branch-trace-stream.js';
+import { deriveStateFromVerdict } from './branch-trace-stream.js';
 
 const DEFAULT_CONCURRENCY = 5;
 
@@ -61,6 +66,18 @@ export interface TestRunOptions {
    * doesn't treat one-helper-call-up gates as missing.
    */
   authShape?: AuthShape;
+  /**
+   * Phase 14C: live branch-trace stream. When set, the runner emits an
+   * `evaluating` event before the LLM call and a terminal state event
+   * after the verdict, so the UI can pulse / snap colours in real time.
+   */
+  branchTraceStream?: BranchTraceStream;
+  /**
+   * Phase 14C: spec → branch lookup. Supplied alongside `branchTraceStream`;
+   * the runner uses it to resolve which BranchNode a spec targets. When
+   * absent, transition events are skipped (no-op fallback).
+   */
+  branchLookup?: (file: string, line: number) => FunctionAndNode | null;
 }
 
 export interface TestBatchOptions
@@ -158,6 +175,26 @@ export async function runTestCase(opts: TestRunOptions): Promise<TestCaseResult>
     return result;
   }
 
+  // ── 2.5. Phase 14C: live evaluating event ────────────────────────────────
+  const matchedBranch =
+    opts.branchLookup && opts.branchTraceStream
+      ? opts.branchLookup(spec.scope.file, spec.scope.line)
+      : null;
+  if (opts.branchTraceStream && matchedBranch) {
+    try {
+      await opts.branchTraceStream.emitTransition(
+        matchedBranch.fn,
+        matchedBranch.node,
+        'evaluating',
+        { spec_id: spec.id },
+      );
+    } catch (err) {
+      logCatch(logger, 'agent.test-run.case.stream-evaluating', err, {
+        specId: spec.id,
+      });
+    }
+  }
+
   // ── 3. Build prompt + call LLM ───────────────────────────────────────────
   const userPrompt = buildUserPrompt(spec, ctx, opts.authShape);
   const model = opts.criticConfig.modelId;
@@ -250,6 +287,30 @@ export async function runTestCase(opts: TestRunOptions): Promise<TestCaseResult>
     durationMs: Date.now() - start,
   };
   logTestResult(logger, result);
+
+  // ── 5. Phase 14C: live terminal-state event ──────────────────────────────
+  if (opts.branchTraceStream && matchedBranch) {
+    const finalState = deriveStateFromVerdict(
+      result.status,
+      result.verdictReason,
+      matchedBranch,
+    );
+    if (finalState) {
+      try {
+        await opts.branchTraceStream.emitTransition(
+          matchedBranch.fn,
+          matchedBranch.node,
+          finalState,
+          { spec_id: spec.id, reason: result.verdictReason },
+        );
+      } catch (err) {
+        logCatch(logger, 'agent.test-run.case.stream-terminal', err, {
+          specId: spec.id,
+        });
+      }
+    }
+  }
+
   return result;
 }
 

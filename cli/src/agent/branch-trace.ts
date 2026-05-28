@@ -14,6 +14,22 @@
  *
  * Schema is locked — see docs/reviews/2026-05-27-log-as-proof-prior-art.md
  * §6. Worker 13.2 (coverage CLI) consumes the same shape.
+ *
+ * Phase 14C — relationship with `BranchTraceStream`:
+ *   - `BranchTraceStream` (branch-trace-stream.ts) emits incremental events
+ *     DURING audit (state='evaluating' / state='covered' / state='retrying' /
+ *     state='mechanical-red' / state='business-red') so the SSE relay can
+ *     push them to the UI in real time.
+ *   - This module emits the FINAL canonical snapshot — every AST branch,
+ *     terminal verdict, hash chain rooted at ZERO. It overwrites whatever
+ *     the live stream left on disk (atomic rename), which is intentional:
+ *     the final file is the proof-of-coverage artifact that `jq | sort -u
+ *     | wc -l` must match `branchesTotal`. The live stream only ever
+ *     covers a subset (branches that had specs / patcher attempts).
+ *   - Both writers produce byte-identical events for the same BranchNode
+ *     (canonical field order + sha256 over the no-hash form), so any
+ *     consumer can verify a single line without knowing which writer
+ *     produced it.
  */
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';

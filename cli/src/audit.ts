@@ -49,6 +49,11 @@ import { emitVitestTests } from './agent/test-emitter.js';
 import { runVitest } from './agent/runtime/vitest-orchestrator.js';
 import { parseCoverage } from './agent/runtime/coverage-parser.js';
 import { ProgressiveReportWriter } from './agent/progressive-report.js';
+import {
+  BranchTraceStream,
+  indexBranchesByLine,
+  findMatchingBranch,
+} from './agent/branch-trace-stream.js';
 
 export const ZEROU_CLI_VERSION = '0.1.0';
 
@@ -581,6 +586,34 @@ async function doAudit(
           decision: 'run-tests',
           totalSpecs: specs.length,
         }, { level: 'info' });
+
+        // ── Phase 14C: open the live BranchTraceStream + build the AST-only
+        // branch index so test-spec-runner can emit `evaluating` / terminal
+        // events DURING the batch. The full cross-referenced report is
+        // still built at end of audit; it appends to the same file.
+        let liveStream: BranchTraceStream | null = null;
+        let liveLookup: ((file: string, line: number) => ReturnType<typeof findMatchingBranch>) | undefined;
+        try {
+          const { collectBranchCoverage: _collect } = await import('./agent/branch-coverage.js');
+          const astReport = await _collect({ cwd: repoInfo.cwd, logger: testLogger });
+          const idx = indexBranchesByLine(astReport);
+          liveLookup = (file, line) => findMatchingBranch(idx, file, line);
+          liveStream = new BranchTraceStream({
+            cwd: repoInfo.cwd,
+            logger: testLogger,
+          });
+          await liveStream.open();
+          logBranch(testLogger, 'agent.branch-trace.stream.bootstrap', {
+            decision: 'opened',
+            functions: astReport.summary.functionsAnalyzed,
+            branches: astReport.summary.branchesTotal,
+          }, { level: 'info' });
+        } catch (e) {
+          logCatch(testLogger, 'agent.branch-trace.stream.bootstrap', e);
+          liveStream = null;
+          liveLookup = undefined;
+        }
+
         const batchResult = await runTestCaseBatch(specs, {
           cwd: repoInfo.cwd,
           logger: testLogger,
@@ -588,7 +621,18 @@ async function doAudit(
           criticApiKey: policy.criticApiKey ?? null,
           concurrency,
           authShape,
+          branchTraceStream: liveStream ?? undefined,
+          branchLookup: liveLookup,
         });
+
+        // Close the stream so future batch writers can take over the file.
+        if (liveStream) {
+          try {
+            await liveStream.close();
+          } catch (e) {
+            logCatch(testLogger, 'agent.branch-trace.stream.close', e);
+          }
+        }
         testResults = batchResult.results;
         testSummary = batchResult.summary;
 
