@@ -979,11 +979,121 @@ const SPEC_LIBRARY_SCHEMA_DOC = `[
   }
 ]`;
 
+// Phase 21 — bug-hunting (library) system prompt. Used when library mode is
+// active. The LLM is asked to imagine PLAUSIBLE bugs in this specific code and
+// write one spec per bug that would fail if that bug exists. This is a
+// stronger frame than "correctness specs" because it forces the model to
+// PROPOSE bugs first and only then write the spec — which empirically
+// produces specs whose failure actually reveals a defect, instead of
+// specs that re-state what the code already does.
+const SPEC_BUG_HUNT_SYSTEM_PROMPT =
+  'You are a bug-hunting test writer. Given a function\'s source code, your job is to:\n' +
+  '1. Identify 3-5 PLAUSIBLE bugs that could exist in this code\n' +
+  '2. For each, write a test spec that would FAIL if the bug is present\n' +
+  '\n' +
+  'You are NOT writing tests to verify the code works. You ARE writing tests that ' +
+  'catch specific bug shapes. The spec\'s WHEN clause should describe an input that ' +
+  'triggers the suspected bug; the THEN clause should describe what correct ' +
+  'behavior LOOKS like (so an LLM judge can compare actual vs expected).\n' +
+  '\n' +
+  'Bug shapes to consider (do not limit yourself to these):\n' +
+  ' - Off-by-one in loops / array access\n' +
+  ' - Missing await on async ops\n' +
+  ' - Wrong default with || vs ??\n' +
+  ' - Type confusion (parseInt without radix, "" vs 0, NaN propagation)\n' +
+  ' - Missing null check after .find / .match\n' +
+  ' - Mutating an input parameter\n' +
+  ' - Forgotten return value\n' +
+  ' - Switch missing break / fallthrough\n' +
+  '\n' +
+  'Output JSON ONLY — no markdown fence, no preamble, no commentary. ' +
+  'Return a JSON array of test spec objects matching the schema exactly. ' +
+  'Be specific — generic specs are useless. ' +
+  'Each spec MUST set "category" to "bug-revealing".';
+
+const SPEC_BUG_HUNT_SCHEMA_DOC = `[
+  {
+    "name": string,          // 5-10 words describing the bug
+    "category": "bug-revealing",
+    "given": string,         // preconditions / state
+    "when": string,          // exact input or action that triggers the bug
+    "then": string,          // what CORRECT code would do (LLM-judge compares)
+    "reasoning": string      // why this bug is plausible in THIS code (cite line)
+  }
+]`;
+
+/**
+ * Phase 21 — bug-hunting user prompt. Asks the LLM to propose bugs in the
+ * specific function and write one spec whose failure would catch each.
+ *
+ * This intentionally swaps in for the Phase 20 library-mode correctness prompt
+ * because the user's intent in library mode is to FIND bugs (e.g. BugsJS
+ * harnessed bugs), not to confirm textbook contracts.
+ */
+function buildBugHuntSpecPrompt(target: ExtractedTarget, maxCases: number): string {
+  const cap = Math.min(maxCases, 5);
+  return [
+    `Target function for bug hunting:`,
+    `- File: ${target.file}:${target.line}`,
+    `- Function: ${target.name}`,
+    `- Signature: ${target.signaturePreview}`,
+    target.branchCount !== undefined
+      ? `- Branches: ${target.branchCount} (more branches → more bug surface)`
+      : '',
+    target.hasAsyncCall ? `- Async: yes (await observed in body)` : '',
+    ``,
+    `Source code (with line numbers, ±30 lines context):`,
+    `\`\`\``,
+    target.contextSnippet,
+    `\`\`\``,
+    ``,
+    `Step 1 — READ THE CODE above and identify 3-${cap} PLAUSIBLE bugs that could`,
+    `realistically be present. Anchor each suspected bug to a specific line you`,
+    `see in the snippet above (cite the line number in "reasoning"). Examples`,
+    `of plausible bug shapes:`,
+    ``,
+    `  - Off-by-one in loop / array index (e.g. <= where < was intended)`,
+    `  - Missing await on an async call (Promise leaks into return value)`,
+    `  - Wrong default operator (|| swallows 0 / "" / false; should be ??)`,
+    `  - Type confusion (parseInt without radix, '' vs 0 vs false, NaN math)`,
+    `  - Missing null check after .find / .match / .get / .pop`,
+    `  - Mutating an input parameter that should be treated as immutable`,
+    `  - Forgotten return value (function returns undefined where caller expects X)`,
+    `  - Switch missing break (unintended fallthrough)`,
+    `  - Wrong comparison (== vs ===, includes vs indexOf, > vs >=)`,
+    `  - Boundary mishandling (empty input / null / undefined / NaN / Infinity)`,
+    `  - Async ordering / unhandled rejection / race in mutation`,
+    ``,
+    `Step 2 — For EACH suspected bug, write ONE spec that would FAIL if the bug`,
+    `is present. The spec MUST:`,
+    `  - "name": 5-10 words naming the bug (e.g. "off-by-one on last array element")`,
+    `  - "category": "bug-revealing"`,
+    `  - "given": precondition / state setup`,
+    `  - "when": the exact input / call shape that triggers the suspected bug`,
+    `  - "then": what CORRECT code would produce (judge compares actual vs this)`,
+    `  - "reasoning": why this bug is plausible in THIS code (cite the line number)`,
+    ``,
+    `Cap at ${cap} specs. DO NOT write happy-path / "verifies it works" specs —`,
+    `every spec must target a SPECIFIC suspected bug. Generic "validates input`,
+    `correctly" is forbidden — bugs are concrete.`,
+    ``,
+    `This is a LIBRARY function — DO NOT write security / auth / HTTP /`,
+    `SQL-injection specs. Focus on correctness defects in inputs, outputs, and`,
+    `side effects.`,
+    ``,
+    `Return strict JSON array matching this schema:`,
+    SPEC_BUG_HUNT_SCHEMA_DOC,
+  ].filter((l) => l !== '').join('\n');
+}
+
 /**
  * Phase 20 — library-mode user prompt. Focuses the LLM on correctness
  * failure modes (edge cases, boundaries, type confusion, async pitfalls,
  * return contracts, side effects) instead of the security checklist that
  * makes no sense for a library function.
+ *
+ * Kept available as a fallback / legacy path for cases where the bug-hunting
+ * frame is undesirable. Default library-mode behavior is now bug-hunting.
  */
 function buildLibrarySpecPrompt(target: ExtractedTarget, maxCases: number): string {
   return [
@@ -1135,6 +1245,7 @@ const VALID_CATEGORIES: ReadonlySet<TestCaseCategory> = new Set<TestCaseCategory
   'auth',
   'validation',
   'logic-correctness',
+  'bug-revealing',
 ]);
 
 function normalizeSpec(
@@ -1178,19 +1289,21 @@ function fallbackSpec(target: ExtractedTarget): TestCaseSpec {
     file: target.file,
     line: target.line,
   };
-  // Library-mode targets get the correctness-oriented fallback wording so
-  // downstream reporting reflects what the target actually is.
+  // Library-mode targets get a bug-hunting-oriented fallback wording so
+  // downstream reporting reflects what the target actually is. The bug-hunt
+  // frame is "find a bug", so the fallback names the absence of an LLM as
+  // the reason no specific bug shape was proposed.
   if (target.libraryMode) {
     return {
       id: `${target.id}-1`,
-      name: `${target.name} returns expected value`,
-      category: 'logic-correctness',
+      name: `${target.name} bug-hunt fallback`,
+      category: 'bug-revealing',
       scope,
       given: 'inputs matching the documented signature',
-      when: `the function ${target.name} is invoked`,
-      then: 'it returns a value matching the function contract without throwing',
+      when: `the function ${target.name} is invoked with realistic inputs`,
+      then: 'it returns a value matching the function contract without throwing or producing an obviously-wrong result',
       reasoning:
-        'Fallback logic-correctness spec generated without LLM. Library-mode target — replaces a fuller correctness suite when no critic engine is configured.',
+        'Fallback bug-revealing spec generated without LLM. Library-mode target — replaces a per-bug suite when no critic engine is configured.',
     };
   }
   return {
@@ -1296,11 +1409,17 @@ export async function generateTestCases(opts: TestGenOptions): Promise<TestCaseS
           modelId: opts.criticConfig!.modelId,
         });
         let result: TestGenLlmCallResult;
+        // Phase 21 — library mode uses bug-hunt prompt (asks LLM to propose
+        // plausible bugs and write spec that would fail per bug). The Phase 20
+        // correctness prompt is still available via buildLibrarySpecPrompt /
+        // SPEC_LIBRARY_SYSTEM_PROMPT but no longer wired by default — bug-hunting
+        // frame empirically produces specs whose failure reveals real defects
+        // (BugsJS-style) instead of textbook contract specs.
         const systemPrompt = target.libraryMode
-          ? SPEC_LIBRARY_SYSTEM_PROMPT
+          ? SPEC_BUG_HUNT_SYSTEM_PROMPT
           : SPEC_SYSTEM_PROMPT;
         const userPrompt = target.libraryMode
-          ? buildLibrarySpecPrompt(target, maxCases)
+          ? buildBugHuntSpecPrompt(target, maxCases)
           : buildSpecPrompt(target, maxCases, opts.authShape);
         try {
           result = await llmFn({

@@ -49,6 +49,7 @@ import type { TestCaseSpec, TestCaseResult, TestSummary } from './agent/types.js
 import { loadMarkdownPresets } from './agent/preset-md-loader.js';
 import { runRuntimeTests } from './agent/runtime/index.js';
 import { analyzeFunctions } from './agent/ast-analyzer.js';
+import { findBugsViaLLM, inferredBugToFinding } from './agent/llm-bug-finder.js';
 import { emitVitestTests } from './agent/test-emitter.js';
 import { runVitest } from './agent/runtime/vitest-orchestrator.js';
 import { parseCoverage } from './agent/runtime/coverage-parser.js';
@@ -110,6 +111,16 @@ export async function runAudit(opts: AuditOptions): Promise<number> {
       '--explain-skipped',
       'print summary of skipped files at end of run',
       false,
+    )
+    .option(
+      '--llm-detect',
+      'opt-in LLM-as-direct-detector layer (Phase 21): asks critic LLM to hunt for bugs in scanned functions without a predefined rule',
+      false,
+    )
+    .option(
+      '--llm-detect-cap <n>',
+      'max number of functions sent to the LLM bug-finder (default 30)',
+      '30',
     )
     .action(async (auditPath: string, cmdOpts: any) => {
       // Redact --key values in BOTH process.argv (B-6-1 surface contract) and
@@ -843,6 +854,114 @@ async function doAudit(
         errorCode: (e as any).errorCode ?? 'unknown',
       });
     }
+  }
+
+  // ── Phase 21: LLM-as-direct-detector (opt-in via --llm-detect) ─────────────
+  // After preset scan completes, ask the critic LLM to hunt for bugs in the
+  // exported functions ast-analyzer found. No rule list — LLM reads code and
+  // infers bugs directly. Results dedupe against preset findings by
+  // (file:line:bugType).
+  const llmDetectFlag: boolean = !!cmdOpts.llmDetect;
+  const llmDetectCapRaw = Number.parseInt(String(cmdOpts.llmDetectCap ?? '30'), 10);
+  const llmDetectCap =
+    Number.isFinite(llmDetectCapRaw) && llmDetectCapRaw >= 1 ? llmDetectCapRaw : 30;
+  if (llmDetectFlag) {
+    const llmDetectLogger = createTrackLogger('agent', {
+      logRoot: effectiveLogRoot,
+      parentTrace: logger.trace,
+      minLevel,
+    });
+    const canRunLlmDetect =
+      policy.criticConfig !== null &&
+      typeof policy.criticApiKey === 'string' &&
+      policy.criticApiKey.length > 0;
+    logBranch(
+      logger,
+      'cli.llm-detect.dispatch-decision',
+      {
+        decision: canRunLlmDetect ? 'run' : 'skip',
+        reasoning: canRunLlmDetect
+          ? '--llm-detect requested and critic engine + key available'
+          : '--llm-detect requested but no critic config or key',
+        cap: llmDetectCap,
+      },
+      { level: 'info' },
+    );
+    if (canRunLlmDetect) {
+      try {
+        const functions = await analyzeFunctions({
+          cwd: repoInfo.cwd,
+          logger: llmDetectLogger,
+          maxFiles: 100,
+        });
+        const inferred = await findBugsViaLLM({
+          cwd: repoInfo.cwd,
+          functions,
+          criticConfig: policy.criticConfig!,
+          criticApiKey: policy.criticApiKey!,
+          concurrency,
+          maxFunctions: llmDetectCap,
+          logger: llmDetectLogger,
+        });
+        // Dedupe by (file:line:bugType) against existing preset findings.
+        // Preset findings don't have bugType per se; we treat the same
+        // (file:line) coordinate as a collision regardless of category so
+        // we never double-surface the same site to the user.
+        const seenSites = new Set<string>();
+        for (const f of allFindings) {
+          seenSites.add(`${f.file}:${f.line}`);
+        }
+        let appendedCount = 0;
+        let dedupedCount = 0;
+        for (let i = 0; i < inferred.length; i++) {
+          const b = inferred[i]!;
+          const siteKey = `${b.file}:${b.line}`;
+          if (seenSites.has(siteKey)) {
+            dedupedCount++;
+            logBranch(llmDetectLogger, 'agent.llm-detect.dedupe-decision', {
+              decision: 'duplicate',
+              file: b.file,
+              line: b.line,
+              bugType: b.bugType,
+            });
+            continue;
+          }
+          seenSites.add(siteKey);
+          const finding = inferredBugToFinding(b, i);
+          // LLM-detect findings are emitted as 'confirmed' — the LLM IS the
+          // critic for this layer; no second-engine review is required.
+          allFindings.push({
+            ...finding,
+            verdict: 'confirmed',
+            verdictReason: `llm-detect (${b.confidence}): ${b.oneLineDesc}`,
+            criticFamily: engineFamily(policy.criticConfig!),
+          });
+          appendedCount++;
+        }
+        logBranch(
+          logger,
+          'cli.llm-detect.append-decision',
+          {
+            decision: 'appended',
+            inferredCount: inferred.length,
+            appendedCount,
+            dedupedCount,
+            functionsScanned: Math.min(functions.length, llmDetectCap),
+          },
+          { level: 'info' },
+        );
+      } catch (e) {
+        logCatch(logger, 'cli.llm-detect.error', e, {
+          decision: 'failed-skip',
+        });
+      }
+    }
+    await llmDetectLogger.flush();
+  } else {
+    logBranch(logger, 'cli.llm-detect.dispatch-decision', {
+      decision: 'disabled',
+      reasoning: '--llm-detect flag not set',
+    });
   }
 
   // 7. Compute fail-on threshold BEFORE apply (B-10-6)

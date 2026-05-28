@@ -85,7 +85,8 @@ export type TestCaseCategory =
   | 'error-handling'
   | 'auth'
   | 'validation'
-  | 'logic-correctness';
+  | 'logic-correctness'
+  | 'bug-revealing';
 
 /** Scope of what the test targets. */
 export interface TestCaseScope {

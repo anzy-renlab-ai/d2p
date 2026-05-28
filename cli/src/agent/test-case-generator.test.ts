@@ -797,7 +797,7 @@ describe('extractAllTargets — Phase 20 library mode', () => {
     }
   });
 
-  it('library prompt focuses on correctness (edge cases / boundaries / async pitfalls)', async () => {
+  it('library mode now uses bug-hunt frame (Phase 21 swap) — not the legacy correctness checklist', async () => {
     const cwd = await tmpdir();
     try {
       await writeFile(
@@ -825,16 +825,18 @@ describe('extractAllTargets — Phase 20 library mode', () => {
         criticApiKey: 'sk-test',
         llmCall: llm,
       });
-      const lower = capturedUser.toLowerCase();
-      expect(lower).toContain('edge cases');
-      expect(lower).toContain('boundary');
-      expect(lower).toContain('async pitfalls');
-      expect(lower).toContain('return value contract');
-      expect(lower).toContain('side effects');
-      // System prompt switched to correctness frame, not security.
+      // Phase 21 — library mode now sends the bug-hunt prompt instead of the
+      // Phase 20 correctness checklist. System prompt is bug-hunt-themed and
+      // user prompt asks for plausible bugs anchored to specific lines. We do
+      // NOT route to the security red-team prompt (this is a library function).
       const lowerSys = capturedSystem.toLowerCase();
-      expect(lowerSys).toContain('correctness');
-      expect(lowerSys).toContain('library');
+      expect(lowerSys).toContain('bug-hunting test writer');
+      expect(lowerSys).toContain('plausible bugs');
+      expect(lowerSys).not.toContain('red-team');
+      const lowerUser = capturedUser.toLowerCase();
+      expect(lowerUser).toContain('plausible bugs');
+      expect(lowerUser).toContain('cite the line');
+      expect(lowerUser).toContain('bug-revealing');
     } finally {
       await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
     }
@@ -951,7 +953,7 @@ describe('extractAllTargets — Phase 20 library mode', () => {
     }
   });
 
-  it('library-mode targets get logic-correctness category in fallback spec', async () => {
+  it('library-mode targets get bug-revealing category in fallback spec (Phase 21)', async () => {
     const cwd = await tmpdir();
     try {
       await writeFile(
@@ -974,9 +976,239 @@ describe('extractAllTargets — Phase 20 library mode', () => {
       });
       await logger.flush();
       expect(specs.length).toBe(1);
-      expect(specs[0]!.category).toBe('logic-correctness');
+      // Phase 21 — fallback now emits 'bug-revealing' for library targets.
+      expect(specs[0]!.category).toBe('bug-revealing');
       expect(specs[0]!.scope.type).toBe('function');
       expect(specs[0]!.scope.target).toBe('fn:processBatch');
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+});
+
+// ── Phase 21 — bug-hunting library mode ────────────────────────────────────
+
+describe('generateTestCases — Phase 21 bug-hunt library mode', () => {
+  it('library mode uses bug-hunt system prompt (not the legacy library prompt)', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'lib/parser.ts',
+        [
+          `export function parseHeader(raw: string): number {`,
+          `  const parts = raw.split(':');`,
+          `  const n = parseInt(parts[1]);`,
+          `  if (!n) return 0;`,
+          `  return n;`,
+          `}`,
+        ].join('\n'),
+      );
+      let capturedSystem = '';
+      let capturedUser = '';
+      const llm: TestGenLlmFn = async ({ systemPrompt, userPrompt }) => {
+        capturedSystem = systemPrompt;
+        capturedUser = userPrompt;
+        return { ok: true, raw: '', parsed: [] };
+      };
+      await generateTestCases({
+        cwd,
+        profile: baseProfile,
+        logger: makeLogger(cwd),
+        criticConfig: fakeCriticConfig,
+        criticApiKey: 'sk-test',
+        llmCall: llm,
+      });
+      const lowerSys = capturedSystem.toLowerCase();
+      // Bug-hunt framing markers.
+      expect(lowerSys).toContain('bug-hunting test writer');
+      expect(lowerSys).toContain('plausible bugs');
+      expect(lowerSys).toContain('fail if the bug is present');
+      // Bug-shape vocabulary explicitly enumerated.
+      expect(lowerSys).toContain('off-by-one');
+      expect(lowerSys).toContain('missing await');
+      expect(lowerSys).toContain('null check');
+      // Schema requires category=bug-revealing.
+      expect(lowerSys).toContain('bug-revealing');
+      // User prompt also instructs bug-hunting.
+      const lowerUser = capturedUser.toLowerCase();
+      expect(lowerUser).toContain('3-5 plausible bugs');
+      // Phrase wraps across a newline in the rendered prompt; check the parts.
+      expect(lowerUser).toContain('would fail if the bug');
+      expect(lowerUser).toContain('cite the line');
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('library-mode specs returned by LLM are accepted with category=bug-revealing', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'lib/lookup.ts',
+        [
+          `export function lookup(items: number[], target: number) {`,
+          `  for (let i = 0; i <= items.length; i++) {`,
+          `    if (items[i] === target) return i;`,
+          `  }`,
+          `  return -1;`,
+          `}`,
+        ].join('\n'),
+      );
+      const llm: TestGenLlmFn = async () => ({
+        ok: true,
+        raw: '',
+        parsed: [
+          {
+            name: 'off-by-one walks past last element',
+            category: 'bug-revealing',
+            given: 'an array of length 3',
+            when: 'lookup is called with a target that does not exist',
+            then: 'returns -1 without accessing items[items.length] (which is undefined)',
+            reasoning: 'loop uses <= length which goes one index too far (line 2)',
+          },
+          {
+            name: 'empty array returns -1 not throw',
+            category: 'bug-revealing',
+            given: 'an empty array',
+            when: 'lookup called with any target',
+            then: 'returns -1 without throwing',
+            reasoning: 'empty input is a classic boundary case',
+          },
+          {
+            name: 'NaN target should not match NaN-in-array',
+            category: 'bug-revealing',
+            given: 'an array containing NaN',
+            when: 'lookup called with NaN as target',
+            then: 'returns -1 because NaN !== NaN under ===',
+            reasoning: 'strict equality with NaN is always false',
+          },
+        ],
+      });
+      const specs = await generateTestCases({
+        cwd,
+        profile: baseProfile,
+        logger: makeLogger(cwd),
+        criticConfig: fakeCriticConfig,
+        criticApiKey: 'sk-test',
+        llmCall: llm,
+      });
+      expect(specs.length).toBe(3);
+      for (const s of specs) {
+        expect(s.category).toBe('bug-revealing');
+        expect(s.scope.type).toBe('function');
+        expect(s.scope.target).toBe('fn:lookup');
+      }
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('library-mode fallback (no LLM) yields a bug-revealing spec', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'lib/work.ts',
+        [
+          `export function processBatch(items: number[]) {`,
+          `  if (items.length === 0) return [];`,
+          `  return items.map((x) => x * 2);`,
+          `}`,
+        ].join('\n'),
+      );
+      const logger = makeLogger(cwd);
+      const specs = await generateTestCases({
+        cwd,
+        profile: baseProfile,
+        logger,
+        criticConfig: null,
+        criticApiKey: null,
+      });
+      await logger.flush();
+      expect(specs.length).toBe(1);
+      expect(specs[0]!.category).toBe('bug-revealing');
+      expect(specs[0]!.scope.type).toBe('function');
+      expect(specs[0]!.scope.target).toBe('fn:processBatch');
+      // Bug-hunt language present in fallback wording.
+      expect(specs[0]!.name.toLowerCase()).toContain('bug');
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('library-mode bug-hunt respects maxCasesPerTarget cap', async () => {
+    const cwd = await tmpdir();
+    try {
+      await writeFile(
+        cwd,
+        'lib/many.ts',
+        [
+          `export function risky(x: number) {`,
+          `  if (x < 0) return -1;`,
+          `  if (x > 100) return 100;`,
+          `  if (x === 0) return 0;`,
+          `  return x * 2;`,
+          `}`,
+        ].join('\n'),
+      );
+      const llm: TestGenLlmFn = async () => ({
+        ok: true,
+        raw: '',
+        parsed: Array.from({ length: 8 }, (_, i) => ({
+          name: `bug case ${i}`,
+          category: 'bug-revealing',
+          given: 'x of some shape',
+          when: `risky(${i})`,
+          then: 'returns the contract-defined value',
+          reasoning: `plausible defect on line ${i + 1}`,
+        })),
+      });
+      const specs = await generateTestCases({
+        cwd,
+        profile: baseProfile,
+        logger: makeLogger(cwd),
+        criticConfig: fakeCriticConfig,
+        criticApiKey: 'sk-test',
+        llmCall: llm,
+        maxCasesPerTarget: 3,
+      });
+      expect(specs.length).toBe(3);
+      for (const s of specs) {
+        expect(s.category).toBe('bug-revealing');
+      }
+    } finally {
+      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('non-library targets (endpoints) keep the red-team security prompt — bug-hunt is library-mode-only', async () => {
+    const cwd = await tmpdir();
+    try {
+      // Endpoint target — should NOT trigger library mode → NOT bug-hunt prompt.
+      await writeFile(
+        cwd,
+        'src/api/login.ts',
+        `export async function POST(req: Request) { return new Response('ok'); }`,
+      );
+      let capturedSystem = '';
+      const llm: TestGenLlmFn = async ({ systemPrompt }) => {
+        capturedSystem = systemPrompt;
+        return { ok: true, raw: '', parsed: [] };
+      };
+      await generateTestCases({
+        cwd,
+        profile: baseProfile,
+        logger: makeLogger(cwd),
+        criticConfig: fakeCriticConfig,
+        criticApiKey: 'sk-test',
+        llmCall: llm,
+      });
+      const lower = capturedSystem.toLowerCase();
+      // Endpoint uses the red-team adversarial prompt, NOT the bug-hunt prompt.
+      expect(lower).toContain('red-team');
+      expect(lower).not.toContain('bug-hunting test writer');
     } finally {
       await fsp.rm(cwd, { recursive: true, force: true }).catch(() => {});
     }

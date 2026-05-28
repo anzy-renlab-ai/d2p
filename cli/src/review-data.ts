@@ -598,6 +598,7 @@ const SEVERITY_FROM_CATEGORY: Record<TestCaseCategory, ReviewSeverity> = {
   auth: 'P1',
   validation: 'P2',
   'logic-correctness': 'P2',
+  'bug-revealing': 'P2',
 };
 
 function buildFindings(md: string, zerouDir: string): ReviewFinding[] {
