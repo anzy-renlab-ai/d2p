@@ -27,11 +27,15 @@ import {
   HARDCODED_KEY_PRESET,
   selectCriticPolicy,
   engineFamily,
+  setScopeMode,
+  setExplainSkipped,
+  readSkipTally,
   type EngineConfig,
   type LoadedPreset,
   type PresetDeps,
   type VerdictedFinding,
 } from './stubs.js';
+import type { ScopeMode } from './agent/scope-filter.js';
 import { buildBundle, writeBundle, type ApplyCounters } from './evidence-bundle.js';
 import { renderReport } from './report.js';
 import { runApplyPhase } from './apply.js';
@@ -97,6 +101,16 @@ export async function runAudit(opts: AuditOptions): Promise<number> {
     .option('--log-level <level>', 'log level (debug|info|warn|error)')
     .option('--no-color', 'disable ANSI color')
     .option('--insecure-config', 'skip unsafe-perms check on Unix', false)
+    .option(
+      '--scope <mode>',
+      'file-scanning scope: app (default — skip vendored/minified/library code) or all',
+      'app',
+    )
+    .option(
+      '--explain-skipped',
+      'print summary of skipped files at end of run',
+      false,
+    )
     .action(async (auditPath: string, cmdOpts: any) => {
       // Redact --key values in BOTH process.argv (B-6-1 surface contract) and
       // opts.argv (test affordance). Note line is emitted once per distinct
@@ -232,6 +246,12 @@ async function doAudit(
   const allowDirty: boolean = cmdOpts.allowDirty ?? false;
   const failOn: 'p1' | 'p2' | 'p3' | 'none' = (cmdOpts.failOn ?? 'none') as any;
   const useColor: boolean = cmdOpts.color !== false;
+  // Phase 17: scope filter — default 'app' keeps ZeroU focused on user code.
+  const scopeRaw = String(cmdOpts.scope ?? 'app').toLowerCase();
+  const scope: ScopeMode = scopeRaw === 'all' ? 'all' : 'app';
+  const explainSkipped: boolean = !!cmdOpts.explainSkipped;
+  setScopeMode(scope);
+  setExplainSkipped(explainSkipped);
   // Phase 11.1: parse --concurrency once; thread into agent gen/run/emit.
   // Default 5 (matches the Commander default-string '5' parsed below).
   const concurrencyParsed = Number.parseInt(String(cmdOpts.concurrency ?? '5'), 10);
@@ -243,6 +263,15 @@ async function doAudit(
     presets: presetsRequested,
     apply: applyFlag,
     failOn,
+    scope,
+    explainSkipped,
+  });
+  logBranch(logger, 'cli.scope.mode-decision', {
+    decision: scope,
+    reasoning: scope === 'app'
+      ? 'default — skip third-party / vendored / minified / library-internal files'
+      : 'scan everything except ALWAYS_SKIP_DIRS (node_modules / .git / dist / ...)',
+    explainSkipped,
   });
   logBranch(logger, 'cli.log-root.target-decision', {
     decision: pathIsDir ? 'audit-cwd' : 'process-cwd-fallback',
@@ -1105,6 +1134,31 @@ async function doAudit(
     exitCode,
     durationMs: endedAt.getTime() - startedAt.getTime(),
   });
+
+  // Phase 17: --explain-skipped summary
+  if (explainSkipped) {
+    const { mode, tally } = readSkipTally();
+    const entries = Object.entries(tally).sort((a, b) => b[1] - a[1]);
+    const total = entries.reduce((s, [, n]) => s + n, 0);
+    const lines: string[] = [];
+    lines.push('');
+    lines.push(`Skipped ${total.toLocaleString()} files (scope=${mode}):`);
+    for (const [reason, count] of entries) {
+      lines.push(`  ${reason.padEnd(18)} ${String(count).padStart(7)}`);
+    }
+    if (entries.length === 0) {
+      lines.push('  (no files skipped)');
+    }
+    writeOut(lines.join('\n') + '\n');
+    logger.log('info', 'cli.scope.skipped-summary', {
+      mode,
+      total,
+      tally,
+    });
+  } else {
+    // Still drain the tally so the next test run starts clean.
+    readSkipTally();
+  }
 
   // Flush logs before exit
   await logger.flush();

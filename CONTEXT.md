@@ -17,6 +17,29 @@
 
 The first three (扫 / 修 / 验) are table-stakes; **追溯** is the differentiator. Per `feedback_zerou_log_as_proof` memory, the log stream IS the proof — not a UI screenshot, not a separate report.
 
+## Scope: application code, not library code
+
+ZeroU's detection patterns are calibrated for application code (route handlers, middleware, lib/utility code of a SaaS app). They generate unacceptable false-positive noise when applied to library internals or vendored third-party code.
+
+Concrete examples of **in-scope** code:
+
+- `app/api/*/route.ts` (Next.js)
+- `src/server.ts` + Express / Fastify / Koa / Nest handlers
+- `lib/db/client.ts` (app's own data layer)
+- `middleware.ts`
+- `.env.example`
+
+Concrete examples of **out-of-scope** code:
+
+- `node_modules/`
+- vendored deps under `vendor/` or `third_party/`
+- minified bundles (`*.min.js`)
+- generated TypeScript declarations (`*.d.ts` from build steps)
+
+ZeroU's default `--scope=app` filter skips these. Opt-in with `--scope=all` if you genuinely want library-internal scanning — but expect noise. The scope flag is implemented at the file-walker layer in `cli/src/agent/`; presets do not need scope-awareness themselves.
+
+The 2026-05-28 hardener-bench 3-fixture run is the empirical basis for this scope statement: `zerou-target` (app-layer patterns) gave `P=0.91 R=1.00`; `secbench-subset` (28 real npm package CVEs) gave 406 findings / 0 matches because ZeroU's patterns fired on library internals they were never designed for; `tspr-target` (HTTP behavior bugs needing runtime requests) returned 0 because ZeroU is a static analyzer. Both negative results are "wrong tool" outcomes, not bugs — use Snyk / Socket / `npm audit` for the first, `tspr` / ZAP / Burp for the second.
+
 ### User-facing commands
 
 | Command | Tier | Source |

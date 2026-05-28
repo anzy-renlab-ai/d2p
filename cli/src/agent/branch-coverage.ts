@@ -27,6 +27,7 @@ import ts from 'typescript';
 import type { TrackLogger } from '../log-types.js';
 import { logBranch, logCatch } from '../log/branch.js';
 import type { TestCaseResult } from './types.js';
+import { shouldScanDir, shouldScanFile } from './scope-filter.js';
 import type {
   BranchCoverageReport,
   BranchNode,
@@ -48,10 +49,12 @@ const TARGET_DIRS = [
   'handlers', 'controllers', 'lib', 'server',
 ];
 
-const SKIP_DIRS = new Set([
-  'node_modules', '.git', 'dist', 'build', '.next', '.zerou',
-  '.worktrees', '__tests__', 'tests', 'test', 'coverage',
-]);
+/**
+ * Phase-17 note: directory / file gating uses `scope-filter.ts` (scope='app'
+ * — this collector is for application-code branch coverage). We also skip
+ * test directories since coverage of test code is not the product target.
+ */
+const EXTRA_TEST_DIR_SKIP = new Set(['__tests__', 'tests', 'test']);
 
 const MAX_FILE_BYTES = 200_000;
 const DEFAULT_MAX_FILES = 100;
@@ -281,7 +284,8 @@ function walkSourceFiles(
       if (out.length >= maxFiles) break;
       const full = path.join(dir, ent.name);
       if (ent.isDirectory()) {
-        if (SKIP_DIRS.has(ent.name)) continue;
+        if (!shouldScanDir(ent.name, 'app')) continue;
+        if (EXTRA_TEST_DIR_SKIP.has(ent.name)) continue;
         if (ent.name.startsWith('.')) continue;
         queue.push(full);
         continue;
@@ -290,6 +294,10 @@ function walkSourceFiles(
       const ext = path.extname(ent.name).toLowerCase();
       if (!SOURCE_EXTS.has(ext)) continue;
       if (/\.(test|spec)\.[mc]?[tj]sx?$/.test(ent.name)) continue;
+
+      const rel = path.relative(cwd, full).split(path.sep).join('/');
+      const fileDecision = shouldScanFile({ scope: 'app', cwd, relPath: rel });
+      if (!fileDecision.scan) continue;
 
       let stat: fs.Stats;
       try {
@@ -307,7 +315,6 @@ function walkSourceFiles(
         continue;
       }
       if (content.length > MAX_FILE_BYTES) continue;
-      const rel = path.relative(cwd, full).split(path.sep).join('/');
       out.push({ rel, abs: full, content });
     }
   }

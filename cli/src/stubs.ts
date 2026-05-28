@@ -370,6 +370,48 @@ import * as nodeFs from 'node:fs';
 import { callOpenAICompatCritic } from './critic-client.js';
 import { createTrackLogger } from './log-types.js';
 import { logBranch, logCatch } from './log/branch.js';
+import {
+  shouldScanDir,
+  shouldScanFile,
+  looksLikeLibraryFile,
+  type ScopeMode,
+} from './agent/scope-filter.js';
+
+/**
+ * Process-level scope mode. Set by audit.ts during CLI startup; defaults to
+ * 'app' so test invocations and library consumers get the safe default.
+ *
+ * We use a module-level var rather than threading scope through every
+ * `runPreset` / `collectFilesSync` callsite — RunPresetOptions is a public
+ * surface and adding a field there would force every test to provide it.
+ */
+let SCOPE_MODE: ScopeMode = 'app';
+let EXPLAIN_SKIPPED = false;
+const SKIP_TALLY: Map<string, number> = new Map();
+
+/** Set the scope mode for static-grep file walking. Called by audit.ts. */
+export function setScopeMode(mode: ScopeMode): void {
+  SCOPE_MODE = mode;
+}
+
+/** Enable `--explain-skipped` accounting. Called by audit.ts. */
+export function setExplainSkipped(on: boolean): void {
+  EXPLAIN_SKIPPED = on;
+  if (on) SKIP_TALLY.clear();
+}
+
+/** Read+reset the skip tally (audit.ts prints this at end of run). */
+export function readSkipTally(): { mode: ScopeMode; tally: Record<string, number> } {
+  const obj: Record<string, number> = {};
+  for (const [k, v] of SKIP_TALLY) obj[k] = v;
+  SKIP_TALLY.clear();
+  return { mode: SCOPE_MODE, tally: obj };
+}
+
+function recordSkip(reason: string): void {
+  if (!EXPLAIN_SKIPPED) return;
+  SKIP_TALLY.set(reason, (SKIP_TALLY.get(reason) ?? 0) + 1);
+}
 
 export async function defaultRunPreset(
   manifest: PresetManifest,
@@ -645,29 +687,14 @@ function walk(root: string, dir: string, extSet: Set<string>, out: FoundFile[]):
   }
   for (const ent of entries) {
     const name = ent.name;
-    // Standard exclusion list per surface 13 §"Default fileFilter exclusion list"
-    if (
-      name === '.git' ||
-      name === 'node_modules' ||
-      name === '.zerou' ||
-      name === 'dist' ||
-      name === 'build' ||
-      name === '.next' ||
-      name === '.turbo' ||
-      name === '.nuxt' ||
-      name === 'coverage' ||
-      name === '__pycache__' ||
-      name === '.cache' ||
-      name === '.venv' ||
-      name === 'venv' ||
-      name === '.pytest_cache' ||
-      name === 'target' ||           // Rust
-      name === '.gradle' ||          // Java
-      name === '.idea' ||
-      name === '.vscode'
-    ) continue;
     const abs = path.join(dir, name);
     if (ent.isDirectory()) {
+      if (!shouldScanDir(name, SCOPE_MODE)) {
+        recordSkip(SCOPE_MODE === 'all' || name === 'node_modules' || name === '.git'
+          ? `dir:${name}`
+          : 'third-party');
+        continue;
+      }
       walk(root, abs, extSet, out);
     } else if (ent.isFile()) {
       if (extSet.size > 0) {
@@ -675,6 +702,41 @@ function walk(root: string, dir: string, extSet: Set<string>, out: FoundFile[]):
         if (!extSet.has(ext)) continue;
       }
       const rel = path.relative(root, abs).split(path.sep).join('/');
+      const fileDecision = shouldScanFile({
+        scope: SCOPE_MODE,
+        cwd: root,
+        relPath: rel,
+      });
+      if (!fileDecision.scan) {
+        recordSkip(fileDecision.reason ?? 'unknown');
+        continue;
+      }
+      // Soft heuristic — only in 'app' scope and only if we're about to read.
+      // Read the file once here so we don't double-read in the regex scan;
+      // however we don't have a cheap content cache, so be conservative:
+      // only call looksLikeLibraryFile when file extension suggests source.
+      if (SCOPE_MODE === 'app') {
+        // Cheap content sniff — read up to 8KB head to decide.
+        // We bail on read failure (file vanished, perms) — let the main scan
+        // path handle that case.
+        let head: string | null = null;
+        try {
+          const fd = nodeFs.openSync(abs, 'r');
+          try {
+            const buf = Buffer.alloc(8192);
+            const n = nodeFs.readSync(fd, buf, 0, 8192, 0);
+            head = buf.slice(0, n).toString('utf8');
+          } finally {
+            nodeFs.closeSync(fd);
+          }
+        } catch {
+          head = null;
+        }
+        if (head !== null && looksLikeLibraryFile(head, rel)) {
+          recordSkip('library-internal');
+          continue;
+        }
+      }
       out.push({ absolute: abs, relPosix: rel });
     }
   }

@@ -27,6 +27,7 @@ import type {
 import { fetchLlm } from './llm-fetch.js';
 import { runConcurrent } from './concurrency.js';
 import type { AuthShape } from './auth-detector.js';
+import { shouldScanDir, shouldScanFile } from './scope-filter.js';
 
 const DEFAULT_CONCURRENCY = 5;
 
@@ -116,19 +117,18 @@ const TARGET_DIRS = [
 
 const SOURCE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 
-const SKIP_DIRS = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'build',
-  '.next',
-  '.zerou',
-  '.worktrees',
-  '__tests__',
-  'tests',
-  'test',
-  'coverage',
-]);
+/**
+ * Phase-17 note: dir/file gating now flows through `scope-filter.ts`. This
+ * walker is for AST target extraction (not finding-emitting), so we always
+ * use scope='app' here — third-party / vendored / minified code can't host
+ * "the user's handlers" by definition.
+ *
+ * We additionally skip `__tests__`, `tests`, `test/` and existing
+ * `.test.ts` / `.spec.ts` files because the generator should not emit
+ * specs for test files. Those are kept local since scope-filter is a
+ * scope concept, not a "skip test files" concept.
+ */
+const EXTRA_TEST_DIR_SKIP = new Set(['__tests__', 'tests', 'test']);
 
 interface ScannedFile {
   rel: string;            // relative to cwd, posix-style for stable ids
@@ -168,7 +168,8 @@ function walkSources(cwd: string, maxFiles: number): ScannedFile[] {
       if (out.length >= maxFiles) break;
       const full = path.join(dir, ent.name);
       if (ent.isDirectory()) {
-        if (SKIP_DIRS.has(ent.name)) continue;
+        if (!shouldScanDir(ent.name, 'app')) continue;
+        if (EXTRA_TEST_DIR_SKIP.has(ent.name)) continue;
         if (ent.name.startsWith('.')) continue;
         queue.push(full);
       } else if (ent.isFile()) {
@@ -176,6 +177,9 @@ function walkSources(cwd: string, maxFiles: number): ScannedFile[] {
         if (!SOURCE_EXTS.has(ext)) continue;
         // Skip .test.ts / .spec.ts
         if (/\.(test|spec)\.[mc]?[tj]sx?$/.test(ent.name)) continue;
+        const rel = path.relative(cwd, full).split(path.sep).join('/');
+        const fileDecision = shouldScanFile({ scope: 'app', cwd, relPath: rel });
+        if (!fileDecision.scan) continue;
         let content: string;
         try {
           content = fs.readFileSync(full, 'utf8');
@@ -184,7 +188,6 @@ function walkSources(cwd: string, maxFiles: number): ScannedFile[] {
         }
         // Skip very large files (>200KB)
         if (content.length > 200_000) continue;
-        const rel = path.relative(cwd, full).split(path.sep).join('/');
         out.push({ rel, abs: full, content });
       }
     }
