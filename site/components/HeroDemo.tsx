@@ -222,8 +222,8 @@ export default function HeroDemo() {
       data-testid="hero-demo"
       data-phase={effectivePhase}
       className="relative w-full h-full min-h-[600px] rounded-lg overflow-hidden border border-warmline bg-cream shadow-card font-sans"
-      onMouseEnter={() => !animationDisabled && setPaused(true)}
-      onMouseLeave={() => !animationDisabled && setPaused(false)}
+      onMouseEnter={() => !animationDisabled && !finished && setPaused(true)}
+      onMouseLeave={() => !animationDisabled && !finished && setPaused(false)}
     >
       {/* Caption */}
       <Caption
