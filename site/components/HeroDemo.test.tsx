@@ -1,9 +1,10 @@
 /**
- * Tests for HeroDemo — 30-second phase machine + reduced-motion fallback.
+ * Tests for HeroDemo — 52-second phase machine + reduced-motion fallback.
  *
- * Uses vitest + @testing-library/react. If Worker A wires a different runner,
- * the imports may need adjusting (the assertions themselves are framework
- * neutral and use plain DOM queries via screen).
+ * 7-phase order: problem → install → scan → fix → enhance → verify → bench.
+ * Durations: 5 + 5 + 8 + 9 + 10 + 8 + 7 = 52 seconds.
+ *
+ * Uses vitest + @testing-library/react.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -27,7 +28,6 @@ function flushFrame() {
 
 function advance(ms: number) {
   mockNow += ms;
-  // One frame is enough — the component reads `performance.now()` each call.
   act(() => {
     flushFrame();
   });
@@ -47,7 +47,6 @@ beforeEach(() => {
     rafCallbacks = rafCallbacks.filter((r) => r.id !== id);
   });
 
-  // performance.now returns our mock clock
   Object.defineProperty(global.performance, 'now', {
     configurable: true,
     value: () => mockNow,
@@ -90,32 +89,46 @@ function getPhase(): string | null {
 describe('HeroDemo', () => {
   it('renders without crashing and starts on the problem phase', () => {
     render(<HeroDemo />);
-    // First frame after mount
     advance(0);
     expect(getPhase()).toBe('problem');
-    expect(screen.getByText(/your vibe-coded demo/i)).toBeTruthy();
+    expect(screen.getByText(/vibe-coded demo/i)).toBeTruthy();
   });
 
-  it('phase timings sum to exactly 30 seconds', () => {
-    expect(TOTAL_DURATION).toBe(30000);
-    expect(PHASES.map((p) => p.duration).reduce((a, b) => a + b, 0)).toBe(30000);
+  it('phase timings sum to exactly 52 seconds', () => {
+    expect(TOTAL_DURATION).toBe(52000);
+    expect(PHASES.map((p) => p.duration).reduce((a, b) => a + b, 0)).toBe(52000);
   });
 
-  it('transitions to scan phase after 3s', () => {
+  it('has 7 phases in the order: problem → install → scan → fix → enhance → verify → bench', () => {
+    expect(PHASES.map((p) => p.id)).toEqual([
+      'problem',
+      'install',
+      'scan',
+      'fix',
+      'enhance',
+      'verify',
+      'bench',
+    ]);
+  });
+
+  it('uses the phase duration distribution [5000, 5000, 8000, 9000, 10000, 8000, 7000]', () => {
+    expect(PHASES.map((p) => p.duration)).toEqual([5000, 5000, 8000, 9000, 10000, 8000, 7000]);
+  });
+
+  it('transitions to install phase after 5s', () => {
     render(<HeroDemo />);
     advance(0);
     expect(getPhase()).toBe('problem');
-    advance(3100);
-    expect(getPhase()).toBe('scan');
+    advance(5100);
+    expect(getPhase()).toBe('install');
   });
 
-  it('cycles through all 6 phases in order over 30s', () => {
+  it('cycles through all 7 phases in order over 52s', () => {
     render(<HeroDemo />);
     const order: string[] = [];
     advance(0);
     order.push(getPhase()!);
 
-    // Sample at the middle of each phase
     let elapsed = 0;
     for (const spec of PHASES) {
       const middle = elapsed + spec.duration / 2;
@@ -125,33 +138,57 @@ describe('HeroDemo', () => {
     }
 
     expect(order[1]).toBe('problem');
-    expect(order[2]).toBe('scan');
-    expect(order[3]).toBe('test');
-    expect(order[4]).toBe('enhance');
-    expect(order[5]).toBe('verify');
-    expect(order[6]).toBe('proof');
+    expect(order[2]).toBe('install');
+    expect(order[3]).toBe('scan');
+    expect(order[4]).toBe('fix');
+    expect(order[5]).toBe('enhance');
+    expect(order[6]).toBe('verify');
+    expect(order[7]).toBe('bench');
   });
 
-  it('loops back to problem after 30s', () => {
+  it('loops back to problem after 52s', () => {
     render(<HeroDemo />);
     advance(0);
     expect(getPhase()).toBe('problem');
-    advance(29500);
-    expect(getPhase()).toBe('proof');
-    advance(1000); // crosses 30s boundary
+    advance(51500);
+    expect(getPhase()).toBe('bench');
+    advance(1000); // crosses 52s boundary
     expect(getPhase()).toBe('problem');
   });
 
   it('updates captions as phase changes (aria-live region)', () => {
     render(<HeroDemo />);
     advance(0);
-    expect(screen.getByText(/your vibe-coded demo/i)).toBeTruthy();
+    expect(screen.getByText(/vibe-coded demo\. works locally/i)).toBeTruthy();
 
-    advance(3500); // into scan
-    expect(screen.getByText(/stage 1 of 5/i)).toBeTruthy();
+    advance(5500); // into install (~5.5s)
+    expect(screen.getAllByText(/npm install -g zerou/i).length).toBeGreaterThan(0);
 
-    advance(5000); // into test (~8.5s)
-    expect(screen.getByText(/llm-judge finds 11 bugs/i)).toBeTruthy();
+    advance(5000); // into scan (~10.5s)
+    expect(screen.getByText(/scan: ast/i)).toBeTruthy();
+
+    advance(8000); // into fix (~18.5s)
+    expect(screen.getByText(/generate spec/i)).toBeTruthy();
+
+    advance(9000); // into enhance (~27.5s)
+    expect(screen.getByText(/each log knows where it came from/i)).toBeTruthy();
+
+    advance(10000); // into verify (~37.5s)
+    expect(screen.getByText(/install · tsc · test · build/i)).toBeTruthy();
+
+    advance(8000); // into bench (~45.5s)
+    expect(screen.getByText(/zerou vs frontier models/i)).toBeTruthy();
+  });
+
+  it('renders the bench phase with ZeroU + Opus + Sonnet model labels', () => {
+    render(<HeroDemo />);
+    // Advance to the middle of the bench phase (~48.5s in).
+    advance(48500);
+    expect(getPhase()).toBe('bench');
+    // Allow staggered row reveal to settle by progress >= 0.5.
+    expect(screen.getAllByText(/ZeroU/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Claude Opus/)).toBeTruthy();
+    expect(screen.getByText(/Claude Sonnet/)).toBeTruthy();
   });
 
   it('shows a static final frame + Play button when prefers-reduced-motion is set', () => {
@@ -173,8 +210,8 @@ describe('HeroDemo', () => {
     render(<HeroDemo />);
     advance(0);
 
-    // Reduced-motion: pinned to the final ('proof') phase
-    expect(getPhase()).toBe('proof');
+    // Reduced-motion: pinned to the final ('bench') phase — the punchline frame.
+    expect(getPhase()).toBe('bench');
 
     // Play button is rendered
     const playBtn = screen.getByTestId('hero-demo-play');
@@ -183,15 +220,26 @@ describe('HeroDemo', () => {
 
     // Time advancing does not change the phase while reduced-motion is honoured
     advance(10000);
-    expect(getPhase()).toBe('proof');
+    expect(getPhase()).toBe('bench');
   });
 
-  it('renders the 5-stage indicator with the current stage marked aria-current', () => {
+  it('renders the 7-stage PhaseTimeline with the current stage marked aria-current', () => {
     render(<HeroDemo />);
-    advance(3500); // scan
+    advance(5500); // install (stage 2 of 7)
     const current = document.querySelector('[aria-current="step"]');
     expect(current).toBeTruthy();
-    // The active chip should contain the stage number for scan (stage 1 of 5)
-    expect((current?.textContent || '').trim().startsWith('1')).toBe(true);
+    // Label inside the active segment is the uppercase stage name "Install".
+    expect((current?.textContent || '').toUpperCase()).toMatch(/INSTALL/);
+  });
+
+  it('PhaseTimeline renders all 7 stage labels in uppercase section-title style', () => {
+    render(<HeroDemo />);
+    advance(0);
+    // Each PHASES label appears at least once in the timeline strip.
+    for (const spec of PHASES) {
+      // The label is rendered with CSS `uppercase`. In jsdom this is text "Install"
+      // styled to render uppercase; we just verify the literal label is present.
+      expect(screen.getAllByText(spec.label).length).toBeGreaterThan(0);
+    }
   });
 });

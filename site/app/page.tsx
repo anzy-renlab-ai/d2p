@@ -1,5 +1,6 @@
 import { SiteHeader } from '@/components/SiteHeader';
 import { HeroSection } from '@/components/HeroSection';
+import { DemoShowcase } from '@/components/DemoShowcase';
 import { ValueTiers } from '@/components/ValueTiers';
 import { MemeWeatherShowcase } from '@/components/MemeWeatherShowcase';
 import { LiveDemo } from '@/components/LiveDemo';
@@ -14,6 +15,7 @@ export default function Page() {
       <SiteHeader />
       <main className="anim-drift-in">
         <HeroSection />
+        <DemoShowcase />
         <ValueTiers />
         <MemeWeatherShowcase />
         <LiveDemo />
