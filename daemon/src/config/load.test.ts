@@ -50,6 +50,23 @@ describe('loadConfig', () => {
     await rm(path.dirname(file), { recursive: true, force: true });
   });
 
+  it('autoMergeLocal defaults to false when omitted in a present config file', async () => {
+    const file = await tmpFile();
+    await writeFile(file, JSON.stringify({ engine: { kind: 'claude-cli' } }));
+    const cfg = await loadConfig(file);
+    // Schema applies .default(false) when the field is absent.
+    expect(cfg.autoMergeLocal).toBe(false);
+    await rm(path.dirname(file), { recursive: true, force: true });
+  });
+
+  it('autoMergeLocal round-trips true (opt-in to legacy auto-merge)', async () => {
+    const file = await tmpFile();
+    await saveConfig({ engine: { kind: 'claude-cli' }, autoMergeLocal: true }, file);
+    const cfg = await loadConfig(file);
+    expect(cfg.autoMergeLocal).toBe(true);
+    await rm(path.dirname(file), { recursive: true, force: true });
+  });
+
   it('AppConfigSchema rejects engine missing models', () => {
     const bad = {
       engine: {

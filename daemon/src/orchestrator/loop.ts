@@ -14,6 +14,7 @@ import {
   dropFix,
   ensureRepo,
   mergeFix,
+  finalizeFixNoMerge,
   MergeConflictError,
 } from '../git/worktree.js';
 import { readCheckCommands, runStaticGate, type CheckCommands } from '../static-gate/check.js';
@@ -66,6 +67,10 @@ interface LoopCtx {
   visionMd: string;
   inferredChecks: CheckCommands;
   db: Database.Database;
+  /** Local-mode auto-merge into the demo repo's main. Default false —
+   *  ZeroU leaves each fix on its `fix/<slug>` branch for the user to
+   *  merge/PR. See config.autoMergeLocal. */
+  autoMergeLocal: boolean;
 }
 
 async function loadVisionMd(session: Session, demoPath: string): Promise<string> {
@@ -594,6 +599,27 @@ async function processGap(ctx: LoopCtx, gap: Gap): Promise<void> {
         return;
       }
     }
+    if (!ctx.autoMergeLocal) {
+      // DEFAULT (safe) path — ZeroU must NEVER auto-merge into the user's
+      // main. Leave the commit on `fix/<slug>` for the user to merge/PR.
+      // Record the fix branch HEAD sha (read from the worktree, which is on
+      // `fix/<slug>`) so downstream consumers (session-summary's MERGED-event
+      // scan, RunLog, etc.) still receive a sha — they treat it as the
+      // landed-fix commit, just one that lives on a branch rather than main.
+      // Removes the worktree but KEEPS fix/<slug> so the user can merge later.
+      const finalized = await finalizeFixNoMerge(demoPath, gap.slug, wt);
+      const fixSha = finalized.mergeSha ?? impl.commitSha;
+      q.transitionFix(fix.id, 'MERGED', { reviewerVerdict: 'APPROVE', reasonCode: 'OK' });
+      q.transitionGap(gap.id, 'DONE');
+      emit(q, session.id, 'MERGED', {
+        mergeSha: fixSha,
+        slug: gap.slug,
+        mode: 'local-branch',
+        branch: `fix/${gap.slug}`,
+      });
+      emit(q, session.id, 'GAP_DONE', { slug: gap.slug, gapId: gap.id });
+      return;
+    }
     try {
       const merged = await mergeFix(demoPath, gap.slug, gap.title);
       q.transitionFix(fix.id, 'MERGED', { reviewerVerdict: 'APPROVE', reasonCode: 'OK' });
@@ -742,6 +768,7 @@ export async function runLoop(deps: LoopDeps, sessionId: number): Promise<void> 
     visionMd,
     inferredChecks,
     db: deps.db,
+    autoMergeLocal: cfg.autoMergeLocal === true,
   };
 
   let emptyDifferStreak = 0;
@@ -815,7 +842,36 @@ export async function runLoop(deps: LoopDeps, sessionId: number): Promise<void> 
     const head = q.pickHeadGap(session.id);
     if (head) {
       const headIdBefore = head.id;
-      await processGap(ctx, head);
+      try {
+        await processGap(ctx, head);
+      } catch (e) {
+        // Liveness guard: if any agent inside processGap THROWS (vs. returning
+        // {error}), the gap was left IN_PROGRESS and pickHeadGap only selects
+        // PENDING — the session would wedge forever and leak the worktree.
+        // Move the gap OUT of IN_PROGRESS to NEED_HUMAN (terminal, won't
+        // infinite-loop), clean up any worktree, log, and keep the loop alive.
+        const msg = e instanceof Error ? e.message : String(e);
+        try {
+          await dropFix(demoPath, head.slug);
+        } catch {
+          // best-effort worktree cleanup
+        }
+        const cur = q.getGap(headIdBefore);
+        if (cur && cur.status !== 'DONE' && cur.status !== 'NEED_HUMAN' && cur.status !== 'SKIPPED' && cur.status !== 'SPLIT_DONE') {
+          try {
+            q.transitionGap(headIdBefore, 'NEED_HUMAN');
+          } catch {
+            // best-effort; status may already be terminal
+          }
+        }
+        emit(
+          q,
+          session.id,
+          'GAP_ESCALATED',
+          { reason: 'ENGINE_THREW', slug: head.slug, message: `engine-threw: ${msg}` },
+          'error',
+        );
+      }
       // Update escalate streak: if the gap landed MERGED reset to 0;
       // if it ended NEED_HUMAN / DROPPED bump streak.
       const after = q.getGap(headIdBefore);

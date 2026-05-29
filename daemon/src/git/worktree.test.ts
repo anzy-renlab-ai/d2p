@@ -8,6 +8,7 @@ import {
   getMainBranch,
   createFixWorktree,
   mergeFix,
+  finalizeFixNoMerge,
   dropFix,
   diffAgainstMain,
   MergeConflictError,
@@ -82,6 +83,84 @@ describe('createFixWorktree + mergeFix + diffAgainstMain', () => {
     // NEW.txt now in main (line ending may be CRLF on Windows)
     const content = await readFile(path.join(demoDir, 'NEW.txt'), 'utf8');
     expect(content.trim()).toBe('hello');
+  });
+});
+
+describe('finalizeFixNoMerge (default local-mode path)', () => {
+  it('removes the worktree, KEEPS fix/<slug>, and main is NOT advanced', async () => {
+    await ensureRepo(demoDir);
+    const mainBefore = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: demoDir, encoding: 'utf8' }).stdout.trim();
+
+    const wt = await createFixWorktree(demoDir, 'keep-me');
+    await writeFile(path.join(wt, 'FEATURE.txt'), 'feature\n');
+    spawnSync('git', ['add', 'FEATURE.txt'], { cwd: wt });
+    spawnSync(
+      'git',
+      ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'feat: FEATURE.txt'],
+      { cwd: wt },
+    );
+    const fixHead = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8' }).stdout.trim();
+
+    const result = await finalizeFixNoMerge(demoDir, 'keep-me', wt);
+
+    // Returns the fix branch HEAD sha (so callers that consumed mergeSha keep a value)
+    expect(result.mergeSha).toBe(fixHead);
+
+    // Worktree removed
+    const wtList = spawnSync('git', ['worktree', 'list'], { cwd: demoDir, encoding: 'utf8' });
+    expect(wtList.stdout).not.toContain('keep-me');
+
+    // fix/keep-me branch STILL EXISTS (user merges it later)
+    const branches = spawnSync('git', ['branch', '--list', 'fix/keep-me'], { cwd: demoDir, encoding: 'utf8' });
+    expect(branches.stdout).toContain('fix/keep-me');
+
+    // main HEAD UNCHANGED — the user's main must not be advanced by default
+    const mainAfter = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: demoDir, encoding: 'utf8' }).stdout.trim();
+    expect(mainAfter).toBe(mainBefore);
+    expect(mainAfter).not.toBe(fixHead);
+
+    // FEATURE.txt must NOT be in the demo working tree (lives only on the branch)
+    const ls = spawnSync(
+      process.platform === 'win32' ? 'cmd' : 'ls',
+      process.platform === 'win32' ? ['/c', 'dir', '/b'] : [],
+      { cwd: demoDir, encoding: 'utf8' },
+    );
+    expect(ls.stdout).not.toContain('FEATURE.txt');
+
+    await dropFix(demoDir, 'keep-me');
+  });
+});
+
+describe('diffAgainstMain on a master-default repo', () => {
+  it('resolves the real base branch (master) instead of literal main', async () => {
+    // Init a repo whose default branch is `master`, not `main`.
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'd2p-master-test-'));
+    spawnSync('git', ['init', '-q', '-b', 'master'], { cwd: dir });
+    await writeFile(path.join(dir, 'README.md'), 'demo\n');
+    spawnSync('git', ['add', '-A'], { cwd: dir });
+    spawnSync(
+      'git',
+      ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'init'],
+      { cwd: dir },
+    );
+
+    const wt = await createFixWorktree(dir, 'on-master');
+    await writeFile(path.join(wt, 'CHANGED.txt'), 'changed\n');
+    spawnSync('git', ['add', 'CHANGED.txt'], { cwd: wt });
+    spawnSync(
+      'git',
+      ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'feat: CHANGED.txt'],
+      { cwd: wt },
+    );
+
+    // Old code (`git diff main...HEAD`) would error → empty diff. The fix
+    // resolves `master` and produces a real diff containing the change.
+    const diff = await diffAgainstMain(wt);
+    expect(diff).toContain('CHANGED.txt');
+    expect(diff.trim()).not.toBe('');
+
+    await dropFix(dir, 'on-master');
+    await rm(dir, { recursive: true, force: true, maxRetries: 3 });
   });
 });
 

@@ -91,6 +91,10 @@ export const AppConfigSchema = z.object({
   /** Loop auto-stop conditions (wall-clock / escalate streak / iterations). */
   loopCaps: LoopCapsSchema.optional(),
   github: GitHubSchema.optional(),
+  /** Local-mode auto-merge into the demo repo's main. Default false — ZeroU
+   *  leaves each fix on its `fix/<slug>` branch for the user to merge/PR.
+   *  true restores legacy auto-merge. */
+  autoMergeLocal: z.boolean().optional().default(false),
 });
 
 export function defaultConfigPath(): string {

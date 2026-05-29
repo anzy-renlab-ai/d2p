@@ -125,6 +125,12 @@ export interface AppConfig {
   /** Optional loop auto-stop conditions (wall-clock / consecutive escalate). */
   loopCaps?: LoopCaps;
   github?: GitHubConfig;
+  /** Local-mode auto-merge into the demo repo's main. Default false — ZeroU
+   *  leaves each fix on its worktree branch (`fix/<slug>`) for the user to
+   *  merge/PR. Setting true restores legacy auto-merge (git checkout main +
+   *  git merge --no-ff). This is a LOCKED safety default: ZeroU must never
+   *  advance the user's main without their action unless they opt in here. */
+  autoMergeLocal?: boolean;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
