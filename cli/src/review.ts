@@ -14,6 +14,7 @@
  *   zerou review --print            # print path only, do not open
  *   zerou review --serve            # start local UI server
  *   zerou review --serve --port N   # bind to a specific port (default 7777)
+ *   zerou review --serve --host 0.0.0.0  # bind to all interfaces (LAN-visible)
  *   zerou review --serve --no-open  # don't auto-open browser
  *
  * Authority: D:\lll\d2p\docs\reviews\2026-05-27-presentation-layer.md
@@ -148,6 +149,7 @@ interface ParsedArgs {
   latestOnly: boolean;
   printOnly: boolean;
   serve: boolean;
+  host?: string;
   port?: number;
   openBrowser: boolean;
   help: boolean;
@@ -178,6 +180,8 @@ function parseArgs(args: string[]): ParsedArgs {
       if (Number.isFinite(n) && n >= 0 && n <= 65535) {
         out.port = n;
       }
+    } else if (a === '--host' && i + 1 < args.length) {
+      out.host = args[++i];
     } else if (a === '--help' || a === '-h') {
       out.help = true;
     } else if (!a.startsWith('--') && !out.cwdArg) {
@@ -199,6 +203,7 @@ function helpText(): string {
     '  --print          Print path only, do not open\n' +
     '  --serve          Start local UI server (React review dashboard)\n' +
     '  --port <n>       Port for --serve (default 7777; 0 = ephemeral)\n' +
+    '  --host <addr>    Bind host for --serve (default 127.0.0.1; use 0.0.0.0 for LAN access)\n' +
     '  --no-open        Do not auto-open browser (use with --serve)\n' +
     '  -h, --help       Show this help\n'
   );
@@ -224,6 +229,7 @@ export async function runReview(opts: ReviewCliOpts): Promise<number> {
   if (parsed.serve) {
     return await runReviewServe({
       cwd,
+      host: parsed.host,
       port: parsed.port,
       openBrowser: parsed.openBrowser,
       writeOut,
@@ -263,6 +269,7 @@ export async function runReview(opts: ReviewCliOpts): Promise<number> {
 
 interface ServeArgs {
   cwd: string;
+  host?: string;
   port?: number;
   openBrowser: boolean;
   writeOut: (s: string) => void;
@@ -306,12 +313,14 @@ async function runReviewServe(args: ServeArgs): Promise<number> {
       handle = await args.startServer({
         cwd: args.cwd,
         uiDistDir,
+        host: args.host,
         port: args.port,
       });
     } else {
       handle = await startReviewServer({
         cwd: args.cwd,
         uiDistDir,
+        host: args.host,
         port: args.port,
         logger,
       });
@@ -320,6 +329,10 @@ async function runReviewServe(args: ServeArgs): Promise<number> {
     const msg = err instanceof Error ? err.message : String(err);
     args.writeErr(`zerou review: could not start server: ${msg}\n`);
     return 6;
+  }
+
+  if (args.host && args.host !== '127.0.0.1' && args.host !== 'localhost') {
+    args.writeErr(`⚠ zerou review server bound to ${args.host} — anyone on the network can read your code diffs.\n`);
   }
 
   args.writeOut(`🌐 ZeroU review UI: ${handle.url}\n`);

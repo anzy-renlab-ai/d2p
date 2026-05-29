@@ -43,7 +43,7 @@ export function ZerouStageScan({ bundle, status }: ZerouStageScanProps) {
   const metric = (
     <>
       <span className="text-ink">{fnCount}</span> fns ·{' '}
-      <span className="text-ink">{branchTotal}</span> branches
+      <span className="text-electric font-semibold">{branchTotal}</span> branches
     </>
   );
 

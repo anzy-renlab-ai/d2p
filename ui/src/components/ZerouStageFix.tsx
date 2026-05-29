@@ -49,7 +49,7 @@ export function ZerouStageFix({ bundle, status }: ZerouStageFixProps) {
   const metric = (
     <>
       <span className="text-ink">{bundle.files.length}</span> files ·{' '}
-      <span className="text-ink">{logSites}</span> log sites ·{' '}
+      <span className="text-electric font-semibold">{logSites}</span> log sites ·{' '}
       <span className="text-ink">{counts.total}</span> findings
     </>
   );

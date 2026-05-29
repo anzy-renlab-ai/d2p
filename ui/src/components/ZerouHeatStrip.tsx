@@ -141,9 +141,9 @@ export function ZerouHeatStrip({ events, onJumpToFile }: ZerouHeatStripProps) {
     overviewSegments.push({ key, w: (n / totalBranches) * 100, cls, label });
   };
   pushSeg('covered', totalCovered, 'bg-forest', 'covered');
-  pushSeg('evaluating', totalEvaluating, 'bg-coral', 'evaluating');
-  pushSeg('retrying', totalRetrying, 'bg-coral/60', 'retrying');
-  pushSeg('mechanical', totalMechanical, 'bg-rust/70', 'mechanical');
+  pushSeg('evaluating', totalEvaluating, 'bg-amber-600', 'evaluating');
+  pushSeg('retrying', totalRetrying, 'bg-amber-600/60', 'retrying');
+  pushSeg('mechanical', totalMechanical, 'bg-rust/60', 'mechanical');
   pushSeg('business', totalBusiness, 'bg-rust', 'business');
 
   return (
@@ -180,12 +180,12 @@ export function ZerouHeatStrip({ events, onJumpToFile }: ZerouHeatStripProps) {
             />
           ))}
         </div>
-        <div className="mt-2 flex gap-3 text-[10px] text-muted font-mono flex-wrap">
-          <span><span className="inline-block w-2 h-2 bg-forest rounded-sm mr-1" />covered {totalCovered}</span>
-          {totalEvaluating > 0 && <span><span className="inline-block w-2 h-2 bg-coral rounded-sm mr-1" />evaluating {totalEvaluating}</span>}
-          {totalRetrying > 0 && <span><span className="inline-block w-2 h-2 bg-coral/60 rounded-sm mr-1" />retrying {totalRetrying}</span>}
-          {totalMechanical > 0 && <span><span className="inline-block w-2 h-2 bg-rust/70 rounded-sm mr-1" />🔧 mechanical {totalMechanical}</span>}
-          {totalBusiness > 0 && <span><span className="inline-block w-2 h-2 bg-rust rounded-sm mr-1" />🔒 business {totalBusiness}</span>}
+        <div className="mt-2 flex gap-3 text-[10px] text-muted font-mono flex-wrap tabular-nums">
+          <span><span className="inline-block w-2 h-2 bg-forest rounded-sm mr-1" />covered <span className="text-forest font-semibold">{totalCovered}</span></span>
+          {totalEvaluating > 0 && <span><span className="inline-block w-2 h-2 bg-amber-600 rounded-sm mr-1" />evaluating <span className="text-amber-600 font-semibold">{totalEvaluating}</span></span>}
+          {totalRetrying > 0 && <span><span className="inline-block w-2 h-2 bg-amber-600/60 rounded-sm mr-1" />retrying <span className="text-amber-600 font-semibold">{totalRetrying}</span></span>}
+          {totalMechanical > 0 && <span><span className="inline-block w-2 h-2 bg-rust/60 rounded-sm mr-1" />🔧 mechanical <span className="text-rust font-semibold">{totalMechanical}</span></span>}
+          {totalBusiness > 0 && <span><span className="inline-block w-2 h-2 bg-rust rounded-sm mr-1" />🔒 business <span className="text-rust font-semibold">{totalBusiness}</span></span>}
         </div>
       </div>
 

@@ -64,7 +64,7 @@ export function ZerouStageTrace({
 
   const metric = (
     <>
-      <span className="text-ink">{coveredCount}</span> /{' '}
+      <span className="text-electric font-semibold">{coveredCount}</span> /{' '}
       <span className="text-ink">{denominator}</span>{' '}
       <span className="text-coral">({coveragePct.toFixed(1)}%)</span> · log = proof
     </>
@@ -94,12 +94,12 @@ export function ZerouStageTrace({
           证明的分支 — 那就是 ZeroU 让你看见的"自我欺骗盲区"。
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px] font-mono">
-          <Stat label="EVENTS" value={total.toString()} tone="text-ink" />
-          <Stat label="COVERED" value={coveredCount.toString()} tone="text-forest" />
-          <Stat label="JUDGE-ONLY" value={`${verdictCounts.get('judge-only') ?? 0}`} tone="text-coral" />
-          <Stat label="SPEC-ONLY" value={`${verdictCounts.get('spec-only') ?? 0}`} tone="text-coral" />
-          <Stat label="UNTESTED" value={untestedCount.toString()} tone="text-rust" />
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 font-mono">
+          <Stat label="EVENTS" value={total.toString()} accent="border-l-electric" />
+          <Stat label="COVERED" value={coveredCount.toString()} accent="border-l-forest" />
+          <Stat label="JUDGE-ONLY" value={`${verdictCounts.get('judge-only') ?? 0}`} accent="border-l-amber-600" />
+          <Stat label="SPEC-ONLY" value={`${verdictCounts.get('spec-only') ?? 0}`} accent="border-l-sage-600" />
+          <Stat label="UNTESTED" value={untestedCount.toString()} accent="border-l-rust" />
         </div>
 
         <ZerouHeatStrip
@@ -123,13 +123,15 @@ export function ZerouStageTrace({
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone: string }) {
+function Stat({ label, value, accent }: { label: string; value: string; accent: string }) {
   return (
-    <div className="bg-paper border border-warmline rounded-md px-3 py-2">
-      <div className="text-[9px] uppercase tracking-widest text-muted/70 font-sans">
+    <div className={`bg-cream border border-warmline border-l-2 ${accent} rounded-md pl-3 pr-3 py-2`}>
+      <div className="text-[10px] uppercase tracking-widest text-muted font-mono">
         {label}
       </div>
-      <div className={`text-base mt-0.5 ${tone}`}>{value}</div>
+      <div className="text-3xl leading-tight mt-0.5 font-mono font-semibold text-electric tabular-nums">
+        {value}
+      </div>
     </div>
   );
 }

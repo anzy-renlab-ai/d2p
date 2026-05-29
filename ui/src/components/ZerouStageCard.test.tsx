@@ -57,7 +57,7 @@ describe('ZerouStageCard', () => {
     expect(screen.getByText('centerpiece-body')).toBeInTheDocument();
   });
 
-  it('running status shows tick animation class', () => {
+  it('running status shows status-pulse animation class', () => {
     render(
       <ZerouStageCard
         numeral="③"
@@ -70,6 +70,6 @@ describe('ZerouStageCard', () => {
       </ZerouStageCard>,
     );
     const glyph = screen.getByLabelText('running');
-    expect(glyph.className).toMatch(/anim-tick/);
+    expect(glyph.className).toMatch(/anim-status-pulse/);
   });
 });

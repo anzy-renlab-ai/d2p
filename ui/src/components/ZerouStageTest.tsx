@@ -43,7 +43,7 @@ export function ZerouStageTest({ bundle, status }: ZerouStageTestProps) {
   const total = audit?.testCases.total ?? 0;
   const metric = (
     <>
-      <span className="text-ink">{total}</span> specs ·{' '}
+      <span className="text-electric font-semibold">{total}</span> specs ·{' '}
       <span className="text-ink">{specCount}</span> matched · LLM-judge
     </>
   );

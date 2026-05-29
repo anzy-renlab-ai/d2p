@@ -113,7 +113,7 @@ export function ZerouReview({ source }: { source: ReviewSource }) {
     (bundle.audit?.testCases.total ?? 0) > 0;
 
   return (
-    <div className="min-h-screen bg-paper text-ink" data-testid="zerou-review">
+    <div className="min-h-screen bg-paper bg-grid-faint text-ink" data-testid="zerou-review">
       {/* Sticky pipeline header */}
       <header className="border-b border-warmline bg-cream px-6 py-3 sticky top-0 z-20">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 flex-wrap">
@@ -125,8 +125,10 @@ export function ZerouReview({ source }: { source: ReviewSource }) {
               ← ZeroU
             </a>
             <span className="w-px h-4 bg-warmline" />
-            <span className="text-sm font-medium text-ink font-sans">
-              ZeroU · <span className="font-mono">{bundle.project.name}</span>
+            <span className="text-sm font-medium font-sans">
+              <span className="text-coral">ZeroU</span>
+              <span className="text-muted/50 mx-1.5">·</span>
+              <span className="font-mono text-ink">{bundle.project.name}</span>
             </span>
             <span className="text-muted/40 hidden sm:inline">·</span>
             <span className="text-xs text-muted font-mono hidden sm:inline">
@@ -134,10 +136,20 @@ export function ZerouReview({ source }: { source: ReviewSource }) {
             </span>
             <span className="text-muted/40 hidden md:inline">·</span>
             <span
-              className={`text-xs font-mono hidden md:inline ${allStagesPassed ? 'text-forest' : 'text-coral'}`}
+              className={`text-xs font-mono hidden md:inline items-center gap-1.5 ${allStagesPassed ? 'text-forest' : 'text-electric'}`}
               data-testid="zerou-review-stage-summary"
             >
-              {allStagesPassed ? '✅ all 5 stages passed' : '◐ pipeline in progress'}
+              {allStagesPassed ? (
+                '✅ all 5 stages passed'
+              ) : (
+                <>
+                  <span
+                    className="inline-block w-2 h-2 rounded-full bg-electric anim-status-pulse align-middle mr-1.5"
+                    aria-hidden="true"
+                  />
+                  pipeline in progress
+                </>
+              )}
             </span>
             {stream.connected && (
               <>
@@ -146,7 +158,7 @@ export function ZerouReview({ source }: { source: ReviewSource }) {
                   className="text-[11px] font-mono text-forest flex items-center gap-1.5"
                   data-testid="zerou-review-live-badge"
                 >
-                  <span className="inline-block w-2 h-2 rounded-full bg-forest anim-breathe-dot" aria-hidden="true" />
+                  <span className="inline-block w-2 h-2 rounded-full bg-forest anim-status-pulse" aria-hidden="true" />
                   live
                 </span>
               </>

@@ -267,13 +267,15 @@
 }
 .anim-status-pulse { animation: status-pulse-strong 1.6s ease-in-out infinite; }
 
-/* Faint blueprint grid — applied to the app shell bg. ~2.5% ink so it
-   reads as "engineered surface" without competing with content. */
+/* Faint blueprint grid — applied to the app shell bg. ~5% ink so it
+   reads clearly as "engineered surface" without competing with content.
+   Bumped from 2.5%/24px on 2026-05-29 — the original was invisible on the
+   review page. */
 .bg-grid-faint {
   background-image:
-    linear-gradient(rgba(31, 27, 22, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(31, 27, 22, 0.025) 1px, transparent 1px);
-  background-size: 24px 24px;
+    linear-gradient(rgba(31, 27, 22, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(31, 27, 22, 0.05) 1px, transparent 1px);
+  background-size: 28px 28px;
 }
 
 @media (prefers-reduced-motion: reduce) {

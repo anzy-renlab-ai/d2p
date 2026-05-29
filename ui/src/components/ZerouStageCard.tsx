@@ -10,11 +10,54 @@ import type { StageStatus } from '../types-zerou.js';
  * the user opens them.
  */
 
-const STATUS_GLYPH: Record<StageStatus, { glyph: string; tone: string; ring: string; anim?: string }> = {
-  pending: { glyph: '◌', tone: 'text-muted/60',  ring: 'ring-warmline' },
-  running: { glyph: '◐', tone: 'text-coral',     ring: 'ring-coral/40', anim: 'anim-tick' },
-  done:    { glyph: '✓', tone: 'text-forest',    ring: 'ring-forest/30' },
-  fail:    { glyph: '✗', tone: 'text-rust',      ring: 'ring-rust/40' },
+const STATUS_GLYPH: Record<
+  StageStatus,
+  {
+    glyph: string;
+    tone: string;
+    ring: string;
+    /** Numeral-circle border colour (status-driven). */
+    numBorder: string;
+    /** Numeral text colour. */
+    numTone: string;
+    /** Card border + faint tint when the stage demands attention (fail). */
+    card: string;
+    anim?: string;
+  }
+> = {
+  pending: {
+    glyph: '◌',
+    tone: 'text-muted/60',
+    ring: 'ring-warmline',
+    numBorder: 'border-warmline',
+    numTone: 'text-muted/60',
+    card: 'border-warmline',
+  },
+  running: {
+    glyph: '◐',
+    tone: 'text-electric',
+    ring: 'ring-electric/40',
+    numBorder: 'border-electric',
+    numTone: 'text-electric',
+    card: 'border-warmline',
+    anim: 'anim-status-pulse',
+  },
+  done: {
+    glyph: '✓',
+    tone: 'text-forest',
+    ring: 'ring-forest/30',
+    numBorder: 'border-forest',
+    numTone: 'text-forest',
+    card: 'border-warmline',
+  },
+  fail: {
+    glyph: '✗',
+    tone: 'text-rust',
+    ring: 'ring-rust/40',
+    numBorder: 'border-rust',
+    numTone: 'text-rust',
+    card: 'border-rust/40 bg-rust/5',
+  },
 };
 
 export interface ZerouStageCardProps {
@@ -46,7 +89,7 @@ export function ZerouStageCard({
 
   return (
     <section
-      className={`bg-cream border border-warmline rounded-lg overflow-hidden ring-1 ${meta.ring}`}
+      className={`bg-cream border ${meta.card} rounded-lg overflow-hidden ring-1 ${meta.ring}`}
       data-testid={testId}
       data-stage-status={status}
     >
@@ -57,7 +100,9 @@ export function ZerouStageCard({
         data-testid={`${testId}-header`}
         aria-expanded={open}
       >
-        <span className="text-coral font-serif text-2xl leading-none flex-shrink-0 w-7 text-center">
+        <span
+          className={`font-serif text-lg leading-none flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full border-2 ${meta.numBorder} ${meta.numTone} ${status === 'running' ? meta.anim ?? '' : ''}`}
+        >
           {numeral}
         </span>
         <span className="flex-1 min-w-0">
@@ -70,7 +115,7 @@ export function ZerouStageCard({
           )}
         </span>
         <span
-          className={`text-xl leading-none flex-shrink-0 ${meta.tone} ${meta.anim ?? ''}`}
+          className={`text-2xl font-bold leading-none flex-shrink-0 ${meta.tone} ${meta.anim ?? ''}`}
           aria-label={status}
         >
           {meta.glyph}
