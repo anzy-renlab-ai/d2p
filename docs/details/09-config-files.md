@@ -41,6 +41,34 @@ Daemon stdout/stderr 重定向到这里。append-only，按日 rotate (`daemon.l
 
 读取顺序：env var > config.json > 内置默认。env var 命名迁移期混用 `D2P_*`（旧 daemon vars，如 `D2P_DAEMON_PORT`/`D2P_GIT_BIN`/`D2P_PRESETS_DIR`）与 `ZEROU_*`（新加 vars，如 `ZEROU_LOG_LEVEL`）。新代码用 `ZEROU_*`。
 
+### MiniMax via Anthropic-compat endpoint
+
+MiniMax offers an Anthropic-style messages API at
+`https://api.minimaxi.com/anthropic/v1/messages`. To use it via ZeroU's
+`anthropic-api` engine:
+
+```json
+{
+  "engine": {
+    "kind": "anthropic-api",
+    "baseUrl": "https://api.minimaxi.com/anthropic",
+    "apiKey": "<your MiniMax key>",
+    "authStyle": "bearer",
+    "skipAnthropicVersion": true,
+    "family": "minimax",
+    "models": {
+      "haiku":  "MiniMax-M2.7-highspeed",
+      "sonnet": "MiniMax-M2.7",
+      "opus":   "MiniMax-M2.7"
+    }
+  }
+}
+```
+
+`family: "minimax"` is important — it ensures cross-engine reviewer policy
+treats this engine as distinct from Claude (so `claude-cli` worker +
+MiniMax-via-anthropic-api critic counts as cross-family).
+
 ## Per-demo
 
 存放于 `<demo>/.zerou/`：

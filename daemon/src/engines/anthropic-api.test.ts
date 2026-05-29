@@ -105,4 +105,82 @@ describe('AnthropicApiEngine', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe('NON_ZERO_EXIT');
   });
+
+  it('authStyle "bearer" sends Authorization header (no x-api-key)', async () => {
+    nextResponse = {
+      status: 200,
+      body: JSON.stringify({
+        content: [{ type: 'text', text: '{"ok":true}' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+    };
+    const eng = new AnthropicApiEngine({
+      kind: 'anthropic-api',
+      baseUrl: baseUrl(),
+      apiKey: 'bearer-key',
+      authStyle: 'bearer',
+      models: { haiku: 'h', sonnet: 's', opus: 'o' },
+    });
+    const r = await eng.call({ role: 'behavioral', model: 'sonnet', prompt: 'x' });
+    expect(r.ok).toBe(true);
+    const req = receivedRequests[0]!;
+    expect(req.headers['authorization']).toBe('Bearer bearer-key');
+    expect(req.headers['x-api-key']).toBeUndefined();
+    expect(req.headers['anthropic-version']).toBe('2023-06-01');
+  });
+
+  it('skipAnthropicVersion: true omits anthropic-version header', async () => {
+    nextResponse = {
+      status: 200,
+      body: JSON.stringify({
+        content: [{ type: 'text', text: '{"ok":true}' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+    };
+    const eng = new AnthropicApiEngine({
+      kind: 'anthropic-api',
+      baseUrl: baseUrl(),
+      apiKey: 'sk-ant-test',
+      skipAnthropicVersion: true,
+      models: { haiku: 'h', sonnet: 's', opus: 'o' },
+    });
+    const r = await eng.call({ role: 'behavioral', model: 'sonnet', prompt: 'x' });
+    expect(r.ok).toBe(true);
+    const req = receivedRequests[0]!;
+    expect(req.headers['anthropic-version']).toBeUndefined();
+    expect(req.headers['x-api-key']).toBe('sk-ant-test');
+  });
+
+  it('MiniMax recipe: bearer + skipAnthropicVersion + MiniMax model id works', async () => {
+    nextResponse = {
+      status: 200,
+      body: JSON.stringify({
+        content: [{ type: 'text', text: '{"greeting":"hi"}' }],
+        usage: { input_tokens: 3, output_tokens: 1 },
+      }),
+    };
+    const eng = new AnthropicApiEngine({
+      kind: 'anthropic-api',
+      baseUrl: baseUrl(), // pretend this is https://api.minimaxi.com/anthropic
+      apiKey: 'minimax-key',
+      authStyle: 'bearer',
+      skipAnthropicVersion: true,
+      family: 'minimax',
+      models: {
+        haiku: 'MiniMax-M2.7-highspeed',
+        sonnet: 'MiniMax-M2.7',
+        opus: 'MiniMax-M2.7',
+      },
+    });
+    const r = await eng.call({ role: 'behavioral', model: 'sonnet', prompt: 'Hi' });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.json).toEqual({ greeting: 'hi' });
+    const req = receivedRequests[0]!;
+    expect(req.path).toBe('/v1/messages');
+    expect(req.headers['authorization']).toBe('Bearer minimax-key');
+    expect(req.headers['x-api-key']).toBeUndefined();
+    expect(req.headers['anthropic-version']).toBeUndefined();
+    const body = req.bodyJson as { model: string };
+    expect(body.model).toBe('MiniMax-M2.7');
+  });
 });

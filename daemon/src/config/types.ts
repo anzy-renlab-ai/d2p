@@ -58,6 +58,16 @@ export interface AnthropicApiEngineConfig {
   baseUrl?: string; // defaults to https://api.anthropic.com
   apiKey: string;
   models: Record<ClaudeModel, string>;
+  /** Auth header style. Default 'x-api-key' (Anthropic native).
+   *  'bearer' = send `Authorization: Bearer <apiKey>` (MiniMax / others). */
+  authStyle?: 'x-api-key' | 'bearer';
+  /** Override engineFamily classification. Anthropic-compat endpoints on
+   *  other providers (MiniMax, etc.) should set this so cross-engine policy
+   *  doesn't treat them as same-family as claude-cli. */
+  family?: string;
+  /** Skip `anthropic-version` header. Required for some non-Anthropic
+   *  providers that reject the header. Defaults to false. */
+  skipAnthropicVersion?: boolean;
 }
 
 export type EngineConfig =

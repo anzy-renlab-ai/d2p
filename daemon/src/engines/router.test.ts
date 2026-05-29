@@ -57,6 +57,30 @@ describe('engineFamily', () => {
     expect(p.reason).toBe('cross-family-active');
   });
 
+  it('anthropic-api with family override returns the override (e.g. "minimax")', () => {
+    expect(
+      engineFamily({
+        kind: 'anthropic-api',
+        baseUrl: 'https://api.minimaxi.com/anthropic',
+        apiKey: 'k',
+        family: 'minimax',
+        authStyle: 'bearer',
+        skipAnthropicVersion: true,
+        models: { haiku: 'h', sonnet: 's', opus: 'o' },
+      }),
+    ).toBe('minimax');
+  });
+
+  it('anthropic-api without family override still returns "anthropic"', () => {
+    expect(
+      engineFamily({
+        kind: 'anthropic-api',
+        apiKey: 'k',
+        models: { haiku: 'h', sonnet: 's', opus: 'o' },
+      }),
+    ).toBe('anthropic');
+  });
+
   it('falls back to unknown for malformed baseUrl', () => {
     expect(
       engineFamily({

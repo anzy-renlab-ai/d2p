@@ -91,9 +91,15 @@ export class AnthropicApiEngine implements LLMEngine {
     };
     const headers: Record<string, string> = {
       'content-type': 'application/json',
-      'x-api-key': this.cfg.apiKey,
-      'anthropic-version': API_VERSION,
     };
+    if ((this.cfg.authStyle ?? 'x-api-key') === 'bearer') {
+      headers['authorization'] = `Bearer ${this.cfg.apiKey}`;
+    } else {
+      headers['x-api-key'] = this.cfg.apiKey;
+    }
+    if (!this.cfg.skipAnthropicVersion) {
+      headers['anthropic-version'] = API_VERSION;
+    }
     const timeoutMs = opts.timeoutMs ?? 180_000;
     let res: Response;
     try {
@@ -155,13 +161,20 @@ export class AnthropicApiEngine implements LLMEngine {
   async probe(): Promise<{ ok: boolean; detail?: string }> {
     // Anthropic has no `/health` — minimal real call to check key.
     try {
+      const probeHeaders: Record<string, string> = {
+        'content-type': 'application/json',
+      };
+      if ((this.cfg.authStyle ?? 'x-api-key') === 'bearer') {
+        probeHeaders['authorization'] = `Bearer ${this.cfg.apiKey}`;
+      } else {
+        probeHeaders['x-api-key'] = this.cfg.apiKey;
+      }
+      if (!this.cfg.skipAnthropicVersion) {
+        probeHeaders['anthropic-version'] = API_VERSION;
+      }
       const res = await fetch((this.cfg.baseUrl ?? DEFAULT_BASE).replace(/\/$/, '') + '/v1/messages', {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': this.cfg.apiKey,
-          'anthropic-version': API_VERSION,
-        },
+        headers: probeHeaders,
         body: JSON.stringify({
           model: this.modelFor('haiku'),
           max_tokens: 1,

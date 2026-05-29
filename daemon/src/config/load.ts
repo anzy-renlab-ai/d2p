@@ -32,6 +32,9 @@ const AnthropicApiSchema = z.object({
   baseUrl: z.string().url().optional(),
   apiKey: z.string().min(1),
   models: ModelMap,
+  authStyle: z.enum(['x-api-key', 'bearer']).optional(),
+  family: z.string().optional(),
+  skipAnthropicVersion: z.boolean().optional(),
 });
 
 const PartialModelMap = z.object({

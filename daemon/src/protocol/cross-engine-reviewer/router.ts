@@ -23,14 +23,18 @@ import type {
  * Classify an `EngineConfig` into a "family" string. Two engines share a
  * family iff `engineFamily` returns the same string for both.
  *
- * - claude-cli, anthropic-api → 'anthropic'
+ * - claude-cli → 'anthropic'
+ * - anthropic-api → cfg.family if set (lets Anthropic-compat endpoints on
+ *   other providers — MiniMax, etc. — opt out of the 'anthropic' family);
+ *   otherwise 'anthropic'
  * - codex-cli → 'openai'
  * - gemini-cli → 'google'
  * - openai-compat → lowercase URL(baseUrl).hostname (no port, no path);
  *   invalid URL → 'openai-compat:unknown'
  */
 export function engineFamily(cfg: EngineConfig): string {
-  if (cfg.kind === 'claude-cli' || cfg.kind === 'anthropic-api') return 'anthropic';
+  if (cfg.kind === 'anthropic-api') return cfg.family ?? 'anthropic';
+  if (cfg.kind === 'claude-cli') return 'anthropic';
   if (cfg.kind === 'codex-cli') return 'openai';
   if (cfg.kind === 'gemini-cli') return 'google';
   if (cfg.kind === 'openai-compat') {
