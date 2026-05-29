@@ -6,17 +6,37 @@
  * itself — only the data on disk.
  */
 import * as fs from 'node:fs/promises';
+import * as fsSync from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 
 import {
   startReviewServer,
   locateUiDist,
   isInside,
+  realInside,
+  readStableBundle,
+  readArchivedBundle,
   type ReviewServerHandle,
 } from './review-server.js';
 import { createTrackLogger } from './log-types.js';
+
+/**
+ * Write a file just over the 50 MB cap so the size-gate fires on real disk
+ * metadata. Uses a sparse-ish single big write of zero bytes — fast (~tens of
+ * ms) and proves the stat-based cap without mocking the subject under test.
+ */
+async function writeOversized(filePath: string): Promise<void> {
+  const oversize = 50 * 1024 * 1024 + 1024; // 50 MB + 1 KB
+  const fh = await fs.open(filePath, 'w');
+  try {
+    // Grow the file to the target size without buffering 50 MB in JS heap.
+    await fh.truncate(oversize);
+  } finally {
+    await fh.close();
+  }
+}
 
 const scratch: string[] = [];
 const openHandles: ReviewServerHandle[] = [];
@@ -113,6 +133,124 @@ describe('isInside', () => {
     expect(isInside('/a/b', '/a/bc')).toBe(false);
     expect(isInside('/a/b', '/a')).toBe(false);
   });
+  it('rejects `..` traversal that escapes root', () => {
+    expect(isInside('/a/b', '/a/b/../../etc/passwd')).toBe(false);
+    expect(isInside('/a/b', '/a/b/c/../../..')).toBe(false);
+  });
+  it('on win32 the relative test is case-insensitive-aware', () => {
+    // path.relative on win32 treats drive/letters case-insensitively, so a
+    // legit lowercase request under an uppercase root still resolves inside.
+    if (process.platform === 'win32') {
+      expect(isInside('C:\\Foo\\Bar', 'c:\\foo\\bar\\baz.js')).toBe(true);
+      expect(isInside('C:\\Foo\\Bar', 'C:\\Foo\\Other')).toBe(false);
+    } else {
+      // POSIX is case-sensitive — just assert the happy path still works.
+      expect(isInside('/foo/bar', '/foo/bar/baz.js')).toBe(true);
+    }
+  });
+});
+
+describe('realInside (symlink-aware containment)', () => {
+  const scratchDirs: string[] = [];
+  afterEach(async () => {
+    while (scratchDirs.length) {
+      const d = scratchDirs.pop();
+      if (d) await fs.rm(d, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('returns realpath for a legit file inside root', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zerou-real-'));
+    scratchDirs.push(root);
+    const inside = path.join(root, 'asset.js');
+    await fs.writeFile(inside, 'x', 'utf8');
+    const got = realInside(root, inside);
+    expect(got).not.toBeNull();
+    expect(path.resolve(got!)).toBe(fsSync.realpathSync(inside));
+  });
+
+  it('rejects a symlink inside root that escapes to an outside file', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zerou-real-'));
+    scratchDirs.push(root);
+    const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zerou-out-'));
+    scratchDirs.push(outsideDir);
+    const secret = path.join(outsideDir, 'id_rsa');
+    await fs.writeFile(secret, 'PRIVATE_KEY', 'utf8');
+    const link = path.join(root, 'evil');
+    let symlinkOk = true;
+    try {
+      // 'file' junction type for win32 file symlinks (needs dev mode / admin;
+      // if it fails we skip — the lexical guard still applies in that case).
+      await fs.symlink(secret, link, 'file');
+    } catch {
+      symlinkOk = false;
+    }
+    if (!symlinkOk) return; // environment can't create symlinks; skip cleanly
+    const got = realInside(root, link);
+    expect(got).toBeNull();
+  });
+
+  it('resolves a not-yet-existing file via its parent dir', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zerou-real-'));
+    scratchDirs.push(root);
+    const future = path.join(root, 'does-not-exist-yet.js');
+    const got = realInside(root, future);
+    expect(got).not.toBeNull();
+  });
+
+  it('rejects when the path escapes via `..`', () => {
+    expect(realInside('/no/such/root', '/no/such/root/../../etc')).toBeNull();
+  });
+});
+
+describe('bundle size cap (DoS guard)', () => {
+  it('readStableBundle returns too-large for a >50MB bundle (gate before readFile)', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'zerou-cap-'));
+    scratch.push(cwd);
+    const dir = path.join(cwd, '.zerou');
+    await fs.mkdir(dir, { recursive: true });
+    await writeOversized(path.join(dir, 'review-bundle.json'));
+    const result = await readStableBundle(cwd);
+    expect(result.kind).toBe('too-large');
+    if (result.kind === 'too-large') {
+      expect(result.size).toBeGreaterThan(50 * 1024 * 1024);
+    }
+  });
+
+  it('readArchivedBundle returns too-large for a >50MB archived bundle', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'zerou-cap-'));
+    scratch.push(cwd);
+    const ts = '20260527-100000';
+    const dir = path.join(cwd, '.zerou', 'runs', ts);
+    await fs.mkdir(dir, { recursive: true });
+    await writeOversized(path.join(dir, 'review-bundle.json'));
+    const result = await readArchivedBundle(cwd, ts);
+    expect(result.kind).toBe('too-large');
+  });
+
+  it('readStableBundle returns ok for a normal-size bundle', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'zerou-cap-'));
+    scratch.push(cwd);
+    const dir = path.join(cwd, '.zerou');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, 'review-bundle.json'),
+      JSON.stringify({ version: 1 }),
+      'utf8',
+    );
+    const result = await readStableBundle(cwd);
+    expect(result.kind).toBe('ok');
+    if (result.kind === 'ok') {
+      expect(JSON.parse(result.data)).toEqual({ version: 1 });
+    }
+  });
+
+  it('readArchivedBundle rejects bad ts charset as missing', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'zerou-cap-'));
+    scratch.push(cwd);
+    const result = await readArchivedBundle(cwd, '../../etc');
+    expect(result.kind).toBe('missing');
+  });
 });
 
 describe('startReviewServer', () => {
@@ -143,6 +281,39 @@ describe('startReviewServer', () => {
     expect(r.headers.get('content-type')).toMatch(/application\/json/);
     const body = await r.json();
     expect(body).toEqual(sample);
+  });
+
+  it('2c. /api/review-data.json returns 413 (not OOM) when bundle exceeds 50MB cap', async () => {
+    const parent = await mkScratch();
+    const ui = await seedUiDist(parent);
+    const cwd = await mkScratch();
+    // Write a genuinely oversized bundle (51 MB > 50 MB cap) so the stat-gate
+    // fires on real disk metadata — no mock of the subject under test.
+    const dir = path.join(cwd, '.zerou');
+    await fs.mkdir(dir, { recursive: true });
+    const bundlePath = path.join(dir, 'review-bundle.json');
+    await writeOversized(bundlePath);
+    const h = await bootServer({ cwd, uiDistDir: ui });
+    const r = await fetch(`${h.url}/api/review-data.json`);
+    expect(r.status).toBe(413);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toMatch(/too large/);
+  });
+
+  it('2d. /api/runs/<ts>/review-data.json returns 413 when archived bundle exceeds cap', async () => {
+    const parent = await mkScratch();
+    const ui = await seedUiDist(parent);
+    const cwd = await mkScratch();
+    const ts = '20260527-090000';
+    const dir = path.join(cwd, '.zerou', 'runs', ts);
+    await fs.mkdir(dir, { recursive: true });
+    const bundlePath = path.join(dir, 'review-bundle.json');
+    await writeOversized(bundlePath);
+    const h = await bootServer({ cwd, uiDistDir: ui });
+    const r = await fetch(`${h.url}/api/runs/${ts}/review-data.json`);
+    expect(r.status).toBe(413);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toMatch(/too large/);
   });
 
   it('3. /api/review-data.json returns 404 with helpful error when missing', async () => {

@@ -101,13 +101,65 @@ function mimeFor(p: string): string {
 /**
  * Verify that `candidate` (after `path.resolve`) lives strictly inside
  * `root`. Defends against `/../etc/passwd`, percent-encoded variants, etc.
+ *
+ * Uses `path.relative(root, candidate)` and rejects when the relative path
+ * escapes (`..` prefix) or is absolute. On win32 `path.relative` is already
+ * case-insensitive-aware, so `C:\Foo` vs `c:\foo` compare equal — this fixes
+ * the old `startsWith` check which falsely rejected/accepted on case-insensitive
+ * filesystems. NOTE: this does NOT follow symlinks; for filesystem-backed
+ * containment that must catch symlink escapes, use `realInside`.
  */
 export function isInside(root: string, candidate: string): boolean {
   const rResolved = path.resolve(root);
   const cResolved = path.resolve(candidate);
-  // Add separator so `/foo/bar` is not considered inside `/foo/ba`.
-  const rWithSep = rResolved.endsWith(path.sep) ? rResolved : rResolved + path.sep;
-  return cResolved === rResolved || cResolved.startsWith(rWithSep);
+  if (cResolved === rResolved) return true;
+  const rel = path.relative(rResolved, cResolved);
+  // Escapes the root: relative path starts with `..` segment, or is absolute
+  // (happens on win32 when candidate is on a different drive letter).
+  if (rel === '') return true;
+  if (rel.startsWith('..' + path.sep) || rel === '..') return false;
+  if (path.isAbsolute(rel)) return false;
+  return true;
+}
+
+/**
+ * Filesystem-aware containment check. Resolves symlinks on BOTH `root` and
+ * `candidate` via `fs.realpathSync` before the relative-containment test, so a
+ * symlink inside `root` that points outside (e.g. ui/dist/evil → ~/.ssh/id_rsa)
+ * is caught. The old `isInside` only did `path.resolve`, which does not follow
+ * symlinks — `sendFile` would then happily read the link target.
+ *
+ * Handles the not-yet-existing-file case: if `candidate` does not exist
+ * (realpath throws ENOENT) we realpath its parent dir and re-append the
+ * basename, so a legit asset path that hasn't been created still resolves
+ * relative to a real directory. If even the parent cannot be resolved we treat
+ * it as outside (caller should 404).
+ *
+ * Returns the realpath of the candidate when it is inside, or `null` when it
+ * escapes / cannot be safely resolved.
+ */
+export function realInside(root: string, candidate: string): string | null {
+  let realRoot: string;
+  try {
+    realRoot = fs.realpathSync(path.resolve(root));
+  } catch {
+    return null;
+  }
+  let realCandidate: string;
+  try {
+    realCandidate = fs.realpathSync(path.resolve(candidate));
+  } catch {
+    // File may not exist yet — resolve the parent dir's realpath + basename.
+    const resolved = path.resolve(candidate);
+    const parent = path.dirname(resolved);
+    const base = path.basename(resolved);
+    try {
+      realCandidate = path.join(fs.realpathSync(parent), base);
+    } catch {
+      return null;
+    }
+  }
+  return isInside(realRoot, realCandidate) ? realCandidate : null;
 }
 
 /** Decode the URL pathname robustly; reject if it decodes to something funky. */
@@ -193,32 +245,60 @@ async function sendFile(
   });
 }
 
-/** Read the stable / latest review bundle for a project. */
-async function readStableBundle(cwd: string): Promise<string | null> {
-  const stable = path.join(cwd, '.zerou', 'review-bundle.json');
+/**
+ * Result of attempting to read a JSON bundle from disk.
+ *   - `{ kind: 'ok', data }`      → file existed and is within the size cap
+ *   - `{ kind: 'missing' }`       → file not found / not a regular file
+ *   - `{ kind: 'too-large', size }` → file exceeds MAX_FILE_BYTES; NOT read
+ */
+export type BundleReadResult =
+  | { kind: 'ok'; data: string }
+  | { kind: 'missing' }
+  | { kind: 'too-large'; size: number };
+
+/**
+ * Stat-then-read a bundle file, enforcing the {@link MAX_FILE_BYTES} cap
+ * BEFORE pulling the whole file into a JS string. A multi-GB bundle would
+ * otherwise blow past V8's string/heap limit and OOM-crash the process — and
+ * with `--host 0.0.0.0` the archived route is LAN-reachable. We never call
+ * `readFile` on an oversized file.
+ */
+async function readBundleCapped(absPath: string): Promise<BundleReadResult> {
+  let stat: fs.Stats;
   try {
-    const data = await fsp.readFile(stable, 'utf8');
-    return data;
+    stat = await fsp.stat(absPath);
   } catch {
-    return null;
+    return { kind: 'missing' };
+  }
+  if (!stat.isFile()) return { kind: 'missing' };
+  if (stat.size > MAX_FILE_BYTES) {
+    return { kind: 'too-large', size: stat.size };
+  }
+  try {
+    const data = await fsp.readFile(absPath, 'utf8');
+    return { kind: 'ok', data };
+  } catch {
+    return { kind: 'missing' };
   }
 }
 
-async function readArchivedBundle(
+/** Read the stable / latest review bundle for a project (size-capped). */
+export async function readStableBundle(cwd: string): Promise<BundleReadResult> {
+  const stable = path.join(cwd, '.zerou', 'review-bundle.json');
+  return readBundleCapped(stable);
+}
+
+export async function readArchivedBundle(
   cwd: string,
   ts: string,
-): Promise<string | null> {
+): Promise<BundleReadResult> {
   // ts is user-supplied — restrict to safe charset to block traversal.
-  if (!/^[A-Za-z0-9._-]{1,64}$/.test(ts)) return null;
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(ts)) return { kind: 'missing' };
   const archived = path.join(cwd, '.zerou', 'runs', ts, 'review-bundle.json');
   // Defense in depth: still check it's inside .zerou/runs/.
   const runsRoot = path.join(cwd, '.zerou', 'runs');
-  if (!isInside(runsRoot, archived)) return null;
-  try {
-    return await fsp.readFile(archived, 'utf8');
-  } catch {
-    return null;
-  }
+  if (!isInside(runsRoot, archived)) return { kind: 'missing' };
+  return readBundleCapped(archived);
 }
 
 async function listRuns(
@@ -1021,8 +1101,14 @@ async function handleRequest(
   }
 
   if (pathname === '/api/review-data.json') {
-    const data = await readStableBundle(ctx.cwd);
-    if (data === null) {
+    const result = await readStableBundle(ctx.cwd);
+    if (result.kind === 'too-large') {
+      sendJson(res, 413, {
+        error: `review bundle too large (${result.size} bytes > ${MAX_FILE_BYTES} cap)`,
+      });
+      return;
+    }
+    if (result.kind === 'missing') {
       sendJson(res, 404, {
         error:
           'no review bundle. run `zerou audit` then `zerou enhance` first',
@@ -1031,11 +1117,11 @@ async function handleRequest(
     }
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
-      'Content-Length': Buffer.byteLength(data),
+      'Content-Length': Buffer.byteLength(result.data),
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
     });
-    res.end(data);
+    res.end(result.data);
     return;
   }
 
@@ -1051,18 +1137,24 @@ async function handleRequest(
   );
   if (archivedMatch) {
     const ts = archivedMatch[1] ?? '';
-    const data = await readArchivedBundle(ctx.cwd, ts);
-    if (data === null) {
+    const result = await readArchivedBundle(ctx.cwd, ts);
+    if (result.kind === 'too-large') {
+      sendJson(res, 413, {
+        error: `archived bundle too large (${result.size} bytes > ${MAX_FILE_BYTES} cap)`,
+      });
+      return;
+    }
+    if (result.kind === 'missing') {
       sendJson(res, 404, { error: `archived run not found: ${ts}` });
       return;
     }
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
-      'Content-Length': Buffer.byteLength(data),
+      'Content-Length': Buffer.byteLength(result.data),
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
     });
-    res.end(data);
+    res.end(result.data);
     return;
   }
 
@@ -1112,11 +1204,19 @@ async function handleRequest(
     return;
   }
   const candidate = path.join(ctx.uiDistDir, rel);
+  // Lexical containment first (cheap, catches `..` before any fs access)…
   if (!isInside(ctx.uiDistDir, candidate)) {
     send404(res, 'path traversal blocked');
     return;
   }
-  await sendFile(res, candidate);
+  // …then filesystem-aware containment that follows symlinks, so a symlink
+  // inside ui/dist pointing outside (e.g. to ~/.ssh/id_rsa) is rejected.
+  const real = realInside(ctx.uiDistDir, candidate);
+  if (real === null) {
+    send404(res, 'path traversal blocked');
+    return;
+  }
+  await sendFile(res, real);
 }
 
 /**
