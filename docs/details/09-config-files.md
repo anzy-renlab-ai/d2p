@@ -1,27 +1,27 @@
 # 09 — Config Files
 
-> 三个层级的配置：全局（`~/.d2p/`）、per-demo（`<demo>/.d2p/`）、preset library（`presets/`）。
+> 三个层级的配置：全局（`~/.zerou/`）、per-demo（`<demo>/.zerou/`）、preset library（`presets/`）。
 > 全部明文（JSON / YAML / Markdown）方便检查。
 
 ## Global
 
-### `~/.d2p/state.db`
+### `~/.zerou/state.db`
 
 SQLite。详 03-storage.md。
 
-### `~/.d2p/daemon.pid`
+### `~/.zerou/daemon.pid`
 
 ```
 12345
 ```
 
-只有 pid 一行。`d2p start` 写、`d2p stop` 删；daemon crash 后下次 `d2p start` 检测 pid 不存活就覆盖。
+只有 pid 一行。`zerou start` 写、`zerou stop` 删；daemon crash 后下次 `zerou start` 检测 pid 不存活就覆盖。
 
-### `~/.d2p/daemon.log`
+### `~/.zerou/daemon.log`
 
 Daemon stdout/stderr 重定向到这里。append-only，按日 rotate (`daemon.log.2026-05-12`)。MVP-0 不限大小，运维由用户。
 
-### `~/.d2p/config.json` (可选)
+### `~/.zerou/config.json` (可选)
 
 ```jsonc
 {
@@ -39,17 +39,17 @@ Daemon stdout/stderr 重定向到这里。append-only，按日 rotate (`daemon.l
 }
 ```
 
-读取顺序：env var > config.json > 内置默认。env var 命名 `D2P_*`。
+读取顺序：env var > config.json > 内置默认。env var 命名迁移期混用 `D2P_*`（旧 daemon vars，如 `D2P_DAEMON_PORT`/`D2P_GIT_BIN`/`D2P_PRESETS_DIR`）与 `ZEROU_*`（新加 vars，如 `ZEROU_LOG_LEVEL`）。新代码用 `ZEROU_*`。
 
 ## Per-demo
 
-存放于 `<demo>/.d2p/`：
+存放于 `<demo>/.zerou/`：
 
 ```
 <demo>/
 ├── .git/
 ├── ... (用户的代码)
-└── .d2p/
+└── .zerou/
     ├── vision.md
     ├── check-commands.yaml
     ├── preset-overrides.yaml
@@ -57,15 +57,15 @@ Daemon stdout/stderr 重定向到这里。append-only，按日 rotate (`daemon.l
     └── gap-history.json
 ```
 
-`<demo>/.gitignore` 第一次 d2p 进入时 daemon 自动追加（若未含）：
+`<demo>/.gitignore` 第一次 ZeroU 进入时 daemon 自动追加（若未含）：
 ```
-# d2p artifacts
-.d2p/
+# ZeroU artifacts
+.zerou/
 ```
 
-注意 `.d2p-worktrees/` 在 demo **父目录** 下（`<demoParent>/.d2p-worktrees/`），不在 demo 仓库内，所以不进 demo 的 gitignore。
+注意 `.zerou-worktrees/` 在 demo **父目录** 下（`<demoParent>/.zerou-worktrees/`），不在 demo 仓库内，所以不进 demo 的 gitignore。
 
-### `<demo>/.d2p/vision.md`
+### `<demo>/.zerou/vision.md`
 
 由 vision elicitor finalize 后写入。例：
 
@@ -98,7 +98,7 @@ Daemon stdout/stderr 重定向到这里。append-only，按日 rotate (`daemon.l
 
 格式约束：6 节固定（`产品定位` / `目标用户` / `核心场景` / `商业模式` / `KPI` / `明确不做`）；缺节 daemon 写入时 warn 但不阻塞。
 
-### `<demo>/.d2p/check-commands.yaml`
+### `<demo>/.zerou/check-commands.yaml`
 
 ```yaml
 build: npm run build
@@ -113,7 +113,7 @@ typecheck: tsc --noEmit
 
 约束：值通过 `shell-quote` 解析，不能含 `;` `|` `&&` `||` `>` `<`。binary 须在 worktree 的 `node_modules/.bin` 或 PATH。
 
-### `<demo>/.d2p/preset-overrides.yaml`
+### `<demo>/.zerou/preset-overrides.yaml`
 
 ```yaml
 add:
@@ -129,7 +129,7 @@ skip:
 
 详 07-presets.md §"Override 文件格式"。
 
-### `<demo>/.d2p/session-summary.md`
+### `<demo>/.zerou/session-summary.md`
 
 `/api/session/end` 触发生成。例：
 
@@ -170,7 +170,7 @@ rationale: ...
 saas-web: 30/32 done, 2 skipped (deploy-config user-skipped, oauth-google user-removed)
 ```
 
-### `<demo>/.d2p/gap-history.json`
+### `<demo>/.zerou/gap-history.json`
 
 Append-only audit log：
 
@@ -266,6 +266,6 @@ export const ConfigJsonSchema = z.object({
 ## 安全注意
 
 - demo path 永不写入 prompt 文本（只走 `cwd`）—— 防 path injection
-- `.d2p/*` 仅 daemon 写；用户手编也行但 daemon 启动时校验；schema fail 视作空
+- `.zerou/*` 仅 daemon 写；用户手编也行但 daemon 启动时校验；schema fail 视作空
 - 不读 home 目录之外的 secret 文件
 - `ANTHROPIC_API_KEY` env var 即使存在也不传给 daemon（daemon 不用），传给 spawn 的 `claude` 进程由 cc 自己决定

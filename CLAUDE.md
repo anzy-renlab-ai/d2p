@@ -2,16 +2,16 @@
 
 > 给未来 Claude 会话用。仓库特定的坑与本地约定写这里。
 
-## d2p 是什么
+## ZeroU 是什么
 
-**d2p = demo to product** (本地 web app + 独立 daemon)：用户给本地 demo（任意 folder，d2p 自动 git init）+ 多轮对话 elicit 的 vision → d2p 自动识别 gap → 派 Claude Code CLI subprocess 写代码 → 4 层 reviewer pipeline 验 → 自动 commit/merge → 循环到 preset + vision 双绿。
+**ZeroU = demo to product** (本地 web app + 独立 daemon)：用户给本地 demo（任意 folder，ZeroU 自动 git init）+ 多轮对话 elicit 的 vision → ZeroU 自动识别 gap → 派 Claude Code CLI subprocess 写代码 → 4 层 reviewer pipeline 验 → 自动 commit/merge → 循环到 preset + vision 双绿。
 
 **关键设计选择**（12 轮 grill 锁定，详 `docs/DEV-DOC.md` §0）：
 - **AI 引擎**：不持 API key，全部 `claude --model X -p` CLI 子进程
 - **形态**：本地 web app（localhost）+ 独立 daemon；UI 关页面不停作业
 - **Approval**：无——用户不审 diff，trust agent + reviewer
 - **Done**：preset 全绿 + vision verdict YES（双绿）
-- **Branch**：仓外 worktree，每 fix 一分支，d2p 自动 merge main
+- **Branch**：仓外 worktree，每 fix 一分支，ZeroU 自动 merge main
 - **Reviewer**：Static gate → Alignment probe → Behavioral → (Adversarial 高敏 gap only)
 
 它**不是** chat IM / 任务看板 / Cairn 替代品 / IDE / Cursor clone / 通用 multi-agent framework / 直调 Anthropic API。

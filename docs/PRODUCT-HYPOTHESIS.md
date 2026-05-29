@@ -1,4 +1,4 @@
-# d2p 产品理论假设书 (v0.7 — Round 2 grill 后)
+# ZeroU 产品理论假设书 (v0.7 — Round 2 grill 后)
 
 > v0.7 修订自 v0.6。改动来自 Round 2 三个 adversarial subagent：red team / 失败模式找寻者 / 邻域 collapse 分析。
 > Round 2 揭出 10 处新 P1，承重墙问题（v0.6 没动到）。v0.7 修：经济模型自洽性 / 大厂分层 / dogfood 工程化 enforce / 红线 governance / 数字诚实。
@@ -18,9 +18,9 @@
 
 ## 1. 身份 — 3 问
 
-### Q1.1 一句话讲清楚 d2p。
+### Q1.1 一句话讲清楚 ZeroU。
 
-**A**: AI 时代的测试程序员。AI 写代码越来越快，但写出来能不能用还要测试程序员判——d2p 把这个测试程序员自动化了。
+**A**: AI 时代的测试程序员。AI 写代码越来越快，但写出来能不能用还要测试程序员判——ZeroU 把这个测试程序员自动化了。
 
 **caveat (从 v0.6 保留)**: "测试程序员" persona 在 agile 时代被 *whole-team approach* dissolve。更精确 framing: **"自动化嵌进 dev loop 的 QA function"**，不是 "复活独立 QA 角色"。顶层 punchline 仍用前者（大众易懂），技术细节走下层。
 
@@ -28,7 +28,7 @@
 
 ### Q1.2 跟 cc / Cursor / Devin 啥区别？
 
-**A**: 他们代替**开发者**，d2p 代替**测试程序员**。两个不同角色。开发者继续用 cc / Cursor 写代码，d2p 做独立第三方 QA。两个叠加 = full team。
+**A**: 他们代替**开发者**，ZeroU 代替**测试程序员**。两个不同角色。开发者继续用 cc / Cursor 写代码，ZeroU 做独立第三方 QA。两个叠加 = full team。
 
 **foundation (v0.6 修)**: 真正理论祖父是 **Knight-Leveson 1986** *"An Experimental Evaluation of the Assumption of Independence in Multiversion Programming"* (IEEE TSE 12(1):96-109, <https://ieeexplore.ieee.org/document/1702342>)——证独立开发多版本程序失败 statistically 相关。这是 cross-engine reviewer 的理论祖父。
 
@@ -36,9 +36,9 @@
 
 ### Q1.3 跟 TestSprite / Mabl / Specmatic / Kiro / Spec Kit 啥区别？
 
-**A**: 他们要用户**先写 spec**，d2p **不要**。d2p 只要 demo + vision，严格 spec 由系统造。
+**A**: 他们要用户**先写 spec**，ZeroU **不要**。ZeroU 只要 demo + vision，严格 spec 由系统造。
 
-**🔧 v0.7 加 caveat (邻域 collapse #6 + #2)**: 这条差异化的**护城河窗口只剩 6-9 个月**——AWS Kiro 在 2026 Q1 ship "demo → spec inference" 概率 70%；GitHub Spec Kit 是 OSS 社区随时 PR。**v0.7 显式承认**: 单"自造 spec"这一条不够护城河，要靠多条 redundant 差异化（agent agnostic + 本地 + 不持 key + 真 cross-engine + 自造 spec）**叠加**才形成 niche moat。任一掉了不致命，全部掉了 d2p 死。
+**🔧 v0.7 加 caveat (邻域 collapse #6 + #2)**: 这条差异化的**护城河窗口只剩 6-9 个月**——AWS Kiro 在 2026 Q1 ship "demo → spec inference" 概率 70%；GitHub Spec Kit 是 OSS 社区随时 PR。**v0.7 显式承认**: 单"自造 spec"这一条不够护城河，要靠多条 redundant 差异化（agent agnostic + 本地 + 不持 key + 真 cross-engine + 自造 spec）**叠加**才形成 niche moat。任一掉了不致命，全部掉了 ZeroU 死。
 
 新 falsifier F11 锁这条 (见 §11)。
 
@@ -56,14 +56,14 @@
 **已知 facts**:
 - CISQ 2022 美国软件质量差损失上限 ~$2.41T（社会成本，非市场容量）。Krasner 切片 testing/QA-related ~$0.6T。
 - GitHub Copilot 2025 报 2000 万付费用户（Microsoft 财报）。Cursor 2026 Q1 估 100 万付费（无 verified primary）。
-- d2p 服务的子集：在乎 agent agnostic + 反 vendor-lock + 本地 + OSS——**数量未知**。
-- 大厂 PM 估算 "5-10 万 global power user"，但**Round 2 R1 承认这是 GIGO**——大厂 PM 看自家 telemetry，看不到 d2p 想触达的反 vendor-lock 部落。
+- ZeroU 服务的子集：在乎 agent agnostic + 反 vendor-lock + 本地 + OSS——**数量未知**。
+- 大厂 PM 估算 "5-10 万 global power user"，但**Round 2 R1 承认这是 GIGO**——大厂 PM 看自家 telemetry，看不到 ZeroU 想触达的反 vendor-lock 部落。
 
 **真实 SAM 估算结论**: **我们不知道**。
 
 操作: 不在 marketing material 写具体 SAM 数字。Walking skeleton 跑通后 instrument anonymous opt-in counter（如果用户允许），3 个月内给真实 active install 数。在那之前 **任何 SAM claim 都是 work of fiction**。
 
-**这条 honest framing 比给假数字更值钱**——VC 听了会 pass 是好事（d2p 本来不收 equity 见 §4.1）。
+**这条 honest framing 比给假数字更值钱**——VC 听了会 pass 是好事（ZeroU 本来不收 equity 见 §4.1）。
 
 ---
 
@@ -71,13 +71,13 @@
 
 **A**: 不行。基础 foundation: Knight-Leveson 1986 N-version 独立性失败（Q1.2 已引）。
 
-操作: d2p reviewer pipeline 4 层每层换 model + 换 prompt frame。**但降低多少 fault correlation 未实测**（见 Q3.1 ablation）。
+操作: ZeroU reviewer pipeline 4 层每层换 model + 换 prompt frame。**但降低多少 fault correlation 未实测**（见 Q3.1 ablation）。
 
 ---
 
-### Q2.3 🔧 v0.7 重写: LLM 越来越强 d2p 不就被淘汰了？
+### Q2.3 🔧 v0.7 重写: LLM 越来越强 ZeroU 不就被淘汰了？
 
-**v0.5**: monotonic "LLM 越强 d2p 越值钱"——学术 audit P1。
+**v0.5**: monotonic "LLM 越强 ZeroU 越值钱"——学术 audit P1。
 **v0.6**: conditional + "18-24 月 leverage 窗口"——Round 2 R2 攻击窗口数字凭空。
 
 **v0.7 修订**:
@@ -87,7 +87,7 @@
 - doc 2 §10.2 SWE-agent 证明在当前 (2025-2026) frontier model 下 ACI > model — 是 single empirical observation, 不是 trend prediction。
 - 历史 prior 模糊: AutoGPT pattern → 被原生 LLM 吸收用了 ~18 月（GPT-3.5 → GPT-4 期）; SWE-agent ACI → cc/Claude Code 内置类似 harness 用了 ~9 月。**没有统一数字**。
 - **Sutton "Bitter Lesson"** (<http://www.incompleteideas.net/IncIdeas/BitterLesson.html>) 是反向 prior——历史上 model-centric 长期胜 system-centric。
-  - **为什么 d2p 这次可能例外** (v0.7 加辩护)：Bitter Lesson 适用于 *ML research 中长期算法竞争*；d2p 处在 *已 commodity LLM 上的工程封装层*，跟 Bitter Lesson 描述的对象不同。但这条辩护**未经验证**，可能错。
+  - **为什么 ZeroU 这次可能例外** (v0.7 加辩护)：Bitter Lesson 适用于 *ML research 中长期算法竞争*；ZeroU 处在 *已 commodity LLM 上的工程封装层*，跟 Bitter Lesson 描述的对象不同。但这条辩护**未经验证**，可能错。
 
 **v0.7 操作**: 不押注具体窗口长度。所有 hypothesis 6 个月内 measure（见 §11 falsifier 时间表）。如果 6 个月内任何 F1-F12 触发 → 不论窗口长短，hypothesis 重写。
 
@@ -109,7 +109,7 @@
 
 意味着 MVP-0 用户**至少需要 2 家 LLM provider 凭证**。这跟 §9 红线 4 "不持 API key" 不冲突——用户在自己 cc / Codex CLI / Gemini CLI 各自登录。
 
-**对 Q4.3 大厂抄袭分析的影响**: cross-engine 不再只是 marketing claim，是 MVP-0 default。**Anthropic 同款必无法做真 cross-engine**（不愿调 GPT 当 reviewer），d2p 的护城河有了具体工程依据。
+**对 Q4.3 大厂抄袭分析的影响**: cross-engine 不再只是 marketing claim，是 MVP-0 default。**Anthropic 同款必无法做真 cross-engine**（不愿调 GPT 当 reviewer），ZeroU 的护城河有了具体工程依据。
 
 **承认弱点**: 这条增加 MVP-0 onboarding friction（用户要登 2 家）。Walking skeleton 阶段先证可行性，UX 优化在 MVP-1+。
 
@@ -129,7 +129,7 @@
 
 **FAANG Q1 / 场景 3 加锐**: dashboard-as-primary-UI 跟 PR-anchored 工作流冲突。
 
-**🔧 v0.7 提前到 MVP-0.5**: PR-comment / GitHub status-check 集成 (原 MVP-1)。理由：场景 3 (Anthropic Studio launch 11-04) 跟 d2p PR 集成 ship 时间 race；如果 d2p PR 集成 ship 在 Anthropic Studio 之后，d2p 完全失这条 surface 战。
+**🔧 v0.7 提前到 MVP-0.5**: PR-comment / GitHub status-check 集成 (原 MVP-1)。理由：场景 3 (Anthropic Studio launch 11-04) 跟 ZeroU PR 集成 ship 时间 race；如果 ZeroU PR 集成 ship 在 Anthropic Studio 之后，ZeroU 完全失这条 surface 战。
 
 ---
 
@@ -137,7 +137,7 @@
 
 **A** (v0.6): 漏。明说漏。Bug class taxonomy A/B/C/D，C/D 出 scope。
 
-**Round 2 场景 1 加锐**: Trajectory #3 (resume PDF, Class D 业务规则失败) 是 d2p 最容易 stall 的具体场景——**Class D 误漏直接导致 founder dogfood stall**。
+**Round 2 场景 1 加锐**: Trajectory #3 (resume PDF, Class D 业务规则失败) 是 ZeroU 最容易 stall 的具体场景——**Class D 误漏直接导致 founder dogfood stall**。
 
 **v0.7 操作**: Q6.4 spec sanity gate 从 MVP-1 提前到 MVP-0.5（场景 1 防御）。Class D 仍不抓 100%，但 spec sanity gate 至少 detect "demo bug 抄进 spec" 和 "vision 没写但用户真在乎的 capability" 两类失败。
 
@@ -159,23 +159,23 @@
 
 **v0.6 写**: SQLite Consortium / curl Sovereign Tech Fund / Linux Foundation 类比。
 
-**Round 2 R7 攻击 (P1)**: SQLite 被嵌入 iPhone (Apple 是 structural stakeholder); curl 被嵌入 OS distro。**d2p 用户跑 hackathon-scale 项目，没有商业实体 P&L 跟 d2p 健康挂钩——没有 stakeholder 持续 patron**。
+**Round 2 R7 攻击 (P1)**: SQLite 被嵌入 iPhone (Apple 是 structural stakeholder); curl 被嵌入 OS distro。**ZeroU 用户跑 hackathon-scale 项目，没有商业实体 P&L 跟 ZeroU 健康挂钩——没有 stakeholder 持续 patron**。
 
 **v0.7 修订 (诚实)**:
 
 **承认 patron 路径在当前未识别明确 stakeholder**。
 
 候选 stakeholder (按可能性排序):
-1. **agent infra 公司** (E2B / Modal / Daytona): 如果 d2p 流行，会有用户把 d2p 跑在 E2B sandbox 上——E2B 有可能 sponsor d2p 来 commodify 自家 platform。但 d2p §5.2 是本地形态，所以 E2B 实际 stake **可能很小**。
+1. **agent infra 公司** (E2B / Modal / Daytona): 如果 ZeroU 流行，会有用户把 ZeroU 跑在 E2B sandbox 上——E2B 有可能 sponsor ZeroU 来 commodify 自家 platform。但 ZeroU §5.2 是本地形态，所以 E2B 实际 stake **可能很小**。
 2. **LLM provider 中性 entity**: 如 OpenSSF / Linux Foundation AI——但**他们历史 grant 量级 €5-50K/年**（R7 已指出），养不起一个全职 maintainer。
 3. **隐私 / 主权 IT advocacy**: GitHub Sponsors / Patreon / 个人捐赠——长期 base 不稳。
-4. **企业自己 fork 出 commercial version**: 类比 Redhat / Linux Kernel。但 d2p §9 红线 1 禁卖企业版——**只能允许第三方 fork**，那 fork 厂商 vs d2p 原项目 stake 关系不清。
+4. **企业自己 fork 出 commercial version**: 类比 Redhat / Linux Kernel。但 ZeroU §9 红线 1 禁卖企业版——**只能允许第三方 fork**，那 fork 厂商 vs ZeroU 原项目 stake 关系不清。
 
 **结论 (诚实)**: **0-2 年作者 self-funded** 是真实状态，2-5 年 patron 路径**当前无明确依靠**。
 
 **v0.7 操作 (R6 + 场景 3 加锐)**:
 - **Month 3 之前** 启动 outreach 到 OpenSSF / Sovereign Tech Fund / GitHub Sponsors / 任何 agent infra 公司，确认是否有 sponsor 意愿——**不等项目 mature**。
-- 如果 month 6 仍未识别任何 stakeholder 意愿，**承认 d2p 是 hobby project + sustainability risk**——可能等同 §11 falsifier F13（新加）触发。
+- 如果 month 6 仍未识别任何 stakeholder 意愿，**承认 ZeroU 是 hobby project + sustainability risk**——可能等同 §11 falsifier F13（新加）触发。
 
 **这条 v0.7 不假装解决了**。
 
@@ -196,22 +196,22 @@
 **Type A — Model lab (Anthropic / OpenAI / Mistral)**:
 - 收入主体: API tokens
 - 结构性 vendor-lock: 必锁自家 model
-- 抄 d2p 同款 (cc + reviewer pipeline + auto-merge): 6-12 月，eng-month 4-8
-- **d2p 真护城河**: cross-engine reviewer + agent agnostic + 不持 API key + 不卖企业版
+- 抄 ZeroU 同款 (cc + reviewer pipeline + auto-merge): 6-12 月，eng-month 4-8
+- **ZeroU 真护城河**: cross-engine reviewer + agent agnostic + 不持 API key + 不卖企业版
 
 **Type B — Platform / IDE vendor (AWS Kiro / GitHub Copilot Workspace / Microsoft / Google)**:
 - 收入主体: cloud / IDE subscription / enterprise contract
 - **没有 vendor-lock 结构约束**——他们卖 platform 不卖 model，可以随便调 GPT-4 / Claude / Gemini 当 reviewer。
-- 抄 d2p 同款 (含真 cross-engine): 3-5 月，eng-month 2-4
+- 抄 ZeroU 同款 (含真 cross-engine): 3-5 月，eng-month 2-4
 - **AWS Kiro 2025-09 已 ship spec-driven IDE**，加 "demo → spec inference" + "cross-engine reviewer" 概率 70% 在 12 月内
-- **GitHub Copilot Workspace** distribution 比 d2p 大 4 个数量级
-- **d2p 对 Type B 的护城河实际很弱**: 本地形态 + OSS + 不上传 codebase——只服务 trust-沉重 / 反 SaaS 意识形态 niche
+- **GitHub Copilot Workspace** distribution 比 ZeroU 大 4 个数量级
+- **ZeroU 对 Type B 的护城河实际很弱**: 本地形态 + OSS + 不上传 codebase——只服务 trust-沉重 / 反 SaaS 意识形态 niche
 
 **Round 2 邻域 collapse 总结**:
 - 对 Type A: v0.6 §Q4.3 锁的 5 条护城河仍成立（vendor lock 结构性）
-- 对 Type B: **v0.6 论证 broken**。Kiro / Copilot Workspace 不受 vendor lock 约束，可以真 cross-engine。**d2p 对 Type B 的真护城河只剩 "OSS + 本地 + 反 SaaS"**——服务的 user 全球估算 < 5 万（更窄）。
+- 对 Type B: **v0.6 论证 broken**。Kiro / Copilot Workspace 不受 vendor lock 约束，可以真 cross-engine。**ZeroU 对 Type B 的真护城河只剩 "OSS + 本地 + 反 SaaS"**——服务的 user 全球估算 < 5 万（更窄）。
 
-**v0.7 操作**: 把 Q4.3 表格分两类。**对 Type B 承认 d2p 护城河窄**。
+**v0.7 操作**: 把 Q4.3 表格分两类。**对 Type B 承认 ZeroU 护城河窄**。
 
 加 F11 falsifier 锁这条 (见 §11)。
 
@@ -221,7 +221,7 @@
 
 **A** (v0.6 修): 部分晚。差异化窗口是四件叠加（generic codebase + autopilot + no-approval + 自造 spec）。
 
-**Round 2 Q4.3 加锐**: AWS Kiro 是 Type B 但**已经做 spec-driven**——Q4.4 不再只是 API-layer Specmatic 的竞争，是 IDE-layer Kiro 的竞争。Kiro 加"demo→spec inference" + "cross-engine reviewer" 后 d2p 四件叠加里少 2 件（自造 spec、cross-engine），窗口压缩到 1-2 件。
+**Round 2 Q4.3 加锐**: AWS Kiro 是 Type B 但**已经做 spec-driven**——Q4.4 不再只是 API-layer Specmatic 的竞争，是 IDE-layer Kiro 的竞争。Kiro 加"demo→spec inference" + "cross-engine reviewer" 后 ZeroU 四件叠加里少 2 件（自造 spec、cross-engine），窗口压缩到 1-2 件。
 
 操作 (v0.7): 紧迫感升一级。MVP-0 ship 时间表收紧到 month 3（不是 6）。
 
@@ -260,7 +260,7 @@
 具体:
 - Git sparse-checkout + partial clone 技术上可行
 - Bazel + 子集 build 工程难（10-20 eng-month）
-- d2p 4 层 reviewer 设计假设 "demo folder" = self-contained，monorepo 子集**可能**仍 self-contained 但 d2p 没做这个工程
+- ZeroU 4 层 reviewer 设计假设 "demo folder" = self-contained，monorepo 子集**可能**仍 self-contained 但 ZeroU 没做这个工程
 
 **v0.7 决定**:
 - **MVP-0 / MVP-1 不打 monorepo 市场**——工程优先级太高，会拖整个项目。
@@ -323,7 +323,7 @@
 替代信号:
 - GitHub stars / forks / issues (manual analytics)
 - Anonymous-by-default 用户自发 share trajectory log (类似 SQLite "consortium 共享 best practice" 模式)
-- 6 个月内目标识别 ~10 个 d2p heavy user，建议他们 公开 trajectory log 到 `docs/community-trajectories/`
+- 6 个月内目标识别 ~10 个 ZeroU heavy user，建议他们 公开 trajectory log 到 `docs/community-trajectories/`
 
 **MVP-1+ 才考虑做 telemetry**——前提是 patron stakeholder 识别。
 
@@ -339,13 +339,13 @@
 
 ### Q7.2 Anthropic 抢 ship 怎么办？
 
-**A** (v0.6 已修): 用 Round 1 PM 数据。Type A 大厂结构性 vendor lock，d2p 5 条护城河仍成立。
+**A** (v0.6 已修): 用 Round 1 PM 数据。Type A 大厂结构性 vendor lock，ZeroU 5 条护城河仍成立。
 
-**Round 2 G 邻域 #4 + §Q4.3 重写加锐**: 但**对 Type B 平台 / IDE vendor (AWS Kiro / GitHub Workspace)** d2p 护城河窄。这条要承认。
+**Round 2 G 邻域 #4 + §Q4.3 重写加锐**: 但**对 Type B 平台 / IDE vendor (AWS Kiro / GitHub Workspace)** ZeroU 护城河窄。这条要承认。
 
 ---
 
-### Q7.3 你为啥不是 d2p 用户而是 d2p 作者？
+### Q7.3 你为啥不是 ZeroU 用户而是 ZeroU 作者？
 
 **A** (v0.6): 作者 ≠ 用户 = 红灯。
 
@@ -377,19 +377,19 @@ trajectory commit 顺序 (改 v0.6):
 
 ### Q7.5 🔧 v0.7 修订: head-to-head benchmark cost-adjusted
 
-**v0.6 写**: "d2p 比 cc 自审 detection 高 <15% 就不值"。**Round 2 R11 攻击 (P2)**: 15% 凭空，没考虑 cost 不对等。如果 Arm B (d2p) 多 15% detection 但花 4× token，仍不值。
+**v0.6 写**: "ZeroU 比 cc 自审 detection 高 <15% 就不值"。**Round 2 R11 攻击 (P2)**: 15% 凭空，没考虑 cost 不对等。如果 Arm B (ZeroU) 多 15% detection 但花 4× token，仍不值。
 
 **v0.7 修订**: pass criterion 改为 **cost-adjusted marginal benefit**:
 
 - 计算 `detection_per_dollar` for Arm A vs Arm B
-- d2p 必须 detection_per_dollar **≥ 0.6 ×** Arm A (即每美元额外 detection 不能比 cc 自审差 40% 以上)
+- ZeroU 必须 detection_per_dollar **≥ 0.6 ×** Arm A (即每美元额外 detection 不能比 cc 自审差 40% 以上)
 - 同时 absolute detection 必须 high  Arm A **at least 25%** (容错率)
 
 例: Arm A cc 自审 detection 50%, cost $1.00, 每美元 0.5
-Arm B d2p 4 层 detection 70%, cost $3.00, 每美元 0.233
+Arm B ZeroU 4 层 detection 70%, cost $3.00, 每美元 0.233
 detection_per_dollar(Arm B) / detection_per_dollar(Arm A) = 0.466 → **不达标 0.6 阈值**
 absolute detection delta = 20% → **不达标 25% 阈值**
-→ **d2p 4 层证伪**
+→ **ZeroU 4 层证伪**
 
 这是更严格的 benchmark。Round 2 R11 的 pass band 太松攻击命中——v0.7 严格化。
 
@@ -399,7 +399,7 @@ absolute detection delta = 20% → **不达标 25% 阈值**
 
 ### Q7.6 跟 EvoSuite 56.4% 怎么比？
 
-**A** (v0.6 修): metric definition 不同 (EvoSuite 是 detection rate, d2p 是端到端 success rate)。Q7.5 head-to-head 加 EvoSuite arm。
+**A** (v0.6 修): metric definition 不同 (EvoSuite 是 detection rate, ZeroU 是端到端 success rate)。Q7.5 head-to-head 加 EvoSuite arm。
 
 ---
 
@@ -407,13 +407,13 @@ absolute detection delta = 20% → **不达标 25% 阈值**
 
 v0.7 已答 28 问。Round 1 + Round 2 累计 7 个 grill POV。还能 grill 的：
 
-- **Q8.1** LLM provider cut off 某用户/地区，d2p fail-over 路径？
+- **Q8.1** LLM provider cut off 某用户/地区，ZeroU fail-over 路径？
 - **Q8.2** severity 怎么管？P1 reviewer 决策跟 P3 同等权重？
 - **Q8.3** 不同 agent calibration drift > 5% 怎么办？
 - **Q8.4** 用户 vision 用 jargon (fintech / 医学 / 法律) reviewer 不懂咋办？
 - **Q8.5** 双绿之后用户不爽——feedback 怎么进下一轮？
 - **Q8.6** 红线 6 governance 实际操作（v0.7 §9.6 已加 governance 设计但未落地）
-- **Q8.7** 5 年后 d2p 的讣告——从已死视角分析为什么死？(Round 3 候选 POV)
+- **Q8.7** 5 年后 ZeroU 的讣告——从已死视角分析为什么死？(Round 3 候选 POV)
 - **Q8.8** end-user 真用户视角：作为 hackathon dev 我会不会用？(Round 3 候选 POV)
 
 ---
@@ -425,7 +425,7 @@ v0.7 已答 28 问。Round 1 + Round 2 累计 7 个 grill POV。还能 grill 的
 1. **不卖企业版 / hosted SaaS / multi-tenant** (不变)
 2. **不让用户审 diff 作为 default workflow** (不变)
 3. **不放低严格 done 标准** (不变)
-4. **默认 CLI subprocess，d2p 不中转 key**——默认 cc / Codex / Gemini CLI subprocess（用户已登录 = d2p 可用）。**允许** opt-in HTTP+key fallback（anthropic-api / openai-compat 覆盖 MiniMax / DeepSeek / OpenRouter / Codex-via-OpenRouter 等 token-plan 用户）——key 存用户本地 `~/.d2p/config.json`，d2p **不转发** key 给自家 server，**不上传** key 到任何第三方除用户配置的 baseUrl。Spirit: 用户控制 key 始终在用户机器上。**v0.7 修订自 α 决策**（之前 hard "不持 key" 跟现实 MiniMax / DeepSeek 用户 break）。
+4. **默认 CLI subprocess，ZeroU 不中转 key**——默认 cc / Codex / Gemini CLI subprocess（用户已登录 = ZeroU 可用）。**允许** opt-in HTTP+key fallback（anthropic-api / openai-compat 覆盖 MiniMax / DeepSeek / OpenRouter / Codex-via-OpenRouter 等 token-plan 用户）——key 存用户本地 `~/.zerou/config.json`，ZeroU **不转发** key 给自家 server，**不上传** key 到任何第三方除用户配置的 baseUrl。Spirit: 用户控制 key 始终在用户机器上。**v0.7 修订自 α 决策**（之前 hard "不持 key" 跟现实 MiniMax / DeepSeek 用户 break）。
 5. **不 vendor-lock LLM 提供商**——MVP-0 强制 cross-engine default (Q3.1) 落地这条 (不变)
 6. 🔧 **不为大厂在抄而妥协红线 1-5** + **governance 设计** (v0.7 加):
    - **Multi-maintainer 否决**: 项目 ≥3 maintainer 时，任何红线松绑 PR 需要 ≥2/3 maintainer approve。MVP-0 阶段 (只 1 maintainer) 这条 enforce 不了——**承认这条 v0.7 仍是 willpower**，未来工程化。
@@ -483,9 +483,9 @@ v0.7 已答 28 问。Round 1 + Round 2 累计 7 个 grill POV。还能 grill 的
 | **F6** | Token cost per session 中位数 > 用户支付意愿 | Month 3-6 (跟 trajectory dogfood 同步) | founder |
 | **F7** | Cross-agent calibration drift > 5% | Month 3 cross-engine fixture test | founder |
 | **F8** | 单 LLM SWE-bench Pro >70% pass | 持续 monitor (frontier model release) | founder |
-| **F9** | d2p 真实用户 codebase 里 Class C+D 占用户痛 >50% | Month 6 community trajectory analysis | founder |
-| **F10** | head-to-head benchmark d2p 比 cc 自审 cost-adjusted **detection_per_dollar < 0.6×** Arm A | Month 3 (Q7.5 重定义) | founder |
-| **🆕 F11** | AWS Kiro / GitHub Spec Kit ship "demo→spec inference" 后 d2p 真实用户增速 <10%/月 | Month 6-12 (跟 Kiro launch 时间 align) | founder |
+| **F9** | ZeroU 真实用户 codebase 里 Class C+D 占用户痛 >50% | Month 6 community trajectory analysis | founder |
+| **F10** | head-to-head benchmark ZeroU 比 cc 自审 cost-adjusted **detection_per_dollar < 0.6×** Arm A | Month 3 (Q7.5 重定义) | founder |
+| **🆕 F11** | AWS Kiro / GitHub Spec Kit ship "demo→spec inference" 后 ZeroU 真实用户增速 <10%/月 | Month 6-12 (跟 Kiro launch 时间 align) | founder |
 | **🆕 F12** | False-PASS-when-buggy (双绿但有 bug) 中位数 > 15% | Month 3-6 internal benchmark | founder |
 | **🆕 F13** | Month 6 仍未识别任何明确 sponsor / patron stakeholder 意愿 | Month 6 sponsor outreach status | founder |
 
@@ -528,7 +528,7 @@ v0.7 已答 28 问。Round 1 + Round 2 累计 7 个 grill POV。还能 grill 的
 
 ### v0.7 修过的 3 处 P3:
 
-16. (Q2.3) Bitter Lesson 反向 prior 加"为什么 d2p 例外"辩护（承认未验证）
+16. (Q2.3) Bitter Lesson 反向 prior 加"为什么 ZeroU 例外"辩护（承认未验证）
 17. §9 red line 6 governance 设计加 + 承认 enforcement 缺失
 18. Niche framing v0.6 当护城河——v0.7 承认是退路非护城河
 
@@ -545,7 +545,7 @@ v0.7 已答 28 问。Round 1 + Round 2 累计 7 个 grill POV。还能 grill 的
 - **end-user / hackathon dev 视角**: 真用户会用吗？（v0.7 Q1.1 还没真验过）
 - **5 年后讣告视角**: 从已死回看为什么死（v0.7 Q8.7 留白）
 - **法律 / 合规视角**: OSS license 选哪个？governance 工程化怎么 enforce？
-- **哲学家视角**: d2p 产品哲学跟工程现实有几条矛盾？
+- **哲学家视角**: ZeroU 产品哲学跟工程现实有几条矛盾？
 
 **建议**: 暂停 grill 进入实操。理由:
 - v0.7 落地 10 处工程化修订 (cross-engine / spec sanity gate / dogfood watchdog / PR 集成) **需要 walking skeleton 跑通**才能验证。

@@ -1,8 +1,8 @@
 {
-  "name": "d2p",
+  "name": "zerou",
   "private": true,
   "version": "0.1.0",
-  "description": "demo to product — drive Claude Code CLI to mature a demo into a product",
+  "description": "ZeroU — drive Claude Code CLI to mature a demo into a product",
   "type": "module",
   "workspaces": [
     "daemon",

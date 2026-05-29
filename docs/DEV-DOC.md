@@ -2,7 +2,7 @@
 
 > 完整开发文档。新开发会话先读这一份，再按需翻 `docs/details/` 看每个组件的可直接抄实现细节。
 > Companion: `CLAUDE.md`（工作流规则 + 项目坐标）/ `docs/plans/`（具体 PR 计划）/ `docs/details/`（细节文档 10 份）。
-> 锁日：2026-05-12（12 轮 grill 结论）。原代号 d2p（仓库、CLI 命令、内部代号沿用 d2p）。
+> 锁日：2026-05-12（12 轮 grill 结论）。原代号 d2p（仓库位置 D:\lll\d2p；产品名 ZeroU、CLI 命令 zerou）。
 > Status: **DRAFT v2**——产品决策已锁，技术细节已展开到 `docs/details/`，未尽事项见 §10。
 
 ## 细节文档索引
@@ -28,21 +28,21 @@
 
 | 维度 | 锁 |
 |---|---|
-| 一句话定位 | demo→product 转化引擎：用户给本地 demo + vision，d2p 自动派 agent 把它推到 product 成熟度 |
+| 一句话定位 | demo→product 转化引擎：用户给本地 demo + vision，ZeroU 自动派 agent 把它推到 product 成熟度 |
 | 形态 | **Web 应用（localhost）+ 独立 daemon**；浏览器 UI 只是观察口，关页面不停作业 |
 | 平台 | 桌面 Win/Mac（通过浏览器交互）；mobile 不做 |
 | 多人 | MVP 单机单人 self-dogfood，目标 1 个月跑通；后期面向 <10 人小团队 |
 | 后端 | 纯本地 SQLite；暂不跨机同步 |
 | AI 引擎 | **不持 API key**，全部走 `claude --model X -p` CLI 子进程（消费用户 Claude Code 订阅额度） |
-| Demo 输入 | 任意 folder，d2p 自动 `git init` + initial commit |
-| Vision 来源 | d2p 多轮对话 elicit 用户，存为 markdown |
+| Demo 输入 | 任意 folder，ZeroU 自动 `git init` + initial commit |
+| Vision 来源 | ZeroU 多轮对话 elicit 用户，存为 markdown |
 | Gap 检测 | preset（按项目类型）+ vision 叠加；AI 看仓库推 preset，用户确认 |
 | Approval gate | 无——用户不审 diff，trust agent + reviewer pipeline |
 | Loop trigger | 自动启动 → fix → re-diff → 循环；随时可点停 |
 | 并发 | 默认 1（串行），后期可调 |
 | Done | preset 全打勾 + Claude 看 vision 说 yes，双绿才停 |
 | 失败处理 | reviewer agent 决定 retry / rollback / skip / escalate |
-| Branch 模型 | 仓外 `.d2p-worktrees/`，每 fix 一 `fix/<slug>` 分支，d2p 自动 merge 回 main |
+| Branch 模型 | 仓外 `.zerou-worktrees/`，每 fix 一 `fix/<slug>` 分支，ZeroU 自动 merge 回 main |
 | 项目类型识别 | AI 看仓库推 preset，用户点对/换；类型集开放，不预设语言限制 |
 | Run log 颗粒 | 里程碑事件 + 每个 agent 一句 thought summary；详情可折叠展开 |
 | Cost | MVP 不设 cap，仅记录消耗（如 cc CLI 暴露） |
@@ -53,16 +53,16 @@
 
 ## §1. Definition
 
-### 1.1 What d2p is
+### 1.1 What ZeroU is
 
-**d2p (demo → product)** 是把"原型/玩具/demo"批量加工成"产品级软件"的本地工具。
-工作方式：用户给 d2p 一个 demo 代码仓库 + 一段自然语言 vision，d2p 自动识别"缺哪些 product 必备肌肉"，调度 Claude Code agent 把缺的补上，自动 commit/merge，直到 preset 清单全绿 + Claude 判定 vision 已满足。
+**ZeroU (demo → product)** 是把"原型/玩具/demo"批量加工成"产品级软件"的本地工具。
+工作方式：用户给 ZeroU 一个 demo 代码仓库 + 一段自然语言 vision，ZeroU 自动识别"缺哪些 product 必备肌肉"，调度 Claude Code agent 把缺的补上，自动 commit/merge，直到 preset 清单全绿 + Claude 判定 vision 已满足。
 
-### 1.2 What d2p is **not**
+### 1.2 What ZeroU is **not**
 
 - 不是 chat IM / Slack / 飞书
 - 不是 Linear / Jira / Notion 任务看板
-- 不是 Cairn 替代或 fork（Cairn = project control surface 观测层；d2p = 主动转化引擎，互补不重叠）
+- 不是 Cairn 替代或 fork（Cairn = project control surface 观测层；ZeroU = 主动转化引擎，互补不重叠）
 - 不是 IDE / 不是 Cursor / Codex / Aider clone
 - 不是通用 multi-agent framework（不卖底层；只为 demo→product 这一个目标编排）
 - 不直接调 Anthropic API（不持 key，全靠 cc CLI）
@@ -72,7 +72,7 @@
 ### 1.3 Done 判据
 
 ```
-done(d2p_session) := preset_checklist.all_green AND vision_evaluator.verdict == YES
+done(zerou_session) := preset_checklist.all_green AND vision_evaluator.verdict == YES
 ```
 
 两个条件**同时**满足才停 loop。任一未达 → 继续生成下一批 gap → 继续 fix。
@@ -84,15 +84,15 @@ done(d2p_session) := preset_checklist.all_green AND vision_evaluator.verdict == 
 
 ### 2.1 First-run
 
-1. 用户跑 `d2p start`（MVP-0 = `npm run dev`，MVP-1+ = 系统服务）
+1. 用户跑 `zerou start`（MVP-0 = `npm run dev`，MVP-1+ = 系统服务）
 2. 浏览器开 `http://localhost:5173`
 3. UI 提示「选 demo folder」。用户给路径 `D:\demos\my-saas-demo`
-4. d2p 自动 `git init`（若无 `.git`）+ initial commit
-5. **Type detection**：d2p 起一个 `claude -p` 看仓库（package.json / 入口文件 / README / 主要目录），输出 `{type: "saas-web", confidence: 0.84, evidence: [...]}`；UI 显示「这看起来是 SaaS Web 应用，对吗？」+ 改类型按钮
-6. **Vision elicitation**：用户确认 type 后，d2p 启 grilling round（≤5 轮、每轮 ≤3 题 A/B/C/free 选项），话题含目标用户、核心场景、商业模式、关键 KPI、明确不做。每轮答案累积成 markdown，最终存 `<demo>/.d2p/vision.md`
-7. **Initial diff**：d2p 派 differ agent 看 vision + preset + 代码现状，输出 gap 列表（带 severity / category / suggested approach）
+4. ZeroU 自动 `git init`（若无 `.git`）+ initial commit
+5. **Type detection**：ZeroU 起一个 `claude -p` 看仓库（package.json / 入口文件 / README / 主要目录），输出 `{type: "saas-web", confidence: 0.84, evidence: [...]}`；UI 显示「这看起来是 SaaS Web 应用，对吗？」+ 改类型按钮
+6. **Vision elicitation**：用户确认 type 后，ZeroU 启 grilling round（≤5 轮、每轮 ≤3 题 A/B/C/free 选项），话题含目标用户、核心场景、商业模式、关键 KPI、明确不做。每轮答案累积成 markdown，最终存 `<demo>/.zerou/vision.md`
+7. **Initial diff**：ZeroU 派 differ agent 看 vision + preset + 代码现状，输出 gap 列表（带 severity / category / suggested approach）
 8. UI 显示 gap 列表，用户点「Start loop」（或先单独勾选某些跳过）
-9. d2p 进入 loop 模式：一次处理一个 gap → implement → review → commit → merge → re-diff
+9. ZeroU 进入 loop 模式：一次处理一个 gap → implement → review → commit → merge → re-diff
 10. Live Run Log 实时显示事件 + 每个 agent 的 thought summary
 11. 终止条件：
     - 双绿 → UI 显「✅ Product ready」+ summary
@@ -103,11 +103,11 @@ done(d2p_session) := preset_checklist.all_green AND vision_evaluator.verdict == 
 
 - 浏览器关闭：daemon 不停，loop 不停。再开浏览器，UI 重 sub SSE 流，从 SQLite 读出 `current_session_id` + 进度
 - 用户点 Pause：loop 冻结；UI 上 Resume 按钮重启循环
-- 机器重启：MVP-0 daemon 没了，要 `d2p start`；MVP-1+ 装系统服务自动起，loop 状态 SQLite 持久化 → 自动 resume 上次未完工作
+- 机器重启：MVP-0 daemon 没了，要 `zerou start`；MVP-1+ 装系统服务自动起，loop 状态 SQLite 持久化 → 自动 resume 上次未完工作
 
 ### 2.3 Session 终止
 
-用户点「End session」→ d2p 生成 `<demo>/.d2p/session-summary.md`（含跑了哪些 fix / 多少 commits / preset 状态 / 用了多少 token）+ 关闭 session 记录。
+用户点「End session」→ ZeroU 生成 `<demo>/.zerou/session-summary.md`（含跑了哪些 fix / 多少 commits / preset 状态 / 用了多少 token）+ 关闭 session 记录。
 
 ---
 
@@ -124,9 +124,9 @@ done(d2p_session) := preset_checklist.all_green AND vision_evaluator.verdict == 
             │ HTTP POST / SSE
             ▼
 ┌────────────────────────┐         ┌──────────────────────┐
-│  d2p Daemon            │         │  SQLite              │
-│  Hono on Node 24       │ ◄─────► │  ~/.d2p/state.db     │
-│  http://localhost:5174 │         │  + per-demo .d2p/    │
+│  ZeroU Daemon          │         │  SQLite              │
+│  Hono on Node 24       │ ◄─────► │  ~/.zerou/state.db   │
+│  http://localhost:5174 │         │  + per-demo .zerou/  │
 └──────┬─────────┬───────┘         └──────────────────────┘
        │ spawn   │ spawn
        ▼         ▼
@@ -163,7 +163,7 @@ Differ agent (claude -p) 看 (vision + preset + repo state) → 输出 gap list
    ↓
 Daemon 写 gap_queue 入 SQLite
    ↓
-取队头 gap → 起 worktree `.d2p-worktrees/fix-<slug>` (off main)
+取队头 gap → 起 worktree `.zerou-worktrees/fix-<slug>` (off main)
    ↓
 Implementer agent (claude -p in worktree) → 写代码 + commit
    ↓
@@ -213,7 +213,7 @@ Re-evaluate done condition (preset + vision dual-check)
     - Windows：NSSM 包装 + Windows Service
     - macOS：launchd plist
     - Linux：systemd unit
-    - 提供 `d2p install-service` / `d2p uninstall-service` CLI
+    - 提供 `zerou install-service` / `zerou uninstall-service` CLI
 
 ### 4.2 Web UI (`ui/`)
 
@@ -234,20 +234,20 @@ Re-evaluate done condition (preset + vision dual-check)
 ### 4.3 CLI (`cli/`)
 
 - **Stack**：Node 24 + commander
-- **Entry**：`bin/d2p` (npm bin)
+- **Entry**：`bin/zerou` (npm bin)
 - **Commands**：
-  - `d2p start` — 起 daemon + UI（MVP-0），或 ensure daemon 在跑（MVP-1+）
-  - `d2p stop` — 停 daemon
-  - `d2p status` — 显当前 session、loop 状态、cost
-  - `d2p open` — 浏览器开 UI
-  - `d2p doctor` — 检查 cc 是否安装可用、git 可用、SQLite 写权限
-  - `d2p install-service` / `d2p uninstall-service`（MVP-1+）
+  - `zerou start` — 起 daemon + UI（MVP-0），或 ensure daemon 在跑（MVP-1+）
+  - `zerou stop` — 停 daemon
+  - `zerou status` — 显当前 session、loop 状态、cost
+  - `zerou open` — 浏览器开 UI
+  - `zerou doctor` — 检查 cc 是否安装可用、git 可用、SQLite 写权限
+  - `zerou install-service` / `zerou uninstall-service`（MVP-1+）
 
 ### 4.4 Storage (`daemon/src/storage/`)
 
-- **DB 位置**：`~/.d2p/state.db`（全局 session 索引 + 跨 demo 元数据）
-- **Per-demo 目录**：`<demo>/.d2p/`（vision.md, session-summary.md, gap-history.json, preset-overrides.yaml）
-- **`.d2p-worktrees/`**：仓外 worktree 容器（`<demo-parent>/.d2p-worktrees/<demo-name>-fix-<slug>/`）
+- **DB 位置**：`~/.zerou/state.db`（全局 session 索引 + 跨 demo 元数据）
+- **Per-demo 目录**：`<demo>/.zerou/`（vision.md, session-summary.md, gap-history.json, preset-overrides.yaml）
+- **`.zerou-worktrees/`**：仓外 worktree 容器（`<demo-parent>/.zerou-worktrees/<demo-name>-fix-<slug>/`）
 
 **Migrations**（`storage/migrations/`，按 version 顺序，禁改已落地）：
 
@@ -295,11 +295,11 @@ cost_records (id PK, session_id FK, kind TEXT, model TEXT,
 
 ### 4.5 Vision Elicitor (`daemon/src/vision/`)
 
-- 走多轮 grill 模式，每轮 d2p 内嵌一个 `claude -p` 子调用生成下一组问题
+- 走多轮 grill 模式，每轮 ZeroU 内嵌一个 `claude -p` 子调用生成下一组问题
 - 输入：当前已收集的 vision 片段 + repo 浅扫摘要 + 上一轮答案
 - 输出：JSON `{questions: [{id, question, options: [{label, description}]}], done: false}` 或 `{done: true, vision_md: "..."}`
 - 最多 5 轮，每轮 ≤3 题（与 Cairn GRILL.md 一致）
-- 用户答案累积到 `vision_drafts`，finalize 时 d2p 起一个 sonnet 把所有片段熔成 `<demo>/.d2p/vision.md`（markdown，含标题 / 目标用户 / 核心场景 / KPI / 不做什么）
+- 用户答案累积到 `vision_drafts`，finalize 时 ZeroU 起一个 sonnet 把所有片段熔成 `<demo>/.zerou/vision.md`（markdown，含标题 / 目标用户 / 核心场景 / KPI / 不做什么）
 
 ### 4.6 Project Detector (`daemon/src/detector/`)
 
@@ -319,7 +319,7 @@ cost_records (id PK, session_id FK, kind TEXT, model TEXT,
 ```
 
 - UI 显结果 + 用户可点「换」选别的 preset
-- **类型集开放**：不在内置 preset 库里的 type 时，user 输入自定义 type 名 → d2p fallback "vision-only" 模式（无 baseline preset，全靠 vision 推 gap）
+- **类型集开放**：不在内置 preset 库里的 type 时，user 输入自定义 type 名 → ZeroU fallback "vision-only" 模式（无 baseline preset，全靠 vision 推 gap）
 
 ### 4.7 Preset Library (`presets/`)
 
@@ -365,8 +365,8 @@ version: 1
 - [ ] perf-baseline: 关键页面 < 3s LCP（或同等指标）
 ```
 
-- d2p 启动 differ 时把 preset markdown 原文 + 当前 repo 状态丢给 differ agent，由其判断每一条 status（done / partial / missing）；missing 的就转成 gap
-- 用户可在 `<demo>/.d2p/preset-overrides.yaml` 里加 / 删 / 标 N/A 某些条目
+- ZeroU 启动 differ 时把 preset markdown 原文 + 当前 repo 状态丢给 differ agent，由其判断每一条 status（done / partial / missing）；missing 的就转成 gap
+- 用户可在 `<demo>/.zerou/preset-overrides.yaml` 里加 / 删 / 标 N/A 某些条目
 - **MVP-0 内置 preset**：`saas-web.md`、`api-service.md`、`cli-tool.md`、`library.md`、`static-site.md`、`unknown.md`（空 baseline）
 
 ### 4.8 Gap Differ (`daemon/src/differ/`)
@@ -402,13 +402,13 @@ version: 1
 ### 4.9 Implementer (`daemon/src/implementer/`)
 
 - Worker 模型：`claude --model sonnet -p`（特别复杂时升 opus，由 reviewer 触发）
-- 工作目录：`.d2p-worktrees/<demo>-fix-<slug>/`（已切到 `fix/<slug>` 分支）
+- 工作目录：`.zerou-worktrees/<demo>-fix-<slug>/`（已切到 `fix/<slug>` 分支）
 - Prompt 含：
   - Gap title + body + suggested_approach
   - Worktree path + 必须在此目录内工作的硬约束
   - 期望产出：一组 file edits + 一个 commit（conventional commits 格式）
   - Hints（若 retry 携带，上一轮 reviewer 的 RETRY hints）
-  - 不许触碰：`.d2p/` / `.d2p-worktrees/` / 其他 worktree
+  - 不许触碰：`.zerou/` / `.zerou-worktrees/` / 其他 worktree
 - 期望输出 JSON：
 
 ```json
@@ -429,14 +429,14 @@ version: 1
 - **创建 fix 分支**：
   ```
   cd <demo> && git fetch . main:main
-  git worktree add ../.d2p-worktrees/<demo>-fix-<slug> -b fix/<slug>
+  git worktree add ../.zerou-worktrees/<demo>-fix-<slug> -b fix/<slug>
   ```
 - **Merge 回 main**：
   ```
   cd <demo> && git fetch . fix/<slug>:fix/<slug>
   git merge --no-ff fix/<slug> -m "merge fix/<slug>: <gap title>"
   git branch -d fix/<slug>
-  git worktree remove ../.d2p-worktrees/<demo>-fix-<slug>
+  git worktree remove ../.zerou-worktrees/<demo>-fix-<slug>
   ```
 - **冲突**：MVP-0 串行实施意味着 fix 分支永远从 latest main 切，理论上无冲突。如出现（rare），mark gap NEED_HUMAN
 - **Rollback**：`git reset --hard HEAD^`（仅在 fix 分支自己内部用；main 永远只 fast-forward / no-ff merge，**绝不**对 main `reset --hard`）
@@ -470,7 +470,7 @@ version: 1
 
 ## §5. Reviewer Pipeline（深）
 
-> 用户明示 reviewer 是 d2p 最重要的部分。本节超详写。
+> 用户明示 reviewer 是 ZeroU 最重要的部分。本节超详写。
 
 ### 5.1 4 层关卡
 
@@ -561,11 +561,11 @@ Behavioral reviewer 必须返这个 schema（其余字段不接）：
 
 ### 5.6 Static Gate 命令推断
 
-- d2p 首次进 demo 时跑 detector 还输出 `inferred_check_commands`：
+- ZeroU 首次进 demo 时跑 detector 还输出 `inferred_check_commands`：
   ```json
   {"build": "npm run build", "test": "npm test", "typecheck": "tsc --noEmit"}
   ```
-- 用户可在 `<demo>/.d2p/check-commands.yaml` 覆盖
+- 用户可在 `<demo>/.zerou/check-commands.yaml` 覆盖
 - 命令缺失（没 `package.json` / 没 test）→ 跳过该项，Static Gate 视为 PASS（不阻塞 alignment）
 
 ### 5.7 失败 commit 的留痕
@@ -597,7 +597,7 @@ MVP-0 不上。MVP-1+：对 verdict=APPROVE 的高敏 fix，再起一个独立 s
 
 - `presets/<type-slug>.md`
 - 内置：`saas-web.md`、`api-service.md`、`cli-tool.md`、`library.md`、`static-site.md`、`unknown.md`
-- 用户 override：`<demo>/.d2p/preset-overrides.yaml`（按 item slug 操作）
+- 用户 override：`<demo>/.zerou/preset-overrides.yaml`（按 item slug 操作）
 
 ### 6.2 Frontmatter
 
@@ -621,7 +621,7 @@ high_sensitivity_categories:   # 可选，触发 adversarial 的 category 集
 ### 6.4 Override YAML
 
 ```yaml
-# <demo>/.d2p/preset-overrides.yaml
+# <demo>/.zerou/preset-overrides.yaml
 add:
   - slug: oauth-google
     category: auth
@@ -698,8 +698,8 @@ Fix attempt：`STARTED → STATIC_GATE_(PASS|FAIL) → ALIGNED_(PASS|FAIL) → R
 
 ### MVP-1
 
-- Daemon 拆出为系统服务（systemd / launchd / Windows Service + `d2p install-service`）
 - 并发 N（写集隔离）
+- Daemon 拆出为系统服务（systemd / launchd / Windows Service + `zerou install-service`）
 - Cross-engine reviewer second-pass（高敏 gap）
 - 用户 preset 自定义 UI（不只手编 YAML）
 - 多 demo session 切换（同时仅一活跃 loop）
@@ -733,7 +733,7 @@ Fix attempt：`STARTED → STATIC_GATE_(PASS|FAIL) → ALIGNED_(PASS|FAIL) → R
 - ❌ 非代码输入（PRD / mockup）
 - ❌ 接 Codex / Cursor / Aider
 - ❌ 自动 push / 开 GitHub PR（保留 git 本地，push 由用户在外部决定）
-- ❌ 接 Cairn kernel（d2p 完全独立；二者后期可能集成但本 MVP 不依赖）
+- ❌ 接 Cairn kernel（ZeroU 完全独立；二者后期可能集成但本 MVP 不依赖）
 
 ---
 
@@ -741,15 +741,15 @@ Fix attempt：`STARTED → STATIC_GATE_(PASS|FAIL) → ALIGNED_(PASS|FAIL) → R
 
 实施期间需要拍板但 doc 暂留默认：
 
-1. **`d2p` CLI 包名与全局分发** — npm publish？file-link？git clone install？默认：MVP-0 git clone + npm link
-2. **License** — d2p 自身 license？默认：MVP 不放 LICENSE，等用户决定
+1. **`zerou` CLI 包名与全局分发** — npm publish？file-link？git clone install？默认：MVP-0 git clone + npm link
+2. **License** — ZeroU 自身 license？默认：MVP 不放 LICENSE，等用户决定
 3. **Telemetry** — 是否上报 cost / 错误？默认：完全不上报（MVP 单机本地）
 4. **Vision elicit 提问引擎** — 用 haiku 还是 sonnet 生成下一轮问题？默认：haiku（快、便宜）
 5. **Preset 类型扩展机制** — 用户怎么加自定义 type？默认：MVP-0 只能 fallback "unknown"，MVP-1 UI 允许 import markdown
 6. **Cost 估算价格本地表** — 维护在哪？默认：`daemon/src/cost/pricing.ts` 硬编码，年度手动更新
-7. **`claude` CLI 不可用时的降级** — 默认：`d2p doctor` 检测失败，UI 显警告 + 链接到 cc 安装指引
+7. **`claude` CLI 不可用时的降级** — 默认：`zerou doctor` 检测失败，UI 显警告 + 链接到 cc 安装指引
 8. **GitHub PR / push** — 后期是否接？默认：Later
-9. **多 monorepo demo 怎么算一个 demo** — 默认：用户传谁就是谁，d2p 不解析 monorepo
+9. **多 monorepo demo 怎么算一个 demo** — 默认：用户传谁就是谁，ZeroU 不解析 monorepo
 
 ---
 
@@ -833,7 +833,7 @@ D:\lll\d2p\
 ├── cli/
 │   ├── package.json
 │   ├── tsconfig.json
-│   ├── bin/d2p
+│   ├── bin/zerou
 │   └── src/index.ts
 │
 ├── scripts/
@@ -850,8 +850,8 @@ D:\lll\d2p\
 
 ## Appendix B — Glossary
 
-- **demo**：用户给 d2p 的本地代码仓库
-- **vision**：用户告诉 d2p 想做成什么样的 product
+- **demo**：用户给 ZeroU 的本地代码仓库
+- **vision**：用户告诉 ZeroU 想做成什么样的 product
 - **preset**：按项目类型预制的 baseline 必备能力清单
 - **gap**：preset 或 vision 推出的「缺失项」，每个 gap 对应一个 fix attempt
 - **fix**：一次实现尝试，落在 `fix/<slug>` 分支 + 一个 worktree

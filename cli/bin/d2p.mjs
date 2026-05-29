@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// d2p CLI entry. Delegates to dist/index.js (built by tsc).
+// ZeroU CLI entry (legacy alias for zerou). Delegates to dist/index.js (built by tsc).
 import('../dist/index.js')
   .then((m) => m.main(process.argv))
   .catch((e) => {

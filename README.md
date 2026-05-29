@@ -5,7 +5,7 @@
 > Run `zerou enhance` to land structured logging, a health endpoint, sentry,
 > and mechanical bug fixes on a separate git branch you review before merge.
 
-**Repo**: https://github.com/Upp-Ljl/d2p (internal name still `d2p`)
+**Repo**: https://github.com/Upp-Ljl/d2p (being renamed to zerou)
 
 > **Scope**: ZeroU audits **application code you wrote** (Node/TypeScript
 > webapps — Next.js / Express / Fastify / Koa / Nest handlers, lib/utility
