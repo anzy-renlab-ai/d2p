@@ -1,0 +1,156 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body {
+    height: 100%;
+  }
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    font-feature-settings: 'ss01', 'cv11';
+  }
+  h1, h2, h3 {
+    @apply font-serif;
+    letter-spacing: -0.01em;
+  }
+  code, kbd, pre {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-cream border border-warmline rounded-lg;
+  }
+  .card-header {
+    @apply px-5 py-3 border-b border-warmline font-serif text-base text-ink;
+  }
+  .label {
+    @apply block text-xs font-medium uppercase tracking-wider text-muted mb-1.5;
+  }
+}
+
+@layer utilities {
+  .ease-out-quart {
+    transition-timing-function: cubic-bezier(0.165, 0.84, 0.44, 1);
+  }
+  .ease-out-quint {
+    transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Motion — inherited verbatim from d2p/ui/src/index.css. Durations
+   150-300ms. NO scale > 1.05, NO bounce. Animations skip when
+   prefers-reduced-motion.
+   ─────────────────────────────────────────────────────────────────── */
+
+@keyframes drift-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes drawer-in-right {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes drawer-in-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes breathe-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 1px rgba(201, 100, 66, 0.18), 0 2px 14px rgba(201, 100, 66, 0.08);
+  }
+  50% {
+    box-shadow: 0 0 0 1px rgba(201, 100, 66, 0.28), 0 4px 22px rgba(201, 100, 66, 0.18);
+  }
+}
+
+@keyframes breathe-dot {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
+
+@keyframes stagger-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes fade-in-only {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes pulse-green {
+  0%   { background-color: rgba(88, 122, 76, 0); }
+  20%  { background-color: rgba(88, 122, 76, 0.22); }
+  100% { background-color: rgba(88, 122, 76, 0); }
+}
+
+@keyframes tick-glyph {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+@keyframes spin-arrow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes retry-pulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50%      { opacity: 1;   transform: scale(1.05); }
+}
+
+.anim-drift-in    { animation: drift-in 250ms cubic-bezier(0.165, 0.84, 0.44, 1) both; }
+.anim-scale-in    { animation: scale-in 200ms cubic-bezier(0.165, 0.84, 0.44, 1) both; }
+.anim-drawer-right{ animation: drawer-in-right 220ms cubic-bezier(0.165, 0.84, 0.44, 1) both; }
+.anim-drawer-left { animation: drawer-in-left 220ms cubic-bezier(0.165, 0.84, 0.44, 1) both; }
+.anim-fade-in     { animation: fade-in-only 220ms cubic-bezier(0.165, 0.84, 0.44, 1) both; }
+.anim-breathe     { animation: breathe-glow 2.8s ease-in-out infinite; }
+.anim-breathe-dot { animation: breathe-dot 1.8s ease-in-out infinite; }
+.anim-pulse-green { animation: pulse-green 1.5s ease-out both; }
+.anim-tick        { animation: tick-glyph 1.2s ease-in-out infinite; }
+.anim-spin-arrow  { display: inline-block; animation: spin-arrow 1.2s linear infinite; }
+.anim-retry-pulse { display: inline-block; animation: retry-pulse 1s ease-in-out infinite; }
+
+.anim-stagger {
+  animation: stagger-rise 240ms cubic-bezier(0.165, 0.84, 0.44, 1) both;
+  animation-delay: calc(min(var(--i, 0), 7) * 40ms);
+}
+
+.lift-on-hover {
+  transition: transform 180ms cubic-bezier(0.165, 0.84, 0.44, 1),
+              box-shadow 180ms cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+.lift-on-hover:hover {
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-drift-in,
+  .anim-scale-in,
+  .anim-drawer-right,
+  .anim-drawer-left,
+  .anim-fade-in,
+  .anim-breathe,
+  .anim-breathe-dot,
+  .anim-stagger,
+  .anim-pulse-green,
+  .anim-tick,
+  .anim-spin-arrow,
+  .anim-retry-pulse {
+    animation: none !important;
+  }
+  .lift-on-hover { transition: none !important; }
+  .lift-on-hover:hover { transform: none !important; }
+}
