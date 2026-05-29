@@ -430,30 +430,33 @@ function reveal<T>(items: T[], progress: number, start = 0.1, end = 0.95): numbe
 // PHASE 1 — Problem: IDE-like file tree + "what's wrong" diagnostic strip
 // ---------------------------------------------------------------------------
 
-const MW_TREE: { depth: number; name: string; tag: 'file' | 'dir'; bug?: boolean }[] = [
+const MW_TREE: { depth: number; name: string; tag: 'file' | 'dir' }[] = [
   { depth: 0, name: 'meme-weather/', tag: 'dir' },
   { depth: 1, name: 'app/', tag: 'dir' },
   { depth: 2, name: 'page.tsx', tag: 'file' },
   { depth: 2, name: 'api/', tag: 'dir' },
-  { depth: 3, name: 'auth/callback/route.ts', tag: 'file', bug: true },
-  { depth: 3, name: 'me/profile/route.ts', tag: 'file', bug: true },
+  { depth: 3, name: 'auth/callback/route.ts', tag: 'file' },
+  { depth: 3, name: 'me/profile/route.ts', tag: 'file' },
   { depth: 3, name: 'weather/route.ts', tag: 'file' },
   { depth: 1, name: 'lib/supabase.ts', tag: 'file' },
-  { depth: 1, name: 'scripts/seed.ts', tag: 'file', bug: true },
-  { depth: 1, name: 'components/share-poster.tsx', tag: 'file', bug: true },
+  { depth: 1, name: 'scripts/seed.ts', tag: 'file' },
+  { depth: 1, name: 'components/share-poster.tsx', tag: 'file' },
   { depth: 1, name: 'package.json', tag: 'file' },
 ];
 
-const PROBLEM_ISSUES: { sev: 'P1' | 'P2'; where: string; what: string }[] = [
-  { sev: 'P1', where: 'auth/callback/route.ts:24',  what: 'missing 401 handler' },
-  { sev: 'P1', where: 'me/profile/route.ts:51',     what: 'auth context required' },
-  { sev: 'P2', where: 'seed.ts:58-66',              what: '12 floating promises' },
-  { sev: 'P2', where: 'share-poster.tsx:47',        what: 'memory leak' },
+const MISSING_ITEMS: { label: string; sub: string }[] = [
+  { label: 'no structured logger',     sub: 'just console.log scattered' },
+  { label: 'no /health endpoint',      sub: 'liveness probe absent' },
+  { label: 'no Sentry / error tracker', sub: 'errors die silently' },
+  { label: 'no .env.example',          sub: 'secrets implicit' },
+  { label: 'no auto-generated tests',  sub: 'pray-and-deploy' },
+  { label: 'no trace_id / observability', sub: 'logs not greppable' },
 ];
 
 function PhaseProblem({ progress }: { progress: number }) {
   const visible = reveal(MW_TREE, progress, 0.05, 0.55);
-  const issuesShown = reveal(PROBLEM_ISSUES, progress, 0.45, 0.92);
+  const itemsShown = reveal(MISSING_ITEMS, progress, 0.20, 0.85);
+  const showCaption = progress > 0.85;
   return (
     <div className="h-full grid grid-cols-5 gap-3 sm:gap-4">
       {/* Left: file tree (IDE-like) */}
@@ -470,51 +473,37 @@ function PhaseProblem({ progress }: { progress: number }) {
             >
               <span style={{ paddingLeft: `${n.depth * 10}px` }} />
               <span className="text-muted">{n.tag === 'dir' ? '▸' : '·'}</span>
-              <span className={n.tag === 'dir' ? 'text-muted' : n.bug ? 'text-rust' : 'text-ink'}>
+              <span className={n.tag === 'dir' ? 'text-muted' : 'text-ink'}>
                 {n.name}
               </span>
-              {n.bug && progress > 0.45 && (
-                <span
-                  className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-rust anim-breathe-dot"
-                  aria-label="known bug area"
-                />
-              )}
             </li>
           ))}
         </ul>
       </div>
 
-      {/* Right: "What's wrong" diagnostic callout box */}
-      <div className="col-span-3 rounded-md border border-rust/40 bg-rust/5 p-3 overflow-hidden flex flex-col">
-        <div className="text-xs uppercase tracking-widest text-rust mb-2 font-mono font-semibold flex items-center gap-2">
-          <span className="inline-block w-2 h-2 rounded-full bg-rust anim-breathe-dot" />
-          What&apos;s wrong
+      {/* Right: "What's missing" checklist */}
+      <div className="col-span-3 rounded-md border border-warmline/60 bg-paper/40 p-3 overflow-hidden flex flex-col">
+        <div className="text-xs uppercase tracking-widest text-muted mb-2 font-mono font-semibold flex items-center gap-2">
+          ⚠ What&apos;s missing
         </div>
-        <ul className="space-y-2 flex-1">
-          {PROBLEM_ISSUES.slice(0, issuesShown).map((iss, i) => (
+        <ul className="space-y-1.5 flex-1">
+          {MISSING_ITEMS.slice(0, itemsShown).map((item, i) => (
             <li
               key={i}
-              className="anim-drift-in flex items-start gap-2 rounded border border-rust/30 bg-cream/80 px-2.5 py-2"
+              className="anim-drift-in flex items-start gap-2 text-sm"
               style={{ animationDelay: `${i * 90}ms` }}
             >
-              <span
-                className={[
-                  'shrink-0 px-1.5 py-0.5 rounded text-xs font-mono font-semibold',
-                  iss.sev === 'P1' ? 'bg-rust text-cream' : 'bg-amber-100 text-amber-600',
-                ].join(' ')}
-              >
-                {iss.sev}
-              </span>
+              <span className="text-rust font-bold shrink-0 mt-0.5">✗</span>
               <div className="flex flex-col min-w-0 flex-1">
-                <span className="font-mono text-sm text-ink truncate">{iss.where}</span>
-                <span className="text-sm text-muted">{iss.what}</span>
+                <span className="font-mono text-ink text-sm">{item.label}</span>
+                <span className="text-muted text-xs italic">{item.sub}</span>
               </div>
             </li>
           ))}
         </ul>
-        {progress > 0.85 && (
-          <div className="mt-2 text-sm font-mono text-rust anim-drift-in text-center">
-            …and 27 more. Vibe-grade.
+        {showCaption && (
+          <div className="mt-2 text-sm italic text-muted text-center anim-drift-in">
+            Works in dev. No production guard rails. Like 90% of AI-coded demos.
           </div>
         )}
       </div>
