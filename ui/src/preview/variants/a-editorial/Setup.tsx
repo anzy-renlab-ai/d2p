@@ -5,7 +5,7 @@ export function SetupA() {
         <div className="text-xs font-mono text-coral uppercase tracking-[0.2em] mb-3">
           session 7 · setup
         </div>
-        <h1 className="text-4xl tracking-tight mb-2">Tell d2p what you want.</h1>
+        <h1 className="text-4xl tracking-tight mb-2">Tell ZeroU what you want.</h1>
         <p className="text-muted font-serif italic mb-12">
           Three steps. The first two are short.
         </p>
@@ -56,7 +56,7 @@ export function SetupA() {
             <span className="font-serif text-5xl text-coral leading-none">3</span>
             <div>
               <h2 className="text-2xl font-serif">Begin</h2>
-              <p className="text-sm text-muted">d2p takes over from here</p>
+              <p className="text-sm text-muted">ZeroU takes over from here</p>
             </div>
           </header>
           <div className="pl-16">

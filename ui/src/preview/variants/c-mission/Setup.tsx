@@ -44,7 +44,7 @@ export function SetupC() {
                 </div>
                 <textarea
                   rows={4}
-                  placeholder="paste markdown or text — d2p stores it at <demo>/.d2p/inputs/…"
+                  placeholder="paste markdown or text — ZeroU stores it at <demo>/.d2p/inputs/…"
                   className="input input-mono text-xs"
                 />
               </div>
@@ -68,7 +68,7 @@ export function SetupC() {
               <div className="card-header">Step 5 · Launch</div>
               <div className="p-5 flex items-center justify-between">
                 <p className="text-sm text-muted leading-relaxed max-w-md">
-                  d2p will: differ → pick gap → spin K attempts → 4-layer review → merge. Stops when preset and vision are both green.
+                  ZeroU will: differ → pick gap → spin K attempts → 4-layer review → merge. Stops when preset and vision are both green.
                 </p>
                 <button className="px-6 py-3 bg-coral text-cream rounded-md text-sm font-semibold whitespace-nowrap">
                   Launch loop →

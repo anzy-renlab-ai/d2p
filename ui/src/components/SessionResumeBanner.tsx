@@ -15,7 +15,7 @@ interface SessionResumeBannerProps {
   onLater: () => void;
 }
 
-/** Top banner shown when d2p detects a previously interrupted session.
+/** Top banner shown when ZeroU detects a previously interrupted session.
  *  Animates in from the top (anim-drift-in). */
 export function SessionResumeBanner({
   gapTitle,

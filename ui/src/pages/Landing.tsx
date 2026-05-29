@@ -57,7 +57,7 @@ export function Landing() {
                 <>
                   连不上 daemon（{healthError}）。
                   先在终端跑{' '}
-                  <code className="bg-coralsoft px-1.5 py-0.5 rounded">d2p start</code>{' '}
+                  <code className="bg-coralsoft px-1.5 py-0.5 rounded">zerou start</code>{' '}
                   或{' '}
                   <code className="bg-coralsoft px-1.5 py-0.5 rounded">npm run dev</code>。
                 </>

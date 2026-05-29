@@ -13,7 +13,7 @@ test.afterAll(async () => {
 
 test('Landing renders, health badge healthy, ⚙ button reachable', async ({ page }) => {
   await page.goto(h.uiUrl);
-  await expect(page.getByRole('heading', { name: 'd2p' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'ZeroU' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Start session/ })).toBeVisible();
 
   // Health badge should turn healthy within a few SSE roundtrips

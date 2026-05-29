@@ -17,7 +17,7 @@ export function LandingB() {
             <div className="text-[10px] uppercase tracking-widest text-cream/40 mb-3">demo path</div>
             <div className="flex items-baseline gap-3 text-xl">
               <span className="text-coral select-none">$</span>
-              <span className="text-cream/30">d2p start</span>
+              <span className="text-cream/30">zerou start</span>
               <input
                 type="text"
                 placeholder="D:\demos\notes-saas"
@@ -41,7 +41,7 @@ export function LandingB() {
 
         <div className="text-[11px] text-cream/40 space-y-0.5">
           <div>──── about ────────────────────────────────────────────────</div>
-          <div>d2p loops: differ → pick gap → K attempts → 4-layer review → merge</div>
+          <div>zerou loops: differ → pick gap → K attempts → 4-layer review → merge</div>
           <div>stops when: preset all-green AND vision verdict YES (double-green)</div>
           <div>UI is a window onto a daemon; close the tab, daemon keeps working</div>
           <div>──────────────────────────────────────────────────────────</div>

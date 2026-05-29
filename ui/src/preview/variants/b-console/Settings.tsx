@@ -2,7 +2,7 @@ export function SettingsB() {
   return (
     <div className="min-h-screen bg-ink text-cream font-mono pt-10">
       <div className="max-w-3xl mx-auto px-8 py-8">
-        <div className="text-2xl mb-1">$ <span className="text-coral">d2p config</span></div>
+        <div className="text-2xl mb-1">$ <span className="text-coral">zerou config</span></div>
         <div className="text-xs text-cream/50 mb-8">~/.d2p/config.json · keys never leave this box</div>
 
         <section className="mb-8 border border-cream/15 rounded-md">

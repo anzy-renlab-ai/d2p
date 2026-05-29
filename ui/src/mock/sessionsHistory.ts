@@ -1,4 +1,4 @@
-// Per-project sessions history — mocks d2p running multiple sessions on the
+// Per-project sessions history — mocks ZeroU running multiple sessions on the
 // same project over time. Real wire-in will read from daemon's sessions table
 // (`SELECT * FROM sessions WHERE demo_id = ?`).
 

@@ -9,7 +9,7 @@ export function LandingC() {
             <div className="absolute -right-4 bottom-8 w-32 h-32 rounded-full border border-coral/20" />
             <div className="relative">
               <div className="text-xs font-mono text-coral uppercase tracking-widest mb-3">mission control · v0.1.0</div>
-              <h1 className="text-6xl tracking-tight leading-none mb-3">d2p</h1>
+              <h1 className="text-6xl tracking-tight leading-none mb-3">ZeroU</h1>
               <p className="text-lg text-muted leading-snug max-w-md">
                 Aim a demo at a vision.<br />
                 Watch a clinic of agents <em>and</em> reviewers walk it to product.

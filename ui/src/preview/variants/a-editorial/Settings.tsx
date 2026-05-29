@@ -3,7 +3,7 @@ export function SettingsA() {
     <div className="min-h-screen bg-paper pt-12">
       <div className="max-w-2xl mx-auto py-12 px-6">
         <div className="text-xs font-mono text-coral uppercase tracking-[0.2em] mb-3">settings</div>
-        <h1 className="text-4xl tracking-tight">How d2p talks to LLMs.</h1>
+        <h1 className="text-4xl tracking-tight">How ZeroU talks to LLMs.</h1>
         <p className="text-muted mt-3 font-serif italic">Keys stay on your machine.</p>
 
         <section className="mt-12">

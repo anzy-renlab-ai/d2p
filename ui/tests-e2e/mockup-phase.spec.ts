@@ -44,7 +44,7 @@ for (const state of STATES) {
 test('mockup-phase/drafting shows spinner and progress text', async ({ page }) => {
   await page.goto(`${h.uiUrl}/?preview=mockup-phase/drafting`);
   await expect(page.getByTestId('mockup-phase-panel')).toBeVisible();
-  await expect(page.getByTestId('mockup-drafting-headline')).toContainText('d2p 正在为你画');
+  await expect(page.getByTestId('mockup-drafting-headline')).toContainText('ZeroU 正在为你画');
   await expect(page.getByTestId('mockup-drafting-progress')).toBeVisible();
 });
 

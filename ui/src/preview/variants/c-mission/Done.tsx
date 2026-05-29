@@ -72,7 +72,7 @@ export function DoneC() {
               <div className="border-l-2 border-rust pl-3 py-1">
                 <div className="text-sm font-mono text-rust mb-1">mobile-workspace-responsive</div>
                 <p className="text-xs text-muted leading-relaxed">
-                  Reviewer escalated: collapse-to-tabs vs vertical-stack is a UX call. Open vision.md, decide, and d2p will pick it back up.
+                  Reviewer escalated: collapse-to-tabs vs vertical-stack is a UX call. Open vision.md, decide, and ZeroU will pick it back up.
                 </p>
               </div>
             </section>

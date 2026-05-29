@@ -106,7 +106,7 @@ export const mockPresetItemsRich: MockPresetItem[] = [
   { id: 'deploy-config',            label: 'Target deploy config valid',               severity: 'P1', mechanism: 'file-exists',         source: 'Vercel/Fly',    appliesTo: ['W','A','L'],                      status: 'missing', note: 'vercel.json needed' },
   { id: 'package-publishable',      label: 'npm pack / python -m build succeeds',      severity: 'P1', mechanism: 'test-execution',      source: 'npm/PyPI',      appliesTo: ['L'],                              status: 'missing', note: 'lib track only' },
   { id: 'binary-not-committed',     label: 'No *.exe / *.dll outside dist/',           severity: 'P3', mechanism: 'static-grep',         source: 'OpenSSF',       appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'done',    note: null },
-  { id: 'vision-verdict',           label: 'Product matches user vision',              severity: 'P1', mechanism: 'llm-judgment',        source: 'd2p-native',    appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'partial', note: 'logging gap noted' },
+  { id: 'vision-verdict',           label: 'Product matches user vision',              severity: 'P1', mechanism: 'llm-judgment',        source: 'ZeroU-native',    appliesTo: ['W','A','C','L','S','M','D','ML'], status: 'partial', note: 'logging gap noted' },
 ];
 
 export const mockPresetStatus: PresetStatusItem[] = [

@@ -1,4 +1,4 @@
-// REST + SSE client for the d2p daemon. Vite proxies /api/* to :5174 in dev.
+// REST + SSE client for the ZeroU daemon. Vite proxies /api/* to :5174 in dev.
 
 import type {
   AgentSessionAgg,

@@ -63,7 +63,7 @@ const PRESETS: { label: string; baseUrl: string; models: ModelMap; extraHeaders?
       sonnet: 'anthropic/claude-sonnet-4-5',
       opus: 'anthropic/claude-opus-4-1',
     },
-    extraHeaders: '{"HTTP-Referer":"https://d2p.local","X-Title":"d2p"}',
+    extraHeaders: '{"HTTP-Referer":"https://zerou.local","X-Title":"zerou"}',
   },
   {
     label: 'DeepSeek',

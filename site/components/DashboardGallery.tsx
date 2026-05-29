@@ -73,10 +73,6 @@ export function DashboardGallery() {
         ))}
       </div>
 
-      <p className="text-xs text-muted italic text-center mt-6">
-        UI screenshots show the build with legacy &ldquo;d2p&rdquo; wordmark
-        — product rebrand to ZeroU in progress.
-      </p>
     </section>
   );
 }

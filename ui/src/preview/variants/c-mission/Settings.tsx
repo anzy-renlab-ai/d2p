@@ -158,7 +158,7 @@ export function SettingsC() {
               <div className="card-header">GitHub PR mode <span className="text-xs text-muted ml-2 font-sans">optional</span></div>
               <div className="p-5 space-y-3">
                 <p className="text-sm text-muted leading-relaxed">
-                  Fill in to switch new sessions into PR mode — d2p pushes each fix branch and opens a PR,
+                  Fill in to switch new sessions into PR mode — ZeroU pushes each fix branch and opens a PR,
                   but never auto-merges. You click merge on github.com.
                 </p>
                 <div className="grid grid-cols-2 gap-4">

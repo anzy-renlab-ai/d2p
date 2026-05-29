@@ -5,7 +5,7 @@ export function LandingA() {
         <div className="text-xs font-mono text-coral uppercase tracking-[0.2em] mb-6">
           demo → product, hands-off
         </div>
-        <h1 className="text-7xl tracking-tight leading-none mb-6">d2p</h1>
+        <h1 className="text-7xl tracking-tight leading-none mb-6">ZeroU</h1>
         <p className="text-2xl font-serif italic text-muted leading-snug mb-10">
           You bring a demo and a vision.
           <br />
@@ -25,7 +25,7 @@ export function LandingA() {
           </div>
           <div className="flex items-center justify-between pt-2">
             <p className="text-xs text-muted/80 leading-relaxed max-w-xs font-serif italic">
-              No <code className="not-italic">.git</code>? d2p inits one. Worktrees live
+              No <code className="not-italic">.git</code>? ZeroU inits one. Worktrees live
               outside your repo.
             </p>
             <button className="px-7 py-3 bg-coral text-cream rounded-full text-sm font-medium hover:bg-coralhover transition">

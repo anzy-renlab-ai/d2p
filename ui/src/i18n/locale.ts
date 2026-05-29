@@ -40,7 +40,7 @@ export const dict: Dict = {
   'app.title':            { zh: 'ZeroU',                                  en: 'ZeroU' },
   'app.tagline':          { zh: '把每个 demo 推到 product。',              en: 'Push every demo to product.' },
   'app.tagline.long':     { zh: '你给一个本地 demo + 一句愿景，ZeroU 派 Claude 自动迭代，4 层 reviewer 把关，preset 与 vision 双绿才停手。', en: 'Give ZeroU a local demo + one sentence of vision. It dispatches Claude to iterate, a 4-stage reviewer gates each fix, and stops only when the preset checklist and vision are both green.' },
-  'app.daemonDown':       { zh: '连不上 daemon（{detail}）。先在终端跑 d2p start 或 npm run dev。', en: "Can't reach daemon ({detail}). Run `d2p start` or `npm run dev` in your terminal first." },
+  'app.daemonDown':       { zh: '连不上 daemon（{detail}）。先在终端跑 zerou start 或 npm run dev。', en: "Can't reach daemon ({detail}). Run `zerou start` or `npm run dev` in your terminal first." },
   'app.cliMissing':       { zh: '没找到 claude CLI。装 Claude Code 并 claude login，或在设置里换成 OpenAI-compat / Anthropic-API。', en: "claude CLI not found. Install Claude Code and run `claude login`, or pick OpenAI-compat / Anthropic-API in Settings." },
 
   // ── ProjectsHome ────────────────────────────────────────────────────

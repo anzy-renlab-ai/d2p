@@ -5,7 +5,7 @@ export function SetupB() {
         <div className="text-[11px] text-cream/50 mb-1">
           session #7 · D:\demos\notes-saas · SETUP
         </div>
-        <div className="text-2xl mb-8">$ <span className="text-coral">d2p setup</span></div>
+        <div className="text-2xl mb-8">$ <span className="text-coral">zerou setup</span></div>
 
         <div className="space-y-6">
           <Block step="1" title="DETECT" status="DONE">
@@ -50,7 +50,7 @@ A minimal note-taking SaaS for solo creators.
 
           <Block step="5" title="LAUNCH LOOP" status="READY">
             <div className="text-xs text-cream/70 leading-relaxed">
-              ⏵ d2p will differ → pick gap → K attempts → review → merge → repeat<br/>
+              ⏵ zerou will differ → pick gap → K attempts → review → merge → repeat<br/>
               ⏵ daemon survives tab close; SSE reconnects on refresh<br/>
               ⏵ stop: ⌃C at any time, or click Pause; resume from where it stopped
             </div>

@@ -39,7 +39,7 @@ export function DoneA() {
 
         <section className="mb-12">
           <div className="text-[10px] uppercase tracking-widest text-muted mb-4">deploy</div>
-          <p className="text-sm text-muted mb-3">d2p doesn't push for you. Run when ready:</p>
+          <p className="text-sm text-muted mb-3">ZeroU doesn't push for you. Run when ready:</p>
           <code className="block text-xs font-mono bg-cream border border-warmline rounded-md px-4 py-3">
             npx vercel --prod
           </code>

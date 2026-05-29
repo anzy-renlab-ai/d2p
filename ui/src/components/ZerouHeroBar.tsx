@@ -1,6 +1,6 @@
 import type { ReviewBundle } from '../types-zerou.js';
 
-/** Top hero strip — 6 stat columns. Mirrors d2p Done.tsx hero + Workspace
+/** Top hero strip — 6 stat columns. Mirrors ZeroU Done.tsx hero + Workspace
  *  StatusStrip rhythm: big mono number, small uppercase muted label.
  */
 export function ZerouHeroBar({ bundle }: { bundle: ReviewBundle }) {

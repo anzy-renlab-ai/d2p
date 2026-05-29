@@ -26,7 +26,7 @@ export interface CheckpointMock {
   reason: string;
   /** Whether the user has pinned this — pinned auto-upgrades to T0 */
   pinned: boolean;
-  /** Whether d2p flagged this as a recommended save point (vs purely
+  /** Whether ZeroU flagged this as a recommended save point (vs purely
    *  automatic). high-confidence = "user should be aware this exists" */
   recommended: boolean;
   ts: number;
@@ -134,7 +134,7 @@ export const mockSessionCheckpoints: CheckpointMock[] = [
     sessionId: 31,
     tier: 'T0',
     tag: 'session-31-double-green',
-    reason: 'session 31 收尾：preset + vision 双绿 — d2p 自动标记的成功里程碑',
+    reason: 'session 31 收尾：preset + vision 双绿 — ZeroU 自动标记的成功里程碑',
     pinned: false,
     recommended: true,
     ts: m(-1), // placeholder
