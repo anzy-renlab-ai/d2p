@@ -3,6 +3,7 @@ import { HeroSection } from '@/components/HeroSection';
 import { DemoShowcase } from '@/components/DemoShowcase';
 import { ValueTiers } from '@/components/ValueTiers';
 import { MemeWeatherShowcase } from '@/components/MemeWeatherShowcase';
+import { DashboardGallery } from '@/components/DashboardGallery';
 import { LiveDemo } from '@/components/LiveDemo';
 import { Differentiator } from '@/components/Differentiator';
 import { BenchScoreboard } from '@/components/BenchScoreboard';
@@ -18,6 +19,7 @@ export default function Page() {
         <DemoShowcase />
         <ValueTiers />
         <MemeWeatherShowcase />
+        <DashboardGallery />
         <LiveDemo />
         <Differentiator />
         <BenchScoreboard />
