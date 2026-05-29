@@ -162,6 +162,53 @@ describe('applyHunks', () => {
     const r = applyHunks(original, parsed.hunks);
     expect(r.ok).toBe(false);
   });
+
+  it('fuzzy-anchors when the claimed line is off but context is unique', () => {
+    // File: target line in header says 2, but the real `const b = 2;` is at
+    // line 4. Context is unique → fuzzy search relocates and applies.
+    const original = 'header1\nheader2\nheader3\nconst b = 2;\nfooter\n';
+    const parsed = parseUnifiedDiff(
+      [
+        '--- a/x',
+        '+++ b/x',
+        '@@ -2,1 +2,1 @@',
+        '-const b = 2;',
+        '+const b = 3;',
+      ].join('\n'),
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const r = applyHunks(original, parsed.hunks);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.content).toContain('const b = 3;');
+      expect(r.content).not.toContain('const b = 2;');
+      // The headers must be preserved exactly (we patched the right spot).
+      expect(r.content.startsWith('header1\nheader2\nheader3\n')).toBe(true);
+    }
+  });
+
+  it('rejects an ambiguous anchor (context matches 2 locations)', () => {
+    // Two identical boilerplate lines. The LLM hunk header line number is WRONG
+    // (points at line 3, where the context does NOT match), forcing a fuzzy
+    // search — which then finds the single-line context at BOTH line 2 and line
+    // 4 → ambiguous → must reject rather than guess.
+    const original = 'x();\nreturn null;\ny();\nreturn null;\nz();\n';
+    const parsed = parseUnifiedDiff(
+      [
+        '--- a/x',
+        '+++ b/x',
+        '@@ -3,1 +3,1 @@',
+        '-return null;',
+        '+return undefined;',
+      ].join('\n'),
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const r = applyHunks(original, parsed.hunks);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/ambiguous-anchor/);
+  });
 });
 
 describe('patchBugs — skips', () => {
@@ -344,6 +391,84 @@ describe('patchBugs — happy path + safety rails', () => {
       // file restored
       const after = fs.readFileSync(abs, 'utf8');
       expect(after).toBe(original);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('ambiguous anchor → finding fails and the file is left byte-identical', async () => {
+    const { cwd, cleanup } = withTempDir();
+    try {
+      // Duplicate boilerplate; LLM gives a wrong line number whose single-line
+      // context matches two places → patcher must reject, not corrupt.
+      const original = [
+        'export function a() {',
+        '  return null;',
+        '}',
+        'export function b() {',
+        '  return null;',
+        '}',
+      ].join('\n');
+      const abs = writeFile(cwd, 'src/dup.ts', original);
+      const diff = [
+        '--- a/src/dup.ts',
+        '+++ b/src/dup.ts',
+        '@@ -3,1 +3,1 @@',
+        '-  return null;',
+        '+  return undefined;',
+      ].join('\n');
+      const f = makeFinding({ file: 'src/dup.ts', line: 3, category: 'error-handling' });
+      const res = await patchBugs({
+        cwd,
+        findings: [f],
+        criticConfig: fakeCfg,
+        criticApiKey: 'k',
+        logger: silentLogger(),
+        callLLM: mockLlm(diff),
+        runTscFn: tscOk,
+      });
+      expect(res[0]!.status).toBe('failed');
+      expect(res[0]!.reason).toMatch(/ambiguous-anchor/);
+      // File must be untouched, byte-identical.
+      expect(fs.readFileSync(abs, 'utf8')).toBe(original);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('tsc-fail rollback leaves the file byte-identical and removes the backup sidecar', async () => {
+    const { cwd, cleanup } = withTempDir();
+    try {
+      const original = [
+        'export function handler(req: any) {',
+        '  const id = req.query.id;',
+        '  return `/x?id=${id}`;',
+        '}',
+      ].join('\n');
+      const abs = writeFile(cwd, 'src/handler.ts', original);
+      const diff = [
+        '--- a/src/handler.ts',
+        '+++ b/src/handler.ts',
+        '@@ -3,1 +3,1 @@',
+        '-  return `/x?id=${id}`;',
+        '+  return `/x?id=${encodeURIComponent(id)}`;',
+      ].join('\n');
+      const f = makeFinding({ line: 3 });
+      const res = await patchBugs({
+        cwd,
+        findings: [f],
+        criticConfig: fakeCfg,
+        criticApiKey: 'k',
+        logger: silentLogger(),
+        callLLM: mockLlm(diff),
+        runTscFn: tscFail,
+      });
+      expect(res[0]!.status).toBe('failed');
+      expect(res[0]!.reason).toMatch(/tsc-failed/);
+      // Byte-identical restore.
+      expect(fs.readFileSync(abs, 'utf8')).toBe(original);
+      // The crash-recovery backup sidecar must be cleaned up on rollback.
+      expect(fs.existsSync(`${abs}.zerou-backup`)).toBe(false);
     } finally {
       cleanup();
     }

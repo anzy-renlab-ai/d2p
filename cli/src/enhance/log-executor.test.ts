@@ -21,7 +21,7 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
-import { executeLogInjection } from './log-executor.js';
+import { executeLogInjection, __internal, type TscCheckFn } from './log-executor.js';
 import type { InjectionPlan } from './types.js';
 import {
   createTrackLogger,
@@ -322,6 +322,204 @@ describe('log-executor / failure handling', () => {
     });
     expect(result.filesChanged).not.toContain('src/route.ts');
     expect(result.failures).toEqual([]);
+  });
+});
+
+describe('log-executor / tsc self-check + rollback', () => {
+  it('rolls back to original bytes when the post-rewrite tsc check fails', async () => {
+    const cwd = await tmpdir();
+    await writeFile(cwd, 'package.json', JSON.stringify({ name: 'demo' }));
+    const original = `export function run() {
+  console.log('hi');
+}
+`;
+    await writeFile(cwd, 'src/util.ts', original);
+    const failingTsc: TscCheckFn = () => ({ ok: false, firstError: "error TS9999: simulated broken rewrite" });
+    const result = await executeLogInjection({
+      cwd,
+      plan: basePlan({
+        bootstrapFile: 'src/logger.ts',
+        sites: [
+          { file: 'src/util.ts', line: 2, endLine: 2, kind: 'console-log', preview: 'console.log' },
+        ],
+      }),
+      logger: makeLogger(cwd),
+      runTscFn: failingTsc,
+    });
+    // File must NOT be reported as changed, and bytes restored to original.
+    expect(result.filesChanged).not.toContain('src/util.ts');
+    const after = fs.readFileSync(path.join(cwd, 'src/util.ts'), 'utf8');
+    expect(after).toBe(original);
+    expect(after).toContain("console.log('hi')");
+    expect(after).not.toContain('logger.info(');
+  });
+
+  it('emits a log-rewrite-tsc-failed skip decision on rollback', async () => {
+    const cwd = await tmpdir();
+    await writeFile(cwd, 'package.json', JSON.stringify({ name: 'demo' }));
+    await writeFile(cwd, 'src/util.ts', `export function run() {\n  console.log('x');\n}\n`);
+    const failingTsc: TscCheckFn = () => ({ ok: false, firstError: 'boom' });
+    const { entries } = await captureLogsFor(
+      { track: 'enhance', eventPattern: /^enhance\.log\.executor\./ },
+      async () => {
+        await executeLogInjection({
+          cwd,
+          plan: basePlan({
+            bootstrapFile: 'src/logger.ts',
+            sites: [
+              { file: 'src/util.ts', line: 2, endLine: 2, kind: 'console-log', preview: 'console.log' },
+            ],
+          }),
+          logger: makeLogger(cwd),
+          runTscFn: failingTsc,
+        });
+      },
+    );
+    // The branch decision is debug-level (filtered by default minLevel), but
+    // the warn-level file-skip carries the same reason and always surfaces.
+    const hasSkip = entries.some(
+      (e) => e.event === 'enhance.log.executor.file-skip' &&
+        (e as { reason?: string }).reason === 'log-rewrite-tsc-failed',
+    );
+    expect(hasSkip).toBe(true);
+  });
+
+  it('applies the rewrite when the tsc check passes', async () => {
+    const cwd = await tmpdir();
+    await writeFile(cwd, 'package.json', JSON.stringify({ name: 'demo' }));
+    await writeFile(cwd, 'src/util.ts', `export function run() {\n  console.log('ok');\n}\n`);
+    const okTsc: TscCheckFn = () => ({ ok: true });
+    const result = await executeLogInjection({
+      cwd,
+      plan: basePlan({
+        bootstrapFile: 'src/logger.ts',
+        sites: [
+          { file: 'src/util.ts', line: 2, endLine: 2, kind: 'console-log', preview: 'console.log' },
+        ],
+      }),
+      logger: makeLogger(cwd),
+      runTscFn: okTsc,
+    });
+    expect(result.filesChanged).toContain('src/util.ts');
+    const after = fs.readFileSync(path.join(cwd, 'src/util.ts'), 'utf8');
+    expect(after).toContain('logger.info(');
+  });
+});
+
+describe('log-executor / regex-literal corruption guard', () => {
+  it('does NOT rewrite console.log inside a regex literal', async () => {
+    const cwd = await tmpdir();
+    await writeFile(cwd, 'package.json', JSON.stringify({ name: 'demo' }));
+    // The regex literal contains the text `console.log(` — a naive rewrite
+    // would corrupt the pattern. The masking must blank the regex body.
+    const original = `export function detect(s: string) {
+  const r = /console\\.log\\(/;
+  return r.test(s);
+}
+`;
+    await writeFile(cwd, 'src/scan.ts', original);
+    const result = await executeLogInjection({
+      cwd,
+      plan: basePlan({
+        bootstrapFile: 'src/logger.ts',
+        sites: [
+          { file: 'src/scan.ts', line: 2, endLine: 2, kind: 'console-log', preview: 'console.log' },
+        ],
+      }),
+      logger: makeLogger(cwd),
+      runTscFn: (() => ({ ok: true })) as TscCheckFn,
+    });
+    const after = fs.readFileSync(path.join(cwd, 'src/scan.ts'), 'utf8');
+    // The regex literal must be untouched.
+    expect(after).toContain('/console\\.log\\(/');
+    expect(after).not.toContain('logger.info(');
+    // Nothing was changed → file not reported.
+    expect(result.filesChanged).not.toContain('src/scan.ts');
+  });
+
+  it('maskNonCodeRegions blanks a regex literal body', () => {
+    const src = `const r = /console\\.log\\(/g;`;
+    const { masked, uncertain } = __internal.maskNonCodeRegions(src);
+    expect(uncertain).toBe(false);
+    expect(masked.length).toBe(src.length);
+    // The `console` text inside the regex must be masked to spaces.
+    expect(masked).not.toContain('console');
+    // The leading code (`const r = `) is preserved.
+    expect(masked.startsWith('const r = ')).toBe(true);
+  });
+
+  it('regexAllowedAt: division is NOT treated as a regex', () => {
+    // `a / b` — `/` after identifier `a` is division, must not start a regex.
+    const src = 'const x = a / b;';
+    const slash = src.indexOf('/');
+    const out = src.split('');
+    expect(__internal.regexAllowedAt(src, out, slash)).toBe(false);
+  });
+});
+
+describe('log-executor / multi-line import insertion', () => {
+  it('inserts the logger import AFTER a multi-line import block, not inside it', async () => {
+    const cwd = await tmpdir();
+    await writeFile(cwd, 'package.json', JSON.stringify({ name: 'demo' }));
+    const original = `import {
+  alpha,
+  beta,
+} from './stuff';
+
+export function run() {
+  console.log('hi');
+}
+`;
+    await writeFile(cwd, 'src/multi.ts', original);
+    const result = await executeLogInjection({
+      cwd,
+      plan: basePlan({
+        bootstrapFile: 'src/logger.ts',
+        sites: [
+          { file: 'src/multi.ts', line: 7, endLine: 7, kind: 'console-log', preview: 'console.log' },
+        ],
+      }),
+      logger: makeLogger(cwd),
+      runTscFn: (() => ({ ok: true })) as TscCheckFn,
+    });
+    expect(result.filesChanged).toContain('src/multi.ts');
+    const after = fs.readFileSync(path.join(cwd, 'src/multi.ts'), 'utf8');
+    // The multi-line import must remain syntactically intact: `import {`
+    // immediately followed (next non-blank line) by `  alpha,`.
+    expect(after).toMatch(/import \{\r?\n\s*alpha,/);
+    // The logger import must appear AFTER the closing `} from './stuff';`.
+    const closeIdx = after.indexOf("} from './stuff';");
+    const loggerIdx = after.indexOf("from './logger'");
+    expect(closeIdx).toBeGreaterThanOrEqual(0);
+    expect(loggerIdx).toBeGreaterThan(closeIdx);
+  });
+
+  it('findImportBlockEnd spans a multi-line import statement', () => {
+    const src = `import {
+  a,
+  b,
+} from 'x';
+const y = 1;
+`;
+    const end = __internal.findImportBlockEnd(src);
+    // Everything up to `end` should be the import block; `const y` comes after.
+    expect(src.slice(0, end)).toContain("} from 'x';");
+    expect(src.slice(end)).toMatch(/^const y/);
+  });
+
+  it('insertImport places the import after a multi-line block', () => {
+    const src = `import {
+  a,
+} from 'x';
+export const z = 1;
+`;
+    const out = __internal.insertImport(src, "import { logger } from './logger';\n");
+    // import block intact
+    expect(out).toMatch(/import \{\r?\n\s*a,\r?\n\} from 'x';/);
+    // logger import inserted between the block and `export const z`
+    const blockEnd = out.indexOf("} from 'x';") + "} from 'x';".length;
+    const loggerAt = out.indexOf("import { logger }");
+    expect(loggerAt).toBeGreaterThan(blockEnd);
   });
 });
 

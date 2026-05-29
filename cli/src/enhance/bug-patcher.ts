@@ -435,18 +435,69 @@ export async function patchBugs(opts: PatcherOptsInternal): Promise<PatchResult[
       continue;
     }
 
-    fs.writeFileSync(absFile, applyRes.content, 'utf8');
+    // — Crash-safe overwrite + tsc gate.
+    //
+    // Invariant: after this block (success OR crash) the user's file is either
+    // the correctly patched version or the untouched original — never a
+    // corrupted in-between.
+    //
+    // tsc type-checks the PROJECT (by real path), so we cannot check a temp
+    // file in place of the target. Instead:
+    //   1. Write the original to a `.zerou-backup` sidecar (so a crash during
+    //      the up-to-180s tsc run can be recovered from disk, not just memory).
+    //   2. Atomically replace the target with the patched content (temp+rename
+    //      — a crash mid-write can't truncate the file).
+    //   3. Run tsc. On failure, atomically restore the original.
+    //   4. Remove the backup sidecar on the happy path.
+    const backupPath = `${absFile}.zerou-backup`;
+    try {
+      fs.writeFileSync(backupPath, originalContent, 'utf8');
+    } catch (err) {
+      logCatch(logger, 'enhance.bug.patcher.finding.backup-failed', err, {
+        findingId: f.id,
+        file: f.file,
+      });
+      results.push({
+        finding: f,
+        status: 'failed',
+        reason: `backup-failed: ${(err as Error).message}`.slice(0, 200),
+      });
+      failed++;
+      continue;
+    }
+    const wrote = atomicWrite(absFile, applyRes.content);
+    if (!wrote.ok) {
+      // Original is still intact (atomic write never touched it on failure);
+      // clean up the backup and report.
+      safeUnlink(backupPath);
+      logBranch(logger, 'enhance.bug.patcher.finding.failed', {
+        decision: 'failed',
+        reason: 'write-failed',
+        findingId: f.id,
+        detail: wrote.reason,
+      });
+      results.push({
+        finding: f,
+        status: 'failed',
+        reason: `write-failed: ${wrote.reason}`.slice(0, 200),
+      });
+      failed++;
+      continue;
+    }
 
     // — Run tsc self-check
     const tscRes = tscFn(cwd);
     if (!tscRes.ok) {
-      // Rollback
-      fs.writeFileSync(absFile, originalContent, 'utf8');
+      // Rollback atomically from the in-memory original (the .zerou-backup
+      // sidecar is the crash-recovery fallback; in-process we restore directly).
+      const restored = atomicWrite(absFile, originalContent);
+      safeUnlink(backupPath);
       logBranch(logger, 'enhance.bug.patcher.finding.failed', {
         decision: 'failed',
         reason: 'tsc-failed',
         findingId: f.id,
         firstError: tscRes.firstError.slice(0, 300),
+        rolledBack: restored.ok,
       });
       results.push({
         finding: f,
@@ -457,6 +508,8 @@ export async function patchBugs(opts: PatcherOptsInternal): Promise<PatchResult[
       failed++;
       continue;
     }
+    // Success — drop the backup sidecar.
+    safeUnlink(backupPath);
 
     logger.log?.('info', 'enhance.bug.patcher.finding.applied', {
       findingId: f.id,
@@ -494,6 +547,44 @@ export async function patchBugs(opts: PatcherOptsInternal): Promise<PatchResult[
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Atomic write: write to a same-dir temp file then `fs.renameSync` over the
+ * target. A crash mid-write leaves either the old or the new content fully on
+ * disk — never a truncated file. Same-dir temp keeps the rename a same-FS
+ * atomic op.
+ */
+function atomicWrite(abs: string, content: string): { ok: true } | { ok: false; reason: string } {
+  try {
+    const dir = path.dirname(abs);
+    const tmp = path.join(
+      dir,
+      `.${path.basename(abs)}.zerou-tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    try {
+      fs.writeFileSync(tmp, content, 'utf8');
+      fs.renameSync(tmp, abs);
+    } catch (e) {
+      try {
+        if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+      } catch {
+        /* ignore */
+      }
+      throw e;
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: (e as Error).message };
+  }
+}
+
+function safeUnlink(p: string): void {
+  try {
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+  } catch {
+    /* best effort */
+  }
+}
 
 interface ContextWindow {
   snippet: string;
@@ -724,23 +815,116 @@ interface ApplyFail {
   error: string;
 }
 
+/** Max lines to scan on each side of the LLM-claimed anchor when its line
+ * number is off but the context still matches somewhere unique. */
+const FUZZY_ANCHOR_WINDOW = 50;
+
+/**
+ * Build the list of lines a hunk EXPECTS to find at its anchor, in order:
+ * context (' ') and deletion ('-') lines (the lines that must already exist in
+ * the original). Added ('+') and no-newline ('\\') markers are excluded.
+ */
+function hunkExpectedLines(h: Hunk): string[] {
+  const expected: string[] = [];
+  for (const ln of h.lines) {
+    if (ln.startsWith('\\')) continue;
+    const prefix = ln[0]!;
+    if (prefix === ' ' || prefix === '-') {
+      expected.push(ln.slice(1));
+    }
+  }
+  return expected;
+}
+
+/** True if `origLines` matches `expected` starting at 0-based `at`. */
+function expectedMatchesAt(origLines: string[], at: number, expected: string[]): boolean {
+  if (at < 0 || at + expected.length > origLines.length) return false;
+  for (let k = 0; k < expected.length; k++) {
+    const have = origLines[at + k];
+    if (have === undefined || !contextMatches(have, expected[k]!)) return false;
+  }
+  return true;
+}
+
+/**
+ * Resolve the real 0-based anchor index for a hunk.
+ *
+ * 1. If the LLM-claimed `oldStart-1` matches the expected context exactly, use
+ *    it (fast path, no scan).
+ * 2. Otherwise fuzzy-search +/- FUZZY_ANCHOR_WINDOW lines for positions where
+ *    the FULL expected context matches. If exactly one match → use it. If zero
+ *    or MORE THAN ONE → reject ('ambiguous-anchor') rather than patching a
+ *    guessed location (which could silently corrupt duplicate boilerplate).
+ *
+ * A hunk that is pure-insertion (no context/deletion lines) has nothing to
+ * anchor against, so we trust `oldStart` as-is (can't be ambiguous).
+ */
+function resolveAnchor(
+  origLines: string[],
+  h: Hunk,
+): { ok: true; index: number } | { ok: false; error: string } {
+  const claimed = h.oldStart - 1; // 0-based
+  const expected = hunkExpectedLines(h);
+  // Pure insertion — no anchor lines to verify; trust the claimed position
+  // (clamped into range below by the caller).
+  if (expected.length === 0) {
+    if (claimed < 0 || claimed > origLines.length) {
+      return { ok: false, error: `context-mismatch: hunk targets line ${h.oldStart}, file has ${origLines.length}` };
+    }
+    return { ok: true, index: claimed };
+  }
+  // Fast path: exact match at the claimed line.
+  if (expectedMatchesAt(origLines, claimed, expected)) {
+    return { ok: true, index: claimed };
+  }
+  // Fuzzy search a bounded window for unique full-context matches.
+  const lo = Math.max(0, claimed - FUZZY_ANCHOR_WINDOW);
+  const hi = Math.min(origLines.length - expected.length, claimed + FUZZY_ANCHOR_WINDOW);
+  const matches: number[] = [];
+  for (let at = lo; at <= hi; at++) {
+    if (expectedMatchesAt(origLines, at, expected)) matches.push(at);
+  }
+  if (matches.length === 1) {
+    return { ok: true, index: matches[0]! };
+  }
+  if (matches.length === 0) {
+    return {
+      ok: false,
+      error: `context-mismatch: hunk context not found near line ${h.oldStart}`,
+    };
+  }
+  return {
+    ok: false,
+    error: `ambiguous-anchor: hunk context matches ${matches.length} locations near line ${h.oldStart}; refusing to guess`,
+  };
+}
+
 export function applyHunks(original: string, hunks: Hunk[]): ApplyOk | ApplyFail {
   // Preserve original EOL style on a best-effort basis: if file has CRLF, keep
   // CRLF; otherwise LF.
   const eol = original.includes('\r\n') ? '\r\n' : '\n';
   const origLines = original.split(/\r?\n/);
-  // Walk hunks in order, applying with offset tracking.
+  // Resolve each hunk's real anchor (fuzzy search if the claimed line is off),
+  // rejecting ambiguous anchors BEFORE mutating anything.
+  const resolved: Array<{ h: Hunk; index: number }> = [];
+  for (const h of hunks) {
+    const anchor = resolveAnchor(origLines, h);
+    if (!anchor.ok) {
+      return { ok: false, error: anchor.error };
+    }
+    resolved.push({ h, index: anchor.index });
+  }
+  // Walk hunks in resolved-anchor order, applying with offset tracking.
   const out: string[] = [];
   let cursor = 0; // 0-based index into origLines next-to-copy
-  // Sort hunks by oldStart to be defensive
-  const sorted = [...hunks].sort((a, b) => a.oldStart - b.oldStart);
-  for (const h of sorted) {
-    const targetIdx = h.oldStart - 1; // 0-based
+  // Sort by resolved anchor to be defensive about ordering.
+  const sorted = [...resolved].sort((a, b) => a.index - b.index);
+  for (const { h, index: targetIdx } of sorted) {
     if (targetIdx < cursor) {
       return { ok: false, error: 'context-mismatch: overlapping hunks' };
     }
     if (targetIdx > origLines.length) {
-      return { ok: false, error: `context-mismatch: hunk targets line ${h.oldStart}, file has ${origLines.length}` };
+      return { ok: false, error: `context-mismatch: hunk targets line ${targetIdx + 1}, file has ${origLines.length}` };
     }
     // Copy unchanged region [cursor..targetIdx)
     for (let k = cursor; k < targetIdx; k++) {

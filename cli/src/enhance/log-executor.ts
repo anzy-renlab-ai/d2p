@@ -30,6 +30,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 import type { InjectionPlan, LogSite, LogSiteKind } from './types.js';
 import type { TrackLogger } from '../log-types.js';
@@ -57,10 +58,24 @@ import {
 
 // ── Public types ────────────────────────────────────────────────────────────
 
+/**
+ * Test seam — override the post-rewrite tsc self-check. Default impl runs
+ * `npx tsc --noEmit`. Tests inject a stub so they don't spawn a real
+ * subprocess. Mirrors bug-patcher's `TscRunner` seam.
+ */
+export type TscCheckFn = (cwd: string) => { ok: true } | { ok: false; firstError: string };
+
 export interface LogExecutorOpts {
   cwd: string;
   plan: InjectionPlan;
   logger: TrackLogger;
+  /**
+   * @internal — test-only seam for the post-rewrite tsc self-check. When
+   * omitted, the default `runTsc` (spawns `npx tsc --noEmit`) is used. Every
+   * file we rewrite is tsc-checked; on failure the original bytes are restored
+   * and the file is skipped with reason `log-rewrite-tsc-failed`.
+   */
+  runTscFn?: TscCheckFn;
 }
 
 export interface LogExecutorResult {
@@ -95,14 +110,67 @@ function readFileSafe(abs: string): ReadResult | ReadError {
   }
 }
 
+/**
+ * Atomic write: write to a temp file in the SAME directory, then
+ * `fs.renameSync` over the target. A crash mid-write leaves either the old
+ * file intact or the new file fully written — never a truncated/half-written
+ * source. Same-dir temp guarantees the rename is a same-filesystem atomic op.
+ */
 function writeFileSafe(abs: string, content: string): { ok: true } | { ok: false; reason: string } {
   try {
-    fs.mkdirSync(path.dirname(abs), { recursive: true });
-    fs.writeFileSync(abs, content);
+    const dir = path.dirname(abs);
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = path.join(
+      dir,
+      `.${path.basename(abs)}.zerou-tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    try {
+      fs.writeFileSync(tmp, content);
+      fs.renameSync(tmp, abs);
+    } catch (e) {
+      // Best-effort cleanup of the temp file if the rename failed.
+      try {
+        if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+      } catch {
+        /* ignore cleanup failure */
+      }
+      throw e;
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, reason: (e as Error).message };
   }
+}
+
+interface TscOk {
+  ok: true;
+}
+interface TscFail {
+  ok: false;
+  firstError: string;
+}
+
+/**
+ * Default post-rewrite self-check: run `npx tsc --noEmit` over the project. If
+ * the project has a tsconfig.json we point at it; otherwise a bare invocation.
+ * Returns the first `error`-matching line on failure.
+ */
+export function runTsc(cwd: string): TscOk | TscFail {
+  const tsconfig = path.join(cwd, 'tsconfig.json');
+  const hasTsconfig = fs.existsSync(tsconfig);
+  const args = hasTsconfig
+    ? ['--yes', 'tsc', '--noEmit', '-p', 'tsconfig.json']
+    : ['--yes', 'tsc', '--noEmit'];
+  const res = spawnSync('npx', args, {
+    cwd,
+    encoding: 'utf8',
+    timeout: 180_000,
+    shell: process.platform === 'win32',
+  });
+  if (res.status === 0) return { ok: true };
+  const out = (res.stdout ?? '') + (res.stderr ?? '');
+  const firstError = out.split(/\r?\n/).find((l) => /error/i.test(l)) ?? out.slice(0, 200);
+  return { ok: false, firstError };
 }
 
 function relativeImportFor(fromRel: string, bootstrapRel: string): string {
@@ -186,16 +254,85 @@ function findImportInsertionOffset(content: string): number {
   return offset;
 }
 
+/**
+ * Find the end offset (within `tail`) of the contiguous top-of-file import
+ * block, correctly spanning MULTI-LINE imports like:
+ *
+ *   import {
+ *     a,
+ *     b,
+ *   } from 'x';
+ *
+ * The previous single-line regex `/^(?:import\s[^\n]*\n)+/` matched only the
+ * first physical line `import {`, so the logger import got inserted BETWEEN
+ * `import {` and its members → syntax error. We instead walk statement by
+ * statement: a statement starts with `import` (or a re-export `export ...
+ * from`) at the start of a line and ends at the line containing the closing
+ * `from '...'` / bare side-effect import. Masking blanks out string contents
+ * so a `from '...'` inside a comment/string can't fool us. Returns 0 if there
+ * is no leading import block.
+ */
+function findImportBlockEnd(tail: string): number {
+  // Mask non-code so brace/quote counting isn't fooled by strings/comments.
+  // If masking is uncertain we conservatively treat the block as not-present
+  // (offset 0) — the caller will prepend, which is always syntactically safe.
+  const m = maskNonCodeRegions(tail);
+  if (m.uncertain) return 0;
+  const masked = m.masked;
+  let offset = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    // Skip blank lines between statements.
+    const ws = /^[ \t\r\n]*/.exec(masked.slice(offset));
+    const afterWs = offset + (ws ? ws[0].length : 0);
+    const rest = masked.slice(afterWs);
+    // Match the start of an `import` or top-level `export ... from` statement.
+    if (!/^import\b/.test(rest) && !/^export\b[^\n]*\bfrom\b/.test(rest)) {
+      break;
+    }
+    // Find the end of this statement. Statements may span multiple physical
+    // lines (brace import lists). Scan for the first `;` or, if there is no
+    // semicolon, the end of the first physical line that closes a balanced
+    // brace group (or has no braces at all).
+    let i = afterWs;
+    let braceDepth = 0;
+    let stmtEnd = -1;
+    while (i < masked.length) {
+      const c = masked[i]!;
+      if (c === '{') braceDepth++;
+      else if (c === '}') braceDepth--;
+      else if (c === ';' && braceDepth <= 0) {
+        // Include the semicolon and trailing newline (if present).
+        i++;
+        if (masked[i] === '\r') i++;
+        if (masked[i] === '\n') i++;
+        stmtEnd = i;
+        break;
+      } else if (c === '\n' && braceDepth <= 0) {
+        // Semicolon-less statement (e.g. `import 'x'` with ASI) — end of line.
+        i++;
+        stmtEnd = i;
+        break;
+      }
+      i++;
+    }
+    if (stmtEnd === -1) {
+      // Unterminated statement to EOF — consume the rest.
+      stmtEnd = masked.length;
+    }
+    offset = stmtEnd;
+  }
+  return offset;
+}
+
 function insertImport(content: string, importLine: string): string {
   const insertionPoint = findImportInsertionOffset(content);
   const head = content.slice(0, insertionPoint);
   const tail = content.slice(insertionPoint);
   // After the directive/shebang prologue, see if there's a contiguous
-  // top-of-file import block; if so, append after it.
-  const importRe = /^(?:import\s[^\n]*\n)+/;
-  const m = importRe.exec(tail);
-  if (m && m.index === 0) {
-    const end = m[0].length;
+  // top-of-file import block; if so, append after it (multi-line aware).
+  const end = findImportBlockEnd(tail);
+  if (end > 0) {
     return head + tail.slice(0, end) + importLine + tail.slice(end);
   }
   return head + importLine + tail;
@@ -222,6 +359,64 @@ function insertImport(content: string, importLine: string): string {
  *     in regex, but won't match identifier chars). Newlines preserved.
  *   - if `uncertain` is true, do NOT rewrite — fall back to the original.
  */
+/**
+ * Decide whether a `/` at index `i` begins a regex literal (vs a division
+ * operator). Regex literals appear in *expression position*: at the start of
+ * input, or after a token that cannot end an expression (operators, `(`, `[`,
+ * `{`, `,`, `;`, `:`, `=`, `return`, `typeof`, `&&`, `||`, etc.). After a
+ * value-producing token (identifier, `)`, `]`, number, or a string/regex
+ * close) a `/` is division.
+ *
+ * We scan backwards over `source`, skipping whitespace AND any region already
+ * masked to spaces (strings/comments become spaces in `out`, so we use `out`
+ * to detect them) to find the last meaningful character.
+ */
+function regexAllowedAt(source: string, out: string[], i: number): boolean {
+  let j = i - 1;
+  // Skip whitespace, and skip masked-out regions (those are spaces in `out`
+  // but may be non-space in `source` — e.g. a preceding string). We rely on
+  // `out` having been filled up to `i` already (forward single-pass).
+  while (j >= 0) {
+    const om = out[j]!;
+    const sc = source[j]!;
+    if (sc === ' ' || sc === '\t' || sc === '\n' || sc === '\r') {
+      j--;
+      continue;
+    }
+    // If this position was masked (string/comment/regex body) but the source
+    // char is non-whitespace, it ended a value (string/regex literal) → the
+    // following `/` is division, NOT a regex.
+    if (om === ' ') {
+      return false;
+    }
+    break;
+  }
+  if (j < 0) return true; // start of input → regex position
+  const prev = source[j]!;
+  // Value-ending chars → division.
+  if (/[A-Za-z0-9_$)\]]/.test(prev)) {
+    // …unless the identifier is a keyword that precedes an expression
+    // (return / typeof / case / in / of / instanceof / void / delete / yield /
+    // do / else / new). Pull the trailing word.
+    if (/[A-Za-z_$]/.test(prev)) {
+      let k = j;
+      while (k >= 0 && /[A-Za-z0-9_$]/.test(source[k]!)) k--;
+      const word = source.slice(k + 1, j + 1);
+      const exprKeywords = new Set([
+        'return', 'typeof', 'case', 'in', 'of', 'instanceof', 'void',
+        'delete', 'yield', 'do', 'else', 'new', 'throw', 'await',
+      ]);
+      if (exprKeywords.has(word)) return true;
+    }
+    return false;
+  }
+  // Everything else (operators, punctuation: ( [ { , ; : = + - * % ! & | ? < > ^ ~ })
+  // is an expression position. `}` is ambiguous (block vs object) but treating
+  // it as regex-allowed only risks masking a real division by a parenthesized
+  // expr after a block, which is exceedingly rare; masking is non-corrupting.
+  return true;
+}
+
 function maskNonCodeRegions(source: string): { masked: string; uncertain: boolean } {
   const out = source.split('');
   let i = 0;
@@ -266,6 +461,57 @@ function maskNonCodeRegions(source: string): { masked: string; uncertain: boolea
           if (source[i] !== '\n') out[i] = ' ';
           i++;
         }
+        uncertain = true;
+      }
+      continue;
+    }
+    // Regex literal (e.g. `/console\.log\(/g`). A `/` begins a regex only in
+    // an expression position — never right after a value (identifier, `)`,
+    // `]`, number, string-close). We approximate the "preceding token" by
+    // walking back over whitespace to the last meaningful char. If it implies
+    // a value, the `/` is division; otherwise treat it as a regex and mask the
+    // body (equal-length spaces, newlines preserved) so its contents can't be
+    // rewritten. The `//` and `/*` comment cases are handled above, so any `/`
+    // reaching here that we classify as regex is genuinely a literal start.
+    if (ch === '/' && regexAllowedAt(source, out, i)) {
+      out[i] = ' ';
+      i++;
+      let inClass = false; // inside a [...] char class — `/` there is literal
+      let closed = false;
+      while (i < source.length) {
+        const c = source[i]!;
+        if (c === '\\') {
+          out[i] = ' ';
+          if (i + 1 < source.length) {
+            if (source[i + 1] !== '\n') out[i + 1] = ' ';
+            i += 2;
+          } else {
+            i += 1;
+          }
+          continue;
+        }
+        if (c === '\n') {
+          // Regex literals can't span raw newlines — bail conservatively.
+          uncertain = true;
+          break;
+        }
+        if (c === '[') inClass = true;
+        else if (c === ']') inClass = false;
+        else if (c === '/' && !inClass) {
+          out[i] = ' ';
+          i++;
+          // Mask trailing flags (letters) so e.g. `/x/g` -> all spaces.
+          while (i < source.length && /[a-z]/i.test(source[i]!)) {
+            out[i] = ' ';
+            i++;
+          }
+          closed = true;
+          break;
+        }
+        out[i] = ' ';
+        i++;
+      }
+      if (!closed) {
         uncertain = true;
       }
       continue;
@@ -618,7 +864,14 @@ function transformConsoleCalls(
 }
 
 // Internal export for unit tests (Phase 10.6). Not part of the public API.
-export const __internal = { transformConsoleCalls, maskNonCodeRegions, scanArgList };
+export const __internal = {
+  transformConsoleCalls,
+  maskNonCodeRegions,
+  scanArgList,
+  insertImport,
+  findImportBlockEnd,
+  regexAllowedAt,
+};
 
 // ── Bootstrap + middleware ──────────────────────────────────────────────────
 
@@ -801,6 +1054,7 @@ function applyToFile(
   kinds: Set<LogSiteKind>,
   bootstrapFileRel: string,
   log: TrackLogger,
+  tscFn: TscCheckFn,
 ): ApplyResult {
   const abs = path.join(cwd, rel);
   log.log('debug', 'enhance.log.executor.file-start', { file: rel, kinds: Array.from(kinds) });
@@ -921,6 +1175,9 @@ function applyToFile(
 
   // P1-5: re-prepend BOM on write if the original had one.
   const output = hadBom ? '﻿' + next : next;
+  // `r.content` is the EXACT original bytes (BOM included) — keep it so we can
+  // restore byte-identically if the tsc self-check fails.
+  const originalBytes = r.content;
   const w = writeFileSafe(abs, output);
   if (!w.ok) {
     logBranch(log, 'enhance.log.executor.file-change-decision', {
@@ -932,6 +1189,45 @@ function applyToFile(
     log.log('warn', 'enhance.log.executor.file-failed', { file: rel, reason: w.reason });
     return { status: 'fail', reason: w.reason };
   }
+
+  // Post-rewrite self-check: if our text rewrite broke the build (e.g. a regex
+  // literal we failed to mask, or a malformed import insertion), restore the
+  // ORIGINAL bytes atomically and skip this file. This single gate catches
+  // corruption vectors (a)+(b) and any future regression before it reaches the
+  // user. Mirrors bug-patcher's tsc-gate + rollback.
+  //
+  // The DEFAULT checker (`runTsc`) only runs a real `tsc` when the project has
+  // a tsconfig.json — otherwise there is nothing meaningful to type-check and
+  // we don't want a false-positive rollback on a plain-JS / non-TS demo. A
+  // test-injected `runTscFn` always runs (the seam lets us simulate a broken
+  // rewrite deterministically). We detect the default by reference identity.
+  const tscRes =
+    tscFn === runTsc && !fs.existsSync(path.join(cwd, 'tsconfig.json'))
+      ? ({ ok: true } as const)
+      : tscFn(cwd);
+  if (!tscRes.ok) {
+    const restore = writeFileSafe(abs, originalBytes);
+    logBranch(log, 'enhance.log.executor.file-change-decision', {
+      decision: 'skip',
+      reasoning: 'log-rewrite-tsc-failed',
+      file: rel,
+      firstError: tscRes.firstError.slice(0, 300),
+      rolledBack: restore.ok,
+      restoreError: restore.ok ? undefined : restore.reason,
+    });
+    log.log('warn', 'enhance.log.executor.file-skip', {
+      file: rel,
+      reason: 'log-rewrite-tsc-failed',
+      rolledBack: restore.ok,
+    });
+    if (!restore.ok) {
+      // We failed to restore — surface as a hard failure so the caller does
+      // not silently leave a corrupted file.
+      return { status: 'fail', reason: `rollback-failed: ${restore.reason}` };
+    }
+    return { status: 'skip', reason: 'log-rewrite-tsc-failed' };
+  }
+
   logBranch(log, 'enhance.log.executor.file-change-decision', {
     decision: 'apply',
     reasoning: `rewrote ${catches} silent-catch, ${consoles} console call(s); skipped ${consolesSkipped} multi-arg console`,
@@ -953,6 +1249,7 @@ function applyToFile(
 
 export async function executeLogInjection(opts: LogExecutorOpts): Promise<LogExecutorResult> {
   const { cwd, plan, logger } = opts;
+  const tscFn: TscCheckFn = opts.runTscFn ?? runTsc;
   const log = execLog(logger);
   const startedAt = Date.now();
 
@@ -1017,7 +1314,7 @@ export async function executeLogInjection(opts: LogExecutorOpts): Promise<LogExe
   const grouped = groupSites(plan.sites);
   for (const [rel, kinds] of grouped) {
     try {
-      const r = applyToFile(cwd, rel, kinds, bootstrapRel, log);
+      const r = applyToFile(cwd, rel, kinds, bootstrapRel, log, tscFn);
       if (r.status === 'changed') filesChanged.push(rel);
       else if (r.status === 'fail') {
         failures.push({ file: rel, reason: r.reason ?? 'apply failed' });
