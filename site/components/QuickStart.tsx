@@ -42,7 +42,7 @@ export function QuickStart() {
           <div className="text-[10px] uppercase tracking-widest text-muted mb-2 font-mono">
             quick start
           </div>
-          <h2 className="text-3xl tracking-tight leading-tight">
+          <h2 className="text-3xl tracking-tight leading-tight title-underline">
             Four commands. Your demo is hardened.
           </h2>
         </div>
@@ -62,7 +62,7 @@ export function QuickStart() {
         {cmds.map((c, i) => (
           <div
             key={c.step}
-            className="card p-5 lift-on-hover anim-stagger"
+            className="card card-hover p-5 lift-on-hover anim-stagger"
             style={{ ['--i' as string]: i }}
           >
             <div className="flex items-baseline gap-3 mb-3">

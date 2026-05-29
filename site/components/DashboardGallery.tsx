@@ -40,7 +40,7 @@ export function DashboardGallery() {
           <div className="text-[10px] uppercase tracking-widest text-muted mb-2 font-mono">
             Dashboard · what running ZeroU looks like
           </div>
-          <h2 className="text-3xl tracking-tight leading-tight">
+          <h2 className="text-3xl tracking-tight leading-tight title-underline">
             Watch every fix in flight
           </h2>
         </div>
@@ -59,7 +59,7 @@ export function DashboardGallery() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {shots.map((s) => (
-          <figure key={s.src} className="anim-drift-in">
+          <figure key={s.src} className="card-hover anim-drift-in">
             <img
               src={s.src}
               alt={s.alt}

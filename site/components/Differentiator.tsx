@@ -10,7 +10,7 @@ export function Differentiator() {
             <div className="text-[10px] uppercase tracking-widest text-coral mb-3 font-mono">
               what makes ZeroU different
             </div>
-            <h2 className="text-3xl sm:text-4xl tracking-tight leading-tight mb-4">
+            <h2 className="text-3xl sm:text-4xl tracking-tight leading-tight mb-4 title-underline">
               Log as proof.
             </h2>
             <p className="text-lg text-muted leading-relaxed mb-4">

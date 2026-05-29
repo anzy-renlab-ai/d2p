@@ -106,3 +106,14 @@ tunnel URLs requires a redeploy.
 Caveat: `trycloudflare` quick tunnels last only as long as the `cloudflared`
 process. For something more permanent, set up a named Cloudflare tunnel (free)
 or ngrok with a static domain.
+
+## Dashboard tunnel (Mission Control)
+
+To make the deployed site link into your local ZeroU dashboard at port 5173:
+
+1. Start ZeroU locally: `zerou start`
+2. Tunnel: `cloudflared tunnel --url http://localhost:5173`
+3. Vercel env: `NEXT_PUBLIC_DASHBOARD_URL=https://<random>.trycloudflare.com`
+4. Redeploy
+
+Tunnels die when cloudflared exits — for permanent access, set up a named tunnel.

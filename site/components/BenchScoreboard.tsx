@@ -66,7 +66,7 @@ export function BenchScoreboard() {
           <div className="text-[10px] uppercase tracking-widest text-muted mb-2 font-mono">
             head-to-head
           </div>
-          <h2 className="text-3xl tracking-tight leading-tight">
+          <h2 className="text-3xl tracking-tight leading-tight title-underline">
             Bench numbers, no spin.
           </h2>
         </div>
@@ -100,7 +100,7 @@ export function BenchScoreboard() {
       </div>
 
       {/* Comparison table */}
-      <div className="card overflow-hidden">
+      <div className="card card-hover overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>

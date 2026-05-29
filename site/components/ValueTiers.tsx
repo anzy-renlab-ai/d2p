@@ -55,7 +55,7 @@ export function ValueTiers() {
         <div className="text-[10px] uppercase tracking-widest text-muted mb-2 font-mono">
           four tiers
         </div>
-        <h2 className="text-3xl tracking-tight max-w-2xl leading-tight">
+        <h2 className="text-3xl tracking-tight max-w-2xl leading-tight title-underline">
           The whole pipeline — not a single trick.
         </h2>
       </div>
@@ -64,7 +64,7 @@ export function ValueTiers() {
         {tiers.map((t, i) => (
           <div
             key={t.n}
-            className="card p-5 lift-on-hover anim-stagger flex flex-col"
+            className="card card-hover p-5 lift-on-hover anim-stagger flex flex-col"
             style={{ ['--i' as string]: i }}
           >
             <div className="flex items-baseline justify-between mb-4">

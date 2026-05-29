@@ -51,7 +51,7 @@ export function MemeWeatherShowcase() {
           <div className="text-[10px] uppercase tracking-widest text-muted mb-2 font-mono">
             Case study · meme-weather (real Next.js demo on Vercel)
           </div>
-          <h2 className="text-3xl tracking-tight leading-tight">
+          <h2 className="text-3xl tracking-tight leading-tight title-underline">
             What ZeroU produced on a real demo.
           </h2>
         </div>
@@ -114,7 +114,7 @@ export function MemeWeatherShowcase() {
 
 function ChangedFilesColumn({ rows }: { rows: ChangedFile[] }) {
   return (
-    <div className="card p-5">
+    <div className="card card-hover p-5">
       <div className="flex items-baseline justify-between mb-1">
         <div className="font-serif text-2xl text-forest">What changed</div>
         <Pill tone="forest" mono>diff</Pill>
@@ -150,7 +150,7 @@ function ChangedFilesColumn({ rows }: { rows: ChangedFile[] }) {
 
 function AfterColumn({ rows }: { rows: { label: string }[] }) {
   return (
-    <div className="card p-5">
+    <div className="card card-hover p-5">
       <div className="flex items-baseline justify-between mb-1">
         <div className="font-serif text-2xl text-forest">What you get</div>
         <Pill tone="forest" mono>after 1m 30s</Pill>
