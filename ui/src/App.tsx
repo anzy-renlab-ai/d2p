@@ -70,7 +70,7 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-paper text-ink">
+    <div className="min-h-screen bg-paper bg-grid-faint text-ink">
       {(!session || session.status === 'SETUP' || session.status === 'DONE' || session.status === 'ENDED') && (
         <div className="absolute top-4 right-6 z-10 flex items-center gap-4">
           <button

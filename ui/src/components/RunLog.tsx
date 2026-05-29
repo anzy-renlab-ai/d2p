@@ -141,7 +141,7 @@ export function RunLog() {
       </div>
       <div ref={scrollRef} className="flex-1 overflow-y-auto" onWheel={() => (autoScroll.current = false)}>
         {filtered.length === 0 ? (
-          <div className="p-6 text-muted text-sm italic font-serif">还没有事件…</div>
+          <div className="p-6 text-muted text-sm font-mono">还没有事件…</div>
         ) : (
           <ul className="divide-y divide-warmline text-sm font-mono">
             {filtered.map((e) => {

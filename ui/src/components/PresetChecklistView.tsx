@@ -214,7 +214,7 @@ function ItemCard({ item }: { item: MockPresetItem }) {
         <div className="flex-1 min-w-0">
           <div className="text-sm text-ink leading-snug">{primary}</div>
           {secondary && secondary !== primary && (
-            <div className="text-[11px] text-muted/70 italic font-serif mt-0.5">{secondary}</div>
+            <div className="text-[11px] text-muted/70 font-mono mt-0.5">{secondary}</div>
           )}
         </div>
       </div>

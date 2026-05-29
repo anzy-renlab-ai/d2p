@@ -28,7 +28,7 @@ export function ZerouFindingsList({ findings }: { findings: ReviewFinding[] }) {
 
   if (findings.length === 0) {
     return (
-      <div className="card p-6 text-sm text-muted italic font-serif" data-testid="zerou-findings-list">
+      <div className="card p-6 text-sm text-muted font-mono" data-testid="zerou-findings-list">
         No findings — clean run.
       </div>
     );

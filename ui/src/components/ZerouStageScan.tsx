@@ -107,7 +107,7 @@ export function ZerouStageScan({ bundle, status }: ZerouStageScanProps) {
           </div>
         )}
 
-        <div className="text-[10px] text-muted/60 font-serif italic pt-1 border-t border-warmline/60">
+        <div className="text-[10px] text-muted/60 font-mono pt-1 border-t border-warmline/60">
           这是基线 — 后面 stage ⑤ 的覆盖率分母就是 {branchTotal} 这个数字。
         </div>
       </div>

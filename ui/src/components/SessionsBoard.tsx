@@ -137,7 +137,7 @@ function SessionCard({
   const cls = [
     'w-full text-left rounded-xl px-5 py-4 lift-on-hover',
     isWorking
-      ? `${tint.bgWorking} ring-1 ring-coral/20 anim-breathe`
+      ? `${tint.bgWorking} ring-1 ring-coral/20 anim-breathe has-scanline`
       : active
         ? 'bg-cream shadow-cardHover ring-1 ring-warmline'
         : 'bg-cream shadow-card hover:shadow-cardHover ring-1 ring-warmline/60',
@@ -168,7 +168,7 @@ function SessionCard({
           {session.currentGapTitle}
         </div>
       ) : (
-        <div className="text-sm text-muted/60 italic font-serif mb-1">{t('agents.idle')}</div>
+        <div className="text-sm text-muted/60 font-mono mb-1">{t('agents.idle')}</div>
       )}
       <div className="text-xs text-muted line-clamp-1">{session.lastTurnSummary}</div>
       <div className="flex items-center gap-3 mt-2 text-[10px] text-muted/60 font-mono">
@@ -210,7 +210,7 @@ function SessionTimelineDrawer({ role, onClose }: { role: AgentRole; onClose: ()
         </button>
       </div>
       {turns.length === 0 ? (
-        <div className="p-8 text-sm text-muted italic font-serif">{t('agents.timeline.empty')}</div>
+        <div className="p-8 text-sm text-muted font-mono">{t('agents.timeline.empty')}</div>
       ) : (
         <ol className="px-5 pb-5 space-y-5">
           {turns

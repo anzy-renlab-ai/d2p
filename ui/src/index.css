@@ -10,9 +10,17 @@
     @apply bg-paper text-ink font-sans antialiased;
     font-feature-settings: 'ss01', 'cv11';
   }
-  h1, h2, h3 {
+  /* ZeroU type system:
+     - Serif reserved for h1 + giant stat numerals (instrument readouts).
+     - Sub-headings (h2/h3) and body fall back to sans / mono so the dash
+       reads as a panel, not a Claude.ai blog post. */
+  h1 {
     @apply font-serif;
     letter-spacing: -0.01em;
+  }
+  h2, h3 {
+    @apply font-sans;
+    letter-spacing: -0.005em;
   }
   code, kbd, pre {
     font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -30,7 +38,8 @@
     @apply bg-cream border border-warmline rounded-lg;
   }
   .card-header {
-    @apply px-5 py-3 border-b border-warmline font-serif text-base text-ink;
+    @apply px-5 py-3 border-b border-warmline font-sans text-sm font-medium text-ink;
+    letter-spacing: -0.005em;
   }
   .label {
     @apply block text-xs font-medium uppercase tracking-wider text-muted mb-1.5;
@@ -227,6 +236,46 @@
   transform: translateY(-1px);
 }
 
+/* ──────────────────────────────────────────────────────────────────────
+   ZeroU "instrument panel" flourishes — added 2026-05-29 to break
+   exact-Claude-look. All animations honor prefers-reduced-motion below.
+   ─────────────────────────────────────────────────────────────────── */
+
+/* Scanline — slow vertical sweep tinted with the electric secondary
+   accent. Use on ONE prominent ambient surface (active workspace card)
+   for low-key motion. Sparse use only. */
+@keyframes scanline {
+  0%   { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+.has-scanline { position: relative; overflow: hidden; }
+.has-scanline::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 0%, rgba(0, 102, 204, 0.04) 50%, transparent 100%);
+  pointer-events: none;
+  animation: scanline 12s linear infinite;
+}
+
+/* Stronger status pulse — used on "actively running" agent dots.
+   Distinct from the existing breathe-dot (which is calmer). The
+   expanding ring sells the "live" feel without changing color. */
+@keyframes status-pulse-strong {
+  0%, 100% { opacity: 1;   box-shadow: 0 0 0 0   currentColor; }
+  50%      { opacity: 0.85; box-shadow: 0 0 0 4px transparent;  }
+}
+.anim-status-pulse { animation: status-pulse-strong 1.6s ease-in-out infinite; }
+
+/* Faint blueprint grid — applied to the app shell bg. ~2.5% ink so it
+   reads as "engineered surface" without competing with content. */
+.bg-grid-faint {
+  background-image:
+    linear-gradient(rgba(31, 27, 22, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(31, 27, 22, 0.025) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .anim-drift-in,
   .anim-scale-in,
@@ -238,8 +287,13 @@
   .anim-pulse-green,
   .anim-tick,
   .anim-spin-arrow,
-  .anim-retry-pulse {
+  .anim-retry-pulse,
+  .anim-status-pulse {
     animation: none !important;
+  }
+  .has-scanline::after {
+    animation: none !important;
+    display: none;
   }
   .lift-on-hover {
     transition: none !important;

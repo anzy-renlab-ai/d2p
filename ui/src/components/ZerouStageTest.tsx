@@ -121,7 +121,7 @@ export function ZerouStageTest({ bundle, status }: ZerouStageTestProps) {
           </div>
         )}
 
-        <div className="text-[10px] text-muted/60 font-serif italic pt-1 border-t border-warmline/60">
+        <div className="text-[10px] text-muted/60 font-mono pt-1 border-t border-warmline/60">
           fail ≠ 坏事 — 红队故意挑出你没覆盖的分支，是 stage ③ 的修复输入。
         </div>
       </div>

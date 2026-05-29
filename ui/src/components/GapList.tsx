@@ -94,7 +94,7 @@ export function GapList() {
           );
         })}
         {gaps.length === 0 && (
-          <div className="p-6 text-muted text-sm italic font-serif">{t('gap.empty')}</div>
+          <div className="p-6 text-muted text-sm font-mono">{t('gap.empty')}</div>
         )}
       </div>
     </div>

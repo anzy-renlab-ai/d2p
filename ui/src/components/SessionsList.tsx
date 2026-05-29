@@ -197,7 +197,7 @@ export function SessionsList() {
         </div>
 
         {sessions.length === 0 ? (
-          <div className="text-center text-muted italic font-serif py-16">
+          <div className="text-center text-muted font-mono py-16">
             {locale === 'en' ? 'No sessions yet — start one to see ZeroU in action' : '还没有 session — 启动一个让 ZeroU 干活'}
           </div>
         ) : (

@@ -116,7 +116,7 @@ export function ProjectsHome({ onOpenProject, onAddProject, onDemoMode }: Projec
         <header className="mb-10 flex items-start justify-between gap-8">
           <div>
             <h1 className="text-5xl tracking-tight text-ink">{t('app.title')}</h1>
-            <p className="text-lg text-muted mt-3 font-serif italic">
+            <p className="text-lg text-muted mt-3 font-sans">
               {t('app.tagline')}
             </p>
             <div className="text-sm text-muted mt-4 flex items-center gap-4 font-sans">
@@ -190,7 +190,7 @@ export function ProjectsHome({ onOpenProject, onAddProject, onDemoMode }: Projec
         </div>
 
         {sorted.length === 0 && (
-          <div className="text-center text-muted italic font-serif py-16">
+          <div className="text-center text-muted font-mono py-16">
             这个分类下没有项目
           </div>
         )}
@@ -288,7 +288,7 @@ function AddProjectCard({ onClick, stagger }: { onClick: () => void; stagger: nu
       >
         <span className="text-3xl">+</span>
         <span className="text-sm font-sans">{t('home.newProject').replace(/^\+ /, '')}</span>
-        <span className="text-[11px] text-muted/60 font-serif italic">{t('home.addProjectHint')}</span>
+        <span className="text-[11px] text-muted/60 font-mono">{t('home.addProjectHint')}</span>
       </button>
     </div>
   );

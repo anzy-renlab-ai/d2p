@@ -335,7 +335,7 @@ export const AGENT_LABEL: Record<AgentRole, { zh: string; color: string }> = {
 };
 
 export const STATUS_LABEL: Record<AgentStatus, { zh: string; color: string; dot: string }> = {
-  working: { zh: '工作中', color: 'text-coral', dot: 'bg-coral animate-pulse' },
+  working: { zh: '工作中', color: 'text-coral', dot: 'bg-coral text-coral anim-status-pulse' },
   idle: { zh: '空闲', color: 'text-muted', dot: 'bg-muted/40' },
   blocked: { zh: '阻塞', color: 'text-rust', dot: 'bg-rust' },
   stale: { zh: '陈旧', color: 'text-muted/60', dot: 'bg-muted/30' },

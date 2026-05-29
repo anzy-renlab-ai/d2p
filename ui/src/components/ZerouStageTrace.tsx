@@ -114,7 +114,7 @@ export function ZerouStageTrace({
           scrollToFile={jumpToken}
         />
 
-        <div className="text-[10px] text-muted/70 font-serif italic pt-1 border-t border-warmline/60">
+        <div className="text-[10px] text-muted/70 font-mono pt-1 border-t border-warmline/60">
           jq + sort + wc 可复算: cat .zerou/branch-trace.jsonl | jq -r '.branch_id' |
           sort -u | wc -l == {denominator}
         </div>

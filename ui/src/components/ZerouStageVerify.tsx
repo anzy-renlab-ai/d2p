@@ -101,7 +101,7 @@ export function ZerouStageVerify({ bundle, status }: ZerouStageVerifyProps) {
           })}
         </div>
 
-        <div className="text-[10px] text-muted/60 font-serif italic pt-1 border-t border-warmline/60">
+        <div className="text-[10px] text-muted/60 font-mono pt-1 border-t border-warmline/60">
           这条 stage 不证明你的代码是对的 — 只证明 ZeroU 没把它弄坏。
         </div>
       </div>

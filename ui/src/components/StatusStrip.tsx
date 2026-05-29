@@ -175,7 +175,7 @@ function KpiCountUp({
   const inner = (
     <>
       <span className="text-[10px] uppercase tracking-widest text-muted/60">{label}</span>
-      <CountUp value={value} format={format} className="font-mono text-sm" />
+      <CountUp value={value} format={format} className="font-mono text-sm text-electric" />
       {hint && <span className="text-muted/70 text-xs">· {hint}</span>}
       {children}
     </>
@@ -220,8 +220,8 @@ function PresetKpi({
         <span className="text-[10px] uppercase tracking-widest text-muted/60 leading-tight">
           {t('strip.checklist')}
         </span>
-        <span className="text-sm text-ink leading-tight">
-          <CountUp value={done} className="font-medium" />
+        <span className="text-sm text-ink leading-tight font-mono">
+          <CountUp value={done} className="font-medium text-electric" />
           <span className="text-muted/50"> / {total}</span>
         </span>
       </div>
@@ -267,7 +267,7 @@ function Kpi({
   const inner = (
     <>
       <span className="text-[10px] uppercase tracking-wider text-muted/70">{label}</span>
-      <span className="font-mono">{value}</span>
+      <span className="font-mono text-electric">{value}</span>
       {hint && <span className="text-muted/70">· {hint}</span>}
       {children}
     </>

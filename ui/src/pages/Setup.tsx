@@ -71,7 +71,7 @@ export function Setup() {
           <div className="card-header">Step 1 — 项目类型</div>
           <div className="p-5 space-y-3">
             {detectorError && <ErrorBanner message={`Detector 失败：${detectorError}`} />}
-            {!detector && !detectorError && <div className="text-muted text-sm italic font-serif">扫仓库中…</div>}
+            {!detector && !detectorError && <div className="text-muted text-sm font-mono">扫仓库中…</div>}
             {detector && (
               <>
                 <div className="text-sm">
@@ -144,10 +144,10 @@ export function Setup() {
             )}
           </div>
           <div className="p-5 space-y-3">
-            {!typeChosen && <div className="text-muted text-sm italic font-serif">先选项目类型</div>}
+            {!typeChosen && <div className="text-muted text-sm font-mono">先选项目类型</div>}
             {typeChosen && visionError && <ErrorBanner message={visionError} />}
             {typeChosen && !visionRound && !visionFinalized && (
-              <div className="text-muted text-sm italic font-serif">加载提问…</div>
+              <div className="text-muted text-sm font-mono">加载提问…</div>
             )}
             {typeChosen && visionFinalized && (
               <div className="text-sm space-y-2">

@@ -258,7 +258,7 @@ export function MultiTurnPanel({ onBackToGaps }: { onBackToGaps?: () => void } =
 function TurnTimeline({ turns }: { turns: MultiTurnTurn[] }) {
   if (turns.length === 0) {
     return (
-      <div className="text-sm text-muted italic font-serif px-2">
+      <div className="text-sm text-muted font-mono px-2">
         ZeroU 还没开始干活…
       </div>
     );

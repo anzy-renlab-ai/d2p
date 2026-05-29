@@ -32,7 +32,7 @@ export function DeployTargets() {
     };
   }, []);
 
-  if (!loaded) return <div className="text-sm text-muted italic font-serif">扫描部署目标…</div>;
+  if (!loaded) return <div className="text-sm text-muted/80 font-mono">扫描部署目标…</div>;
   if (targets.length === 0) {
     return (
       <div className="text-sm text-muted leading-relaxed">

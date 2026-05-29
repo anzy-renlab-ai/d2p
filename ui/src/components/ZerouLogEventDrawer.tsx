@@ -141,7 +141,7 @@ export function ZerouLogEventDrawer({
                 <span className="break-all text-muted/60">{nextEvent?.prev_hash ?? ''}</span>
               </li>
             </ul>
-            <div className="text-[10px] text-muted/70 mt-2 italic font-serif">
+            <div className="text-[10px] text-muted/70 mt-2 font-mono">
               cat .zerou/branch-trace.jsonl | jq -c 'select(.seq=={event.seq})' — verify
               hash with: sha256(JSON.stringify(&#123;...event, hash:undefined&#125;))
             </div>

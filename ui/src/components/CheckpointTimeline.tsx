@@ -36,7 +36,7 @@ export function CheckpointTimeline({
   const all = checkpointsForCommit(commitSha);
   if (all.length === 0) {
     return (
-      <div className="text-[11px] text-muted/60 italic font-serif px-2 py-2">
+      <div className="text-[11px] text-muted/60 font-mono px-2 py-2">
         {locale === 'en' ? 'No checkpoints recorded for this commit' : '此 commit 没有快照'}
       </div>
     );

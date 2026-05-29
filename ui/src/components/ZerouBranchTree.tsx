@@ -27,7 +27,7 @@ export function ZerouBranchTree({ report }: { report: BranchCoverageReport | nul
 
   if (!report) {
     return (
-      <div className="card p-6 text-sm text-muted italic font-serif" data-testid="zerou-branch-tree">
+      <div className="card p-6 text-sm text-muted font-mono" data-testid="zerou-branch-tree">
         Branch coverage unavailable.
       </div>
     );

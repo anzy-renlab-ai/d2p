@@ -93,7 +93,7 @@ export function ZerouReview({ source }: { source: ReviewSource }) {
         <div className="card p-6 max-w-md text-sm">
           <div className="text-rust mb-2 font-medium">Failed to load review bundle</div>
           <div className="text-xs text-muted font-mono">{error ?? 'unknown error'}</div>
-          <div className="text-xs text-muted/70 mt-3 font-serif italic">
+          <div className="text-xs text-muted/70 mt-3 font-mono">
             Try <code className="font-mono">?review=preview</code> for the offline demo.
           </div>
         </div>
@@ -125,7 +125,7 @@ export function ZerouReview({ source }: { source: ReviewSource }) {
               ← ZeroU
             </a>
             <span className="w-px h-4 bg-warmline" />
-            <span className="text-sm font-medium text-ink font-serif">
+            <span className="text-sm font-medium text-ink font-sans">
               ZeroU · <span className="font-mono">{bundle.project.name}</span>
             </span>
             <span className="text-muted/40 hidden sm:inline">·</span>

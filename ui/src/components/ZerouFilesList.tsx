@@ -23,7 +23,7 @@ export function ZerouFilesList({ files }: { files: ReviewFile[] }) {
 
   if (files.length === 0) {
     return (
-      <div className="card p-6 text-sm text-muted italic font-serif" data-testid="zerou-files-list">
+      <div className="card p-6 text-sm text-muted font-mono" data-testid="zerou-files-list">
         No files changed.
       </div>
     );

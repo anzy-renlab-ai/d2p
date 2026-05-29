@@ -77,7 +77,7 @@ export function SidePanel() {
               {visionMd}
             </pre>
           ) : (
-            <span className="text-muted italic font-serif">尚未定稿</span>
+            <span className="text-muted font-mono">尚未定稿</span>
           )}
         </div>
       </div>
