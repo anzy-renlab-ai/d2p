@@ -211,6 +211,22 @@ describe('zerou coverage', () => {
     expect(out.value).toMatch(/0 \/ 0 \(100\.0%\)/);
   });
 
+  it('3b. one covered if-branch → total=1 (entry excluded) → 100% (Bug 2)', async () => {
+    // A function with a single real branch. The denominator must be 1 (NOT 2):
+    // the per-function `entry` root is excluded from branchesTotal, matching the
+    // numerator which never emits entry into the trace. Witnessing the one
+    // branch must therefore reach exactly 100%.
+    fx.writeReport(report([fnCov('a.ts', 'f', 1, ['if-true'])]));
+    fx.writeTrace(traceJsonl([{ branch_id: 'a.ts:f@1:if-true' }]));
+    const { promise, out } = runWith(fx.cwd, ['--json']);
+    const code = await promise;
+    expect(code).toBe(0);
+    const parsed = JSON.parse(out.value);
+    expect(parsed.total).toBe(1); // entry NOT inflating to 2
+    expect(parsed.unique_seen).toBe(1);
+    expect(parsed.coverage_pct).toBe(100);
+  });
+
   it('4. 80 unique ids out of 100 branches → coverage_pct ≈ 80', async () => {
     // Build 100 branches across 5 functions of 20 each.
     const fns: FunctionCoverage[] = [];

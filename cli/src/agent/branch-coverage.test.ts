@@ -51,6 +51,15 @@ function makeLogger(cwd: string): TrackLogger {
   return createTrackLogger('agent', { logRoot: path.join(cwd, '.zerou', 'logs') });
 }
 
+/** Count all descendant nodes (excluding the root itself). */
+function countDescendants(root: { children: Array<{ children: unknown[] }> }): number {
+  let n = 0;
+  for (const c of root.children) {
+    n += 1 + countDescendants(c as { children: Array<{ children: unknown[] }> });
+  }
+  return n;
+}
+
 function parse(rel: string, source: string): ts.SourceFile {
   let kind: ts.ScriptKind = ts.ScriptKind.TS;
   if (rel.endsWith('.tsx')) kind = ts.ScriptKind.TSX;
@@ -289,14 +298,18 @@ export async function POST(req: Request): Promise<Response> {
           then: 'returns 401 when password mismatch',
           reasoning: 'auth required',
         },
-        status: 'fail',
-        verdictReason: 'no auth check',
+        // Judge PASSED — the self-deception is: judge claims this branch works,
+        // but runtime coverage shows it was never executed (0 hits). That is
+        // the genuine `judge-only` case. (A *failing* judge is NOT coverage and
+        // must fall through to spec-only — covered by the dedicated test below.)
+        status: 'pass',
+        verdictReason: 'asserts 401 path',
         evidence: {
           file: 'app/api/login/route.ts',
           line: 8,
           snippet: 'return Response.json({ error: \'bad creds\' }, { status: 401 });',
           expectedBehavior: 'returns 401',
-          actualBehavior: 'unverified',
+          actualBehavior: 'verified',
         },
         criticFamily: 'test',
         durationMs: 100,
@@ -492,6 +505,163 @@ export async function GET(): Promise<Response> {
     for (const node of [fn!.root, ...fn!.root.children]) {
       expect(node.verdict).not.toBe('covered');
     }
+  });
+
+  // Bug 1 (verdict): a FAILING judge must NOT count as coverage. With spec +
+  // failing judge + runtime hit, the verdict must be the run/spec signal
+  // (`covered` here would be wrong because the judge didn't pass — but spec+run
+  // is legitimately `covered`). What we assert is that the *judge* signal is
+  // ignored: the branch is NOT promoted by judge evidence. To isolate the judge
+  // path we provide spec + failing judge but NO runtime hit → must be
+  // `spec-only`, never `judge-only`.
+  it('judge-fail does NOT count as covered/judge-only (Bug 1)', async () => {
+    const cwd = await tmpdir();
+    const logger = makeLogger(cwd);
+    await writeFile(cwd, 'app/api/z/route.ts', `
+export async function GET(): Promise<Response> {
+  const v = compute();
+  if (v < 0) {
+    return Response.json({ error: 'neg' }, { status: 400 });
+  }
+  return Response.json({ v });
+}
+`);
+    await writeFile(cwd, '.zerou/test-results.json', JSON.stringify([
+      {
+        spec: {
+          id: 'z-1',
+          name: 'rejects negative',
+          category: 'validation',
+          scope: { type: 'endpoint', target: 'GET /api/z', file: 'app/api/z/route.ts', line: 2 },
+          given: 'neg value',
+          when: 'GET',
+          then: 'returns 400 negative',
+          reasoning: 'r',
+        },
+        status: 'fail', // judge FAILED → not coverage
+        verdictReason: 'branch not implemented',
+        evidence: {
+          file: 'app/api/z/route.ts',
+          line: 5,
+          snippet: '{ status: 400 }',
+        },
+        criticFamily: 'test',
+        durationMs: 50,
+      },
+    ]));
+    // Runtime present (so runtimeAvailable=true) but the if-true body NOT hit.
+    await writeFile(cwd, 'coverage/coverage-final.json', JSON.stringify({
+      'app/api/z/route.ts': {
+        path: 'app/api/z/route.ts',
+        statementMap: {
+          '0': { start: { line: 3, column: 0 }, end: { line: 3, column: 40 } },
+        },
+        s: { '0': 4 }, // line 3 (the `const v` / condition) hit, body line 5 not
+        branchMap: {},
+        b: {},
+      },
+    }));
+
+    const report = await collectBranchCoverage({ cwd, logger });
+    const fn = report.functions.find((f) => f.name === 'GET')!;
+    const ifTrue = fn.root.children.find((c) => c.kind === 'if-true')!;
+    expect(ifTrue.specMatches.length).toBeGreaterThan(0);
+    // Judge evidence is still recorded (status fail), but it must NOT promote.
+    expect(ifTrue.judgeEvidence.some((e) => e.status === 'fail')).toBe(true);
+    expect(ifTrue.verdict).not.toBe('covered');
+    expect(ifTrue.verdict).not.toBe('judge-only');
+    expect(ifTrue.verdict).toBe('spec-only');
+  });
+
+  // Bug 1 (run signal): when istanbul provides a per-arm branchHit=false for the
+  // node, an incidental line hit inside the range must NOT mark it covered.
+  it('branchHit=false beats incidental line hit → not run-covered (Bug 1)', async () => {
+    const cwd = await tmpdir();
+    const logger = makeLogger(cwd);
+    await writeFile(cwd, 'src/util.ts', `
+export function f(x: number) {
+  if (x < 0) {
+    return 'neg';
+  }
+  return 'pos';
+}
+`);
+    // statementMap marks line 3-4 as hit (incidental), but the branchMap says
+    // the if-true ARM at line 3 was NOT taken (hit=false). branchHit must win.
+    await writeFile(cwd, 'coverage/coverage-final.json', JSON.stringify({
+      'src/util.ts': {
+        path: 'src/util.ts',
+        statementMap: {
+          '0': { start: { line: 3, column: 0 }, end: { line: 4, column: 30 } },
+        },
+        s: { '0': 7 }, // lines 3-4 "hit"
+        branchMap: {
+          '0': {
+            line: 3,
+            type: 'if',
+            loc: { start: { line: 3, column: 2 }, end: { line: 5, column: 3 } },
+            locations: [
+              // True arm lives inside the if-true node range (lines 3-5).
+              { start: { line: 3, column: 2 }, end: { line: 5, column: 3 } },
+              // Implicit false/else arm reported at the post-if line (6) — OUTSIDE
+              // the if-true node range, so it cannot leak into this node's hit.
+              { start: { line: 6, column: 2 }, end: { line: 6, column: 14 } },
+            ],
+          },
+        },
+        b: { '0': [0, 1] }, // true arm taken 0 times, false arm 1 time
+      },
+    }));
+
+    const report = await collectBranchCoverage({ cwd, logger });
+    expect(report.availability.runtime).toBe(true);
+    const fn = report.functions.find((f) => f.name === 'f')!;
+    const ifTrue = fn.root.children.find((c) => c.kind === 'if-true')!;
+    expect(ifTrue.runtimeCoverage.linesCovered).toBeGreaterThan(0); // incidental
+    expect(ifTrue.runtimeCoverage.branchHit).toBe(false); // arm NOT taken
+    // No spec, no judge, branchHit=false → must be untested, NOT run-only/covered.
+    expect(ifTrue.verdict).toBe('untested');
+  });
+
+  // Bug 2 (denominator): a function with exactly one covered if-branch must
+  // contribute branchesTotal = 1 (entry root excluded) and reach 100%.
+  it('one covered if-branch → branchesTotal excludes entry (Bug 2)', async () => {
+    const cwd = await tmpdir();
+    const logger = makeLogger(cwd);
+    // Single decision with else: `if (x < 0) {} else {}`. AST emits
+    // entry + if-true + if-false = 3 flat nodes; only 2 are real branches.
+    // Old (buggy) code counted 3 (entry inflated the denominator).
+    await writeFile(cwd, 'src/single.ts', `
+export function g(x: number) {
+  if (x < 0) {
+    return 'neg';
+  } else {
+    return 'pos';
+  }
+}
+`);
+    const report = await collectBranchCoverage({ cwd, logger });
+    const fn = report.functions.find((f) => f.name === 'g')!;
+    // Count real branches by traversing the tree (root is the entry node).
+    const realBranches = countDescendants(fn.root); // excludes root/entry itself
+    expect(realBranches).toBeGreaterThanOrEqual(2); // if-true + if-false
+    // branchCount must EXCLUDE the entry root.
+    expect(fn.branchCount).toBe(realBranches);
+    // summary.branchesTotal (single fn) must equal that per-function count.
+    expect(report.summary.branchesTotal).toBe(fn.branchCount);
+    // The entry root must NOT be counted: branchCount == (flat - 1).
+    expect(fn.branchCount).toBe(countDescendants(fn.root));
+  });
+
+  it('zero-branch function → branchesTotal 0, no entry inflation (Bug 2)', async () => {
+    const cwd = await tmpdir();
+    const logger = makeLogger(cwd);
+    await writeFile(cwd, 'src/noop.ts', `export function h() { return 1; }\n`);
+    const report = await collectBranchCoverage({ cwd, logger });
+    const fn = report.functions.find((f) => f.name === 'h')!;
+    // Only the entry root exists → 0 real branches.
+    expect(fn.branchCount).toBe(0);
+    expect(report.summary.branchesTotal).toBe(0);
   });
 
   it('writeBranchCoverage atomically writes .zerou/branch-coverage.json', async () => {

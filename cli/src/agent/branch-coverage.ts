@@ -949,12 +949,21 @@ function annotateFunction(opts: AnnotateOpts): FunctionCoverage {
   let selfDeceivingCount = 0;
   let untestedCount = 0;
   for (const node of fn.flat) {
+    // Skip the entry root — it's excluded from branchCount (the denominator),
+    // so it must not contribute to the numerator either.
+    if (node.kind === 'entry') continue;
     if (node.verdict === 'covered') coveredCount++;
     else if (node.verdict === 'judge-only') selfDeceivingCount++;
     else if (node.verdict === 'untested') untestedCount++;
   }
 
-  const branchCount = fn.flat.length;
+  // Exclude the per-function `entry` root: it is the function declaration node,
+  // not a decision branch, and the numerator (branch-trace stream + the
+  // verdict-counting loop in coverage.ts) excludes it. Counting it in the
+  // denominator would add 1 uncoverable branch per function, capping coverage
+  // below 100%. Keep this consistent with summary.branchesTotal and the
+  // per-function UI math.
+  const branchCount = fn.flat.filter((n) => n.kind !== 'entry').length;
 
   return {
     id: `${fn.file}:${fn.name}@${fn.line}`,
@@ -1107,8 +1116,16 @@ function annotateBranchNode(opts: AnnotateNodeOpts): void {
 
   // ── Verdict ──────────────────────────────────────────────────────────
   const hasSpec = node.specMatches.length > 0;
-  const hasJudge = node.judgeEvidence.length > 0;
-  const hasRun = linesCovered > 0;
+  // A branch counts as judge-covered only if a judge test PASSED for it.
+  // Evidence is pushed regardless of status (incl. 'fail'), so a branch whose
+  // judge test failed must NOT count as covered — fall through to the other
+  // signals (spec-only / run-only / untested), which is the correct outcome:
+  // a failed judge is not coverage.
+  const hasJudge = node.judgeEvidence.some((e) => e.status === 'pass');
+  // Prefer the accurate per-arm branchHit signal when the runtime provides it:
+  // a true-arm hit must not mark the false-arm covered. Only fall back to
+  // line-level coverage when branchHit is unknown (null) for this node.
+  const hasRun = branchHit !== null ? branchHit : linesCovered > 0;
 
   let verdict: BranchVerdict;
   if (!runtimeAvailable) {
